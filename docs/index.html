@@ -125,6 +125,14 @@
   @keyframes sh { 0%{background-position:100% 0;} 100%{background-position:-100% 0;} }
   .toast { position:fixed; left:50%; bottom:26px; transform:translateX(-50%) translateY(20px); background:var(--accent); color:#fff; padding:10px 18px; border-radius:999px; font-weight:600; font-size:13.5px; box-shadow:0 8px 30px rgba(124,92,255,.4); opacity:0; pointer-events:none; transition:all .3s ease; z-index:50; }
   .toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+  .tbtn { background:var(--panel2); border:1px solid var(--line); color:var(--text); font:inherit; font-size:13px; font-weight:600; border-radius:9px; padding:6px 11px; cursor:pointer; white-space:nowrap; }
+  .tbtn:hover { border-color:var(--accent); text-decoration:none; }
+  .spin { animation:spin .65s linear; } @keyframes spin { to{transform:rotate(360deg);} }
+  .stale { background:linear-gradient(90deg,#3a1f10,#2a1a12); border:1px solid #663318; color:#f3c08a; border-radius:11px; padding:10px 14px; margin:14px 0 0; font-size:13px; display:none; }
+  .stale.show { display:block; }
+  .due { font-size:12px; padding:1px 7px; border-radius:999px; font-variant-numeric:tabular-nums; }
+  .due.soon { background:rgba(226,177,74,.16); color:var(--amber); }
+  .due.past { background:rgba(139,148,167,.14); color:var(--muted); }
   @media (max-width:720px){ .grid2{grid-template-columns:1fr;} .metrics{grid-template-columns:repeat(2,1fr);} .meta{width:100%;margin-left:0;} .calib{grid-template-columns:1fr;} }
 </style>
 </head>
@@ -133,6 +141,8 @@
   <div class="topin">
     <div class="brand">📊 Polymarket Copy-Signal Tester <span class="ro">read-only · never trades</span></div>
     <div class="meta" id="meta"></div>
+    <button class="tbtn" id="refresh" title="Re-fetch the latest published data">↻ Refresh</button>
+    <a class="tbtn" href="https://github.com/PeeChug/polymarket-copy-signal/actions/workflows/poller.yml" target="_blank" rel="noopener" title="Run the poller now on GitHub to fetch fresh data">⚡ Run poller ↗</a>
   </div>
   <nav class="tabs" id="tabs">
     <button data-tab="traders" class="on">Top Earners</button>
@@ -144,6 +154,7 @@
 
 <div class="wrap">
   <div class="banner">⚠️ <b>Measurement tool, not financial advice.</b> Leaderboard performance is backward-looking and survivorship-biased — a strong paper result is a reason to keep testing, not a guarantee.</div>
+  <div class="stale" id="stale"></div>
   <section id="tab-traders" class="tab on"></section>
   <section id="tab-consensus" class="tab"></section>
   <section id="tab-performance" class="tab"></section>
@@ -223,10 +234,19 @@ function sortRows(rows, key, dir){
     return String(x).localeCompare(String(y))*dir;});
 }
 
+function relDate(iso){ if(!iso) return null; const d=new Date(iso); if(isNaN(d.getTime())) return null;
+  const s=(d.getTime()-Date.now())/1000, day=86400;
+  if(s<0) return {txt:'ended', cls:'past', ts:d.getTime()};
+  if(s<day) return {txt:'<1d', cls:'soon', ts:d.getTime()};
+  const n=Math.round(s/day); return {txt:'in '+n+'d', cls:n<=7?'soon':'', ts:d.getTime()}; }
+function relAgo(iso){ if(!iso) return ''; const d=new Date(iso); if(isNaN(d.getTime())) return '';
+  const s=(Date.now()-d.getTime())/1000;
+  if(s<3600) return Math.max(1,Math.floor(s/60))+'m ago'; if(s<86400) return Math.floor(s/3600)+'h ago'; return Math.floor(s/86400)+'d ago'; }
+
 let DATA=null;
 const state={ tab:'traders',
   trd:{sort:'rank', show:12, q:'', sharedOnly:false, verifiedOnly:false},
-  cons:{key:'overlap',dir:-1,min:2,q:'',minLiq:0},
+  cons:{key:'overlap',dir:-1,min:2,q:'',minLiq:0,due:0},
   sig:{key:'overlap',dir:-1,q:'',tier:'all',minOv:1,minLiq:0,hideClosed:false} };
 
 function metric(k,v,cls='',count){ const cv=(count!=null)?`<div class="v ${cls}" data-target="${Math.abs(count)}" data-neg="${count<0?1:0}" data-fmt="money">${money(0)}</div>`:`<div class="v ${cls}">${v}</div>`; return `<div class="metric"><div class="k">${k}</div>${cv}</div>`; }
@@ -329,21 +349,25 @@ function renderConsensus(){
     <label class="fl">Min agreement <b id="cv">${state.cons.min}</b> <input type="range" id="cslider" min="2" max="${maxc}" value="${Math.min(state.cons.min,maxc)}"></label>
     <input type="search" id="cq" placeholder="Search market…" value="${esc(state.cons.q)}">
     ${sel('cliq','Min liquidity',[['0','any'],['1000','$1k'],['10000','$10k'],['100000','$100k']],String(state.cons.minLiq))}
+    ${sel('cdue','Resolves',[['0','any'],['7','≤ 7d'],['30','≤ 30d']],String(state.cons.due))}
     <span class="muted" id="ccount"></span></div>`);
   el.appendChild(tb);
   const host=$(`<div></div>`); el.appendChild(host);
   function draw(){
-    const q=state.cons.q.toLowerCase();
+    const q=state.cons.q.toLowerCase(), dueMax=state.cons.due;
     let rows=(d.consensus||[]).filter(o=>(o.overlap||0)>=state.cons.min
         &&(o.liquidity==null||o.liquidity>=state.cons.minLiq)&&(!q||(o.title||'').toLowerCase().includes(q)))
-      .map(o=>({overlap:o.overlap||0, _agree:npCell(o,cohort), tier:tagEl(o.tier), market:mlink(o.slug,o.title),
+      .map(o=>{const rd=relDate(o.end_date);
+        return {overlap:o.overlap||0, _agree:npCell(o,cohort), tier:tagEl(o.tier), market:mlink(o.slug,o.title),
         outcome:esc(o.outcome), price:o.price==null?0:o.price, _price:o.price==null?'—':round(o.price),
         liquidity:o.liquidity==null?0:o.liquidity, _liq:o.liquidity==null?'—':('$'+Math.round(o.liquidity).toLocaleString()),
-        earners:holders(o)}));
+        rts:rd?rd.ts:Infinity, _res:rd?`<span class="due ${rd.cls}">${rd.txt}</span>`:'—',
+        since:o.first_seen?relAgo(o.first_seen):'—', earners:holders(o)};});
+    if(dueMax) rows=rows.filter(r=>r.rts!==Infinity && r.rts>=Date.now() && r.rts<=Date.now()+dueMax*86400000);
     rows=sortRows(rows,state.cons.key,state.cons.dir);
     const t=tableEl([{key:'_agree',label:'Agreement',sortKey:'overlap',num:1},{key:'tier',label:'Tier'},{key:'market',label:'Market'},
       {key:'outcome',label:'Outcome'},{key:'_price',label:'Price',sortKey:'price',num:1},{key:'_liq',label:'Liquidity',sortKey:'liquidity',num:1},
-      {key:'earners',label:'Which earners hold it'}],rows,state.cons,
+      {key:'_res',label:'Resolves',sortKey:'rts',num:1},{key:'since',label:'Agreed'},{key:'earners',label:'Which earners hold it'}],rows,state.cons,
       k=>{state.cons.dir=state.cons.key===k?-state.cons.dir:-1;state.cons.key=k;draw();});
     host.innerHTML=''; host.appendChild(t||$(`<div class="empty">No positions match these filters.</div>`));
     tb.querySelector('#ccount').textContent=`${rows.length} shown`;
@@ -351,6 +375,7 @@ function renderConsensus(){
   tb.querySelector('#cslider').oninput=e=>{state.cons.min=+e.target.value;tb.querySelector('#cv').textContent=state.cons.min;draw();};
   tb.querySelector('#cq').oninput=e=>{state.cons.q=e.target.value;draw();};
   tb.querySelector('#cliq').onchange=e=>{state.cons.minLiq=+e.target.value;draw();};
+  tb.querySelector('#cdue').onchange=e=>{state.cons.due=+e.target.value;draw();};
   draw();
 }
 
@@ -393,12 +418,14 @@ function renderSignals(){
     let rows=(d.signals||[]).filter(o=>(state.sig.tier==='all'||o.tier===state.sig.tier)
       &&(o.overlap||0)>=state.sig.minOv&&(o.liquidity==null||o.liquidity>=state.sig.minLiq)
       &&(!state.sig.hideClosed||!o.market_closed)&&(!q||(o.title||'').toLowerCase().includes(q)));
-    const disp=rows.map(o=>({overlap:o.overlap||0, _agree:npCell(o,cohort), tier:tagEl(o.tier), market:mlink(o.slug,o.title),
+    const disp=rows.map(o=>{const rd=relDate(o.end_date);
+      return {overlap:o.overlap||0, _agree:npCell(o,cohort), tier:tagEl(o.tier), market:mlink(o.slug,o.title),
       outcome:esc(o.outcome), price:o.price==null?0:o.price, _price:o.price==null?'—':round(o.price),
       liquidity:o.liquidity==null?0:o.liquidity, _liq:o.liquidity==null?'—':('$'+Math.round(o.liquidity).toLocaleString()),
-      closed:o.market_closed?'yes':'no', holders:holders(o)}));
+      rts:rd?rd.ts:Infinity, _res:rd?`<span class="due ${rd.cls}">${rd.txt}</span>`:'—',
+      closed:o.market_closed?'yes':'no', holders:holders(o)};});
     const sorted=sortRows(disp,state.sig.key,state.sig.dir);
-    const t=tableEl([{key:'_agree',label:'Agreement',sortKey:'overlap',num:1},{key:'tier',label:'Tier'},{key:'market',label:'Market'},{key:'outcome',label:'Outcome'},{key:'_price',label:'Price',sortKey:'price',num:1},{key:'_liq',label:'Liquidity',sortKey:'liquidity',num:1},{key:'closed',label:'Closed'},{key:'holders',label:'Holders'}],sorted,state.sig,k=>{state.sig.dir=state.sig.key===k?-state.sig.dir:-1;state.sig.key=k;draw();});
+    const t=tableEl([{key:'_agree',label:'Agreement',sortKey:'overlap',num:1},{key:'tier',label:'Tier'},{key:'market',label:'Market'},{key:'outcome',label:'Outcome'},{key:'_price',label:'Price',sortKey:'price',num:1},{key:'_liq',label:'Liquidity',sortKey:'liquidity',num:1},{key:'_res',label:'Resolves',sortKey:'rts',num:1},{key:'closed',label:'Closed'},{key:'holders',label:'Holders'}],sorted,state.sig,k=>{state.sig.dir=state.sig.key===k?-state.sig.dir:-1;state.sig.key=k;draw();});
     host.innerHTML=''; host.appendChild(t||$(`<div class="empty">No matching positions.</div>`));
     tb.querySelector('#scount').textContent=`${sorted.length} shown`;
   }
@@ -424,8 +451,21 @@ let lastGen=null, metaTimer=null;
 function relTime(d){ if(!d)return ''; const s=(Date.now()-d.getTime())/1000;
   if(s<60)return 'just now'; if(s<3600)return Math.floor(s/60)+' min ago'; if(s<86400)return Math.floor(s/3600)+'h ago'; return Math.floor(s/86400)+'d ago'; }
 function updateMeta(){ const d=DATA&&DATA.generated_at?new Date(DATA.generated_at):null; const ok=DATA&&(DATA.last_cycle||{}).status==='ok';
-  document.getElementById('meta').innerHTML=(d?`updated ${relTime(d)} `:'')+(ok?'<span class="pill live"><span class="dot"></span>live</span>':'<span class="pill">—</span>'); }
+  document.getElementById('meta').innerHTML=(d?`updated ${relTime(d)} `:'')+(ok?'<span class="pill live"><span class="dot"></span>live</span>':'<span class="pill">—</span>');
+  const st=document.getElementById('stale');
+  if(d && (Date.now()-d.getTime())>90*60*1000){
+    st.innerHTML=`⏳ This data is from <b>${relTime(d)}</b> — the scheduled poller may not have run. Hit <b>↻ Refresh</b> for the latest published data, or <b>⚡ Run poller</b> to fetch fresh data now.`;
+    st.classList.add('show');
+  } else st.classList.remove('show');
+}
 function toast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),3200); }
+function manualRefresh(){ const b=document.getElementById('refresh'); b.classList.add('spin');
+  fetch('./data.json?t='+Date.now()).then(r=>{if(!r.ok)throw 0;return r.json();}).then(d=>{
+    const fresh=d.generated_at!==lastGen; DATA=d; lastGen=d.generated_at; render();
+    toast(fresh?'↻ New data loaded':('Up to date · updated '+relTime(new Date(d.generated_at))));
+  }).catch(()=>toast('⚠️ Refresh failed')).finally(()=>setTimeout(()=>b.classList.remove('spin'),650));
+}
+document.getElementById('refresh').onclick=manualRefresh;
 
 function render(){ updateMeta(); RENDER[state.tab](); clearInterval(metaTimer); metaTimer=setInterval(updateMeta,30000); }
 function showSkeleton(){ document.getElementById('tab-traders').innerHTML='<div class="grid traders">'+Array(6).fill('<div class="skel" style="height:230px"></div>').join('')+'</div>'; }

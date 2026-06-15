@@ -43,6 +43,15 @@ def write_site(store, run_result: dict, docs_dir: str = "docs") -> str:
     for t in payload["traders"]:
         t["spark"] = series.get(t["wallet"], [])
 
+    # enrich signals/consensus with consensus age + peak agreement from the watch
+    # (consensus items are references into the signals list, so iterating signals covers both)
+    watch = store.get_consensus_watch()
+    for r in payload["signals"]:
+        w = watch.get(f"{r.get('condition_id')}|{r.get('outcome_index')}")
+        if w:
+            r["first_seen"] = w.get("first_seen")
+            r["peak_overlap"] = w.get("max_overlap")
+
     path = os.path.join(docs_dir, "data.json")
     tmp = path + ".tmp"
     with open(tmp, "w") as fh:
