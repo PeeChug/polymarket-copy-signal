@@ -111,7 +111,10 @@
   .empty { color:var(--muted); padding:16px; background:var(--panel); border:1px dashed var(--line); border-radius:11px; margin-top:8px; font-size:13.5px; }
   .toolbar { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin:6px 0 4px; }
   input[type=search], select { background:var(--panel2); border:1px solid var(--line); color:var(--text); border-radius:9px; padding:7px 11px; font:inherit; font-size:13.5px; }
-  input[type=range] { accent-color:var(--accent); }
+  input[type=range] { accent-color:var(--accent); vertical-align:middle; }
+  label.fl { color:var(--muted); font-size:13px; display:inline-flex; align-items:center; gap:6px; }
+  label.fl input[type=checkbox] { accent-color:var(--accent); }
+  label.fl select { margin-left:2px; }
   .chart { width:100%; height:auto; }
   .legend { display:flex; gap:16px; font-size:12.5px; color:var(--muted); margin-top:6px; }
   .legend i { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:5px; vertical-align:middle; }
@@ -165,6 +168,9 @@ const PAL=['#7c5cff','#2f9e7d','#c7873b','#3b82c7','#b85c8a','#5aa0a0','#a35adb'
 const palette=(w)=>{let h=0;for(const c of(w||'x'))h=(h*31+c.charCodeAt(0))>>>0;return PAL[h%PAL.length];};
 const mlink=(slug,title,n=56)=>{const u=mktUrl(slug),t=esc((title||'').slice(0,n));return u?`<a href="${u}" target="_blank" rel="noopener">${t}</a>`:t;};
 const holders=(o)=>{const n=(o.holder_usernames||[]).filter(Boolean);return n.length?esc(n.join(', ')):`<span class="muted">${(o.holder_wallets||[]).length} wallet(s)</span>`;};
+const sel=(id,label,opts,val)=>`<label class="fl">${label} <select id="${id}">${opts.map(o=>`<option value="${o[0]}"${o[0]==val?' selected':''}>${o[1]}</option>`).join('')}</select></label>`;
+function npCell(o,cohort){const n=o.overlap||0,p=o.participants||n||1,cls=o.tier==='green'?'strong':(o.tier==='blue'?'mod':'');
+  return `<span class="agree ${cls}" title="${n} of ${p} holders are on this side · ${n} of ${cohort} cohort">${n}/${p}<span class="bar"><i style="width:${Math.min(100,n/Math.max(p,1)*100).toFixed(0)}%"></i></span></span>`;}
 
 // --- mini SVG charts (no deps) ---
 function lineChart(rows, series, {w=620,h=190,pad=34}={}){
@@ -218,7 +224,10 @@ function sortRows(rows, key, dir){
 }
 
 let DATA=null;
-const state={ tab:'traders', sig:{key:'overlap',dir:-1,q:'',tier:'all'}, cons:{key:'overlap',dir:-1,min:2} };
+const state={ tab:'traders',
+  trd:{sort:'rank', show:12, q:'', sharedOnly:false, verifiedOnly:false},
+  cons:{key:'overlap',dir:-1,min:2,q:'',minLiq:0},
+  sig:{key:'overlap',dir:-1,q:'',tier:'all',minOv:1,minLiq:0,hideClosed:false} };
 
 function metric(k,v,cls='',count){ const cv=(count!=null)?`<div class="v ${cls}" data-target="${Math.abs(count)}" data-neg="${count<0?1:0}" data-fmt="money">${money(0)}</div>`:`<div class="v ${cls}">${v}</div>`; return `<div class="metric"><div class="k">${k}</div>${cv}</div>`; }
 function perfCard(title,m){ return `<div class="card"><h3>${title}</h3><div class="metrics">
@@ -231,7 +240,7 @@ function traderCard(t,cohort){
   const img=t.profile_image&&/^https?:/i.test(t.profile_image)?`<img src="${esc(t.profile_image)}" onerror="this.remove()">`:'';
   const shared=(t.positions||[]).filter(p=>(p.overlap||0)>=2).length;
   const positions=(t.positions||[]).slice(0,8).map(p=>{
-    const sh=(p.overlap||0)>=2?`<span class="shb">🤝 ${p.overlap}/${cohort}</span>`:'';
+    const sh=(p.overlap||0)>=2?`<span class="shb" title="${p.overlap} of ${p.participants||p.overlap} holders on this side">🤝 ${p.overlap}/${p.participants||p.overlap}</span>`:'';
     return `<li><span class="oc">${esc(p.outcome)}</span><span class="ti">${mlink(p.slug,p.title,52)}</span>${sh}<span class="pv">${fmtC(p.current_value)}</span></li>`;}).join('');
   const more=(t.n_positions||0)>8?`<li class="muted" style="border:0">+${t.n_positions-8} more…</li>`:'';
   return `<div class="tcard">
@@ -251,17 +260,43 @@ function traderCard(t,cohort){
     <a class="gobtn" href="${profUrl(t.wallet)}" target="_blank" rel="noopener">View on Polymarket ↗</a></div>`;
 }
 
+const sharedCount=(t)=>(t.positions||[]).filter(p=>(p.overlap||0)>=2).length;
 function renderTraders(){
   const d=DATA,el=document.getElementById('tab-traders');el.innerHTML='';
-  const traders=d.traders||[],cohort=(d.agreement||{}).cohort_size||traders.length||'?';
+  const all=d.traders||[],cohort=(d.agreement||{}).cohort_size||all.length||'?';
   el.appendChild($(`<h2>Top ${cohort} earners — 30-day profit leaderboard</h2>`));
-  el.appendChild($(`<p class="sub">The cohort we watch. 30-day profit, volume, open positions, live open P&L, and how many of their positions overlap with the rest of the group. The mini-chart is their recent profit trend. Click a name or “View on Polymarket” for their real profile; click a position to open that market.</p>`));
-  if(!traders.length){el.appendChild($(`<div class="empty">No trader snapshot yet — the next poller cycle will populate this.</div>`));return;}
-  const combined=traders.reduce((s,t)=>s+(t.pnl||0),0);
-  el.appendChild($(`<div class="chips"><span class="chip">👥 <b>${traders.length}</b> earners</span><span class="chip">💰 combined 30d profit <b>${fmtC(combined)}</b></span><span class="chip">📊 <b>${traders.reduce((s,t)=>s+(t.n_positions||0),0)}</b> open positions total</span></div>`));
-  const grid=$(`<div class="grid traders"></div>`);
-  traders.forEach((t,i)=>{const c=$(traderCard(t,cohort));c.style.animationDelay=(i*40)+'ms';grid.appendChild(c);});
-  el.appendChild(grid); runCountups(grid);
+  el.appendChild($(`<p class="sub">The cohort we watch. Sort and filter below; each card shows 30-day profit (with a trend sparkline), volume, open positions, live open P&L, and how many overlap with the rest of the group. Click a name or “View on Polymarket” for their profile; click a position to open that market.</p>`));
+  if(!all.length){el.appendChild($(`<div class="empty">No trader snapshot yet — the next poller cycle will populate this.</div>`));return;}
+  const combined=all.reduce((s,t)=>s+(t.pnl||0),0);
+  el.appendChild($(`<div class="chips"><span class="chip">👥 <b>${all.length}</b> earners</span><span class="chip">💰 combined 30d profit <b>${fmtC(combined)}</b></span><span class="chip">📊 <b>${all.reduce((s,t)=>s+(t.n_positions||0),0)}</b> open positions total</span></div>`));
+  const tb=$(`<div class="toolbar">
+    ${sel('trdsort','Sort by',[['rank','Rank'],['pnl','30d profit'],['volume','Volume'],['n_positions','Positions'],['open_pnl','Open P&L'],['shared','Shared positions']],state.trd.sort)}
+    ${sel('trdshow','Show',[['12','12'],['25','25'],['50','50'],['999','All']],String(state.trd.show))}
+    <input type="search" id="trdq" placeholder="Search trader…" value="${esc(state.trd.q)}">
+    <label class="fl"><input type="checkbox" id="trdshared"${state.trd.sharedOnly?' checked':''}> only w/ shared</label>
+    <label class="fl"><input type="checkbox" id="trdver"${state.trd.verifiedOnly?' checked':''}> verified</label>
+    <span class="muted" id="trdcount"></span></div>`);
+  el.appendChild(tb);
+  const grid=$(`<div class="grid traders"></div>`); el.appendChild(grid);
+  function draw(){
+    const q=state.trd.q.toLowerCase();
+    let rows=all.filter(t=>(!q||realName(t).toLowerCase().includes(q))
+      &&(!state.trd.sharedOnly||sharedCount(t)>0)&&(!state.trd.verifiedOnly||t.verified));
+    const k=state.trd.sort;
+    rows.sort((a,b)=>k==='rank'?(a.rank-b.rank):k==='shared'?(sharedCount(b)-sharedCount(a)):((b[k]||0)-(a[k]||0)));
+    const shown=rows.slice(0,state.trd.show);
+    grid.innerHTML='';
+    shown.forEach((t,i)=>{const c=$(traderCard(t,cohort));c.style.animationDelay=(i*30)+'ms';grid.appendChild(c);});
+    runCountups(grid);
+    tb.querySelector('#trdcount').textContent=`${shown.length} of ${rows.length}`;
+    if(!shown.length) grid.appendChild($(`<div class="empty">No traders match.</div>`));
+  }
+  tb.querySelector('#trdsort').onchange=e=>{state.trd.sort=e.target.value;draw();};
+  tb.querySelector('#trdshow').onchange=e=>{state.trd.show=+e.target.value;draw();};
+  tb.querySelector('#trdq').oninput=e=>{state.trd.q=e.target.value;draw();};
+  tb.querySelector('#trdshared').onchange=e=>{state.trd.sharedOnly=e.target.checked;draw();};
+  tb.querySelector('#trdver').onchange=e=>{state.trd.verifiedOnly=e.target.checked;draw();};
+  draw();
 }
 
 function renderConsensus(){
@@ -286,26 +321,36 @@ function renderConsensus(){
     el.appendChild($(lineChart(d.history,[{key:'ge2',color:'var(--blue)',label:'held by ≥2'},{key:'ge3',color:'var(--green)',label:'held by ≥3'}])));
   }
 
-  // consensus table with slider + sort
+  // consensus table — slider + market search + liquidity filter + sortable
   el.appendChild($(`<h2 style="margin-top:24px">Consensus positions</h2>`));
-  const tb=$(`<div class="toolbar"><label class="muted">Min agreement: <b id="cv">${state.cons.min}</b></label><input type="range" id="cslider" min="2" max="${cohort==='?'?10:cohort}" value="${state.cons.min}"></div>`);
+  el.appendChild($(`<p class="sub">Agreement = <b>holders on this side / holders of this market</b> (e.g. 4/5 means 4 of the 5 cohort traders who took a position in this market are on the same outcome). Hover a value for the cohort-wide count.</p>`));
+  const maxc=(cohort==='?'?20:cohort);
+  const tb=$(`<div class="toolbar">
+    <label class="fl">Min agreement <b id="cv">${state.cons.min}</b> <input type="range" id="cslider" min="2" max="${maxc}" value="${Math.min(state.cons.min,maxc)}"></label>
+    <input type="search" id="cq" placeholder="Search market…" value="${esc(state.cons.q)}">
+    ${sel('cliq','Min liquidity',[['0','any'],['1000','$1k'],['10000','$10k'],['100000','$100k']],String(state.cons.minLiq))}
+    <span class="muted" id="ccount"></span></div>`);
   el.appendChild(tb);
-  const tableHost=$(`<div></div>`); el.appendChild(tableHost);
+  const host=$(`<div></div>`); el.appendChild(host);
   function draw(){
-    const min=state.cons.min;
-    let rows=(d.consensus||[]).filter(o=>(o.overlap||0)>=min).map(o=>{const n=o.overlap||0,cls=n>=5?'strong':(n>=3?'mod':'');
-      return {overlap:n, _agree:`<span class="agree ${cls}">${n}/${cohort}<span class="bar"><i style="width:${Math.min(100,n/(cohort==='?'?10:cohort)*100)}%"></i></span></span>`,
-        tier:tagEl(o.tier), market:mlink(o.slug,o.title), outcome:esc(o.outcome),
-        price:o.price==null?'—':round(o.price), liquidity:o.liquidity==null?0:o.liquidity,
-        _liq:o.liquidity==null?'—':('$'+Math.round(o.liquidity).toLocaleString()), earners:holders(o)};});
+    const q=state.cons.q.toLowerCase();
+    let rows=(d.consensus||[]).filter(o=>(o.overlap||0)>=state.cons.min
+        &&(o.liquidity==null||o.liquidity>=state.cons.minLiq)&&(!q||(o.title||'').toLowerCase().includes(q)))
+      .map(o=>({overlap:o.overlap||0, _agree:npCell(o,cohort), tier:tagEl(o.tier), market:mlink(o.slug,o.title),
+        outcome:esc(o.outcome), price:o.price==null?0:o.price, _price:o.price==null?'—':round(o.price),
+        liquidity:o.liquidity==null?0:o.liquidity, _liq:o.liquidity==null?'—':('$'+Math.round(o.liquidity).toLocaleString()),
+        earners:holders(o)}));
     rows=sortRows(rows,state.cons.key,state.cons.dir);
-    const t=tableEl([
-      {key:'_agree',label:'Agreement',sortKey:'overlap',num:1},{key:'tier',label:'Tier'},{key:'market',label:'Market'},
-      {key:'outcome',label:'Outcome'},{key:'price',label:'Price',sortKey:'price',num:1},{key:'_liq',label:'Liquidity',sortKey:'liquidity',num:1},
-      {key:'earners',label:'Which earners hold it'}],rows,state.cons,k=>{state.cons.dir=state.cons.key===k?-state.cons.dir:-1;state.cons.key=k;draw();});
-    tableHost.innerHTML=''; tableHost.appendChild(t||$(`<div class="empty">No positions held by ≥${min} of the top ${cohort} right now.</div>`));
+    const t=tableEl([{key:'_agree',label:'Agreement',sortKey:'overlap',num:1},{key:'tier',label:'Tier'},{key:'market',label:'Market'},
+      {key:'outcome',label:'Outcome'},{key:'_price',label:'Price',sortKey:'price',num:1},{key:'_liq',label:'Liquidity',sortKey:'liquidity',num:1},
+      {key:'earners',label:'Which earners hold it'}],rows,state.cons,
+      k=>{state.cons.dir=state.cons.key===k?-state.cons.dir:-1;state.cons.key=k;draw();});
+    host.innerHTML=''; host.appendChild(t||$(`<div class="empty">No positions match these filters.</div>`));
+    tb.querySelector('#ccount').textContent=`${rows.length} shown`;
   }
-  tb.querySelector('#cslider').oninput=(e)=>{state.cons.min=+e.target.value;tb.querySelector('#cv').textContent=state.cons.min;draw();};
+  tb.querySelector('#cslider').oninput=e=>{state.cons.min=+e.target.value;tb.querySelector('#cv').textContent=state.cons.min;draw();};
+  tb.querySelector('#cq').oninput=e=>{state.cons.q=e.target.value;draw();};
+  tb.querySelector('#cliq').onchange=e=>{state.cons.minLiq=+e.target.value;draw();};
   draw();
 }
 
@@ -331,25 +376,37 @@ function renderPerformance(){
 
 function renderSignals(){
   const d=DATA,el=document.getElementById('tab-signals');el.innerHTML='';
+  const cohort=(d.agreement||{}).cohort_size||(d.leaderboard||[]).length||'?';
   el.appendChild($(`<h2>All observed positions (this cycle)</h2>`));
-  el.appendChild($(`<p class="sub">Every position the cohort holds — including single-holder ones — logged every cycle so you can measure the real agreement distribution before trusting any cutoff (honesty rule #2). Search, filter and sort below.</p>`));
-  const tb=$(`<div class="toolbar"><input type="search" id="sq" placeholder="Search market…" value="${esc(state.sig.q)}">
-    <select id="stier"><option value="all">All tiers</option><option value="green">green</option><option value="blue">blue</option><option value="none">none</option></select>
+  el.appendChild($(`<p class="sub">The cohort's positions (top by agreement; single-holder ones included) — the raw record behind the cutoff analysis (honesty rule #2). Agreement = holders-on-this-side / holders-of-this-market. Search, filter and sort below.</p>`));
+  const tb=$(`<div class="toolbar">
+    <input type="search" id="sq" placeholder="Search market…" value="${esc(state.sig.q)}">
+    ${sel('stier','Tier',[['all','All tiers'],['green','green'],['blue','blue'],['none','none']],state.sig.tier)}
+    ${sel('sminov','Min overlap',[['1','≥1'],['2','≥2'],['3','≥3'],['5','≥5'],['10','≥10']],String(state.sig.minOv))}
+    ${sel('sliq','Min liquidity',[['0','any'],['1000','$1k'],['10000','$10k'],['100000','$100k']],String(state.sig.minLiq))}
+    <label class="fl"><input type="checkbox" id="shide"${state.sig.hideClosed?' checked':''}> hide closed</label>
     <span class="muted" id="scount"></span></div>`);
-  el.appendChild(tb); tb.querySelector('#stier').value=state.sig.tier;
+  el.appendChild(tb);
   const host=$(`<div></div>`); el.appendChild(host);
   function draw(){
-    let rows=(d.signals||[]).filter(o=>(state.sig.tier==='all'||o.tier===state.sig.tier)&&(!state.sig.q||(o.title||'').toLowerCase().includes(state.sig.q.toLowerCase())));
-    const disp=rows.map(o=>({overlap:o.overlap, tier:tagEl(o.tier), market:mlink(o.slug,o.title), outcome:esc(o.outcome),
-      price:o.price==null?0:o.price, _price:o.price==null?'—':round(o.price), liquidity:o.liquidity==null?0:o.liquidity,
-      _liq:o.liquidity==null?'—':('$'+Math.round(o.liquidity).toLocaleString()), closed:o.market_closed?'yes':'no', holders:holders(o)}));
+    const q=state.sig.q.toLowerCase();
+    let rows=(d.signals||[]).filter(o=>(state.sig.tier==='all'||o.tier===state.sig.tier)
+      &&(o.overlap||0)>=state.sig.minOv&&(o.liquidity==null||o.liquidity>=state.sig.minLiq)
+      &&(!state.sig.hideClosed||!o.market_closed)&&(!q||(o.title||'').toLowerCase().includes(q)));
+    const disp=rows.map(o=>({overlap:o.overlap||0, _agree:npCell(o,cohort), tier:tagEl(o.tier), market:mlink(o.slug,o.title),
+      outcome:esc(o.outcome), price:o.price==null?0:o.price, _price:o.price==null?'—':round(o.price),
+      liquidity:o.liquidity==null?0:o.liquidity, _liq:o.liquidity==null?'—':('$'+Math.round(o.liquidity).toLocaleString()),
+      closed:o.market_closed?'yes':'no', holders:holders(o)}));
     const sorted=sortRows(disp,state.sig.key,state.sig.dir);
-    const t=tableEl([{key:'overlap',label:'Overlap',sortKey:'overlap',num:1},{key:'tier',label:'Tier'},{key:'market',label:'Market'},{key:'outcome',label:'Outcome'},{key:'_price',label:'Price',sortKey:'price',num:1},{key:'_liq',label:'Liquidity',sortKey:'liquidity',num:1},{key:'closed',label:'Closed'},{key:'holders',label:'Holders'}],sorted,state.sig,k=>{state.sig.dir=state.sig.key===k?-state.sig.dir:-1;state.sig.key=k;draw();});
+    const t=tableEl([{key:'_agree',label:'Agreement',sortKey:'overlap',num:1},{key:'tier',label:'Tier'},{key:'market',label:'Market'},{key:'outcome',label:'Outcome'},{key:'_price',label:'Price',sortKey:'price',num:1},{key:'_liq',label:'Liquidity',sortKey:'liquidity',num:1},{key:'closed',label:'Closed'},{key:'holders',label:'Holders'}],sorted,state.sig,k=>{state.sig.dir=state.sig.key===k?-state.sig.dir:-1;state.sig.key=k;draw();});
     host.innerHTML=''; host.appendChild(t||$(`<div class="empty">No matching positions.</div>`));
     tb.querySelector('#scount').textContent=`${sorted.length} shown`;
   }
-  tb.querySelector('#sq').oninput=(e)=>{state.sig.q=e.target.value;draw();};
-  tb.querySelector('#stier').onchange=(e)=>{state.sig.tier=e.target.value;draw();};
+  tb.querySelector('#sq').oninput=e=>{state.sig.q=e.target.value;draw();};
+  tb.querySelector('#stier').onchange=e=>{state.sig.tier=e.target.value;draw();};
+  tb.querySelector('#sminov').onchange=e=>{state.sig.minOv=+e.target.value;draw();};
+  tb.querySelector('#sliq').onchange=e=>{state.sig.minLiq=+e.target.value;draw();};
+  tb.querySelector('#shide').onchange=e=>{state.sig.hideClosed=e.target.checked;draw();};
   draw();
 }
 

@@ -315,37 +315,35 @@ class PolymarketClient:
                     out[w] = []
         return out
 
-    def midpoints(self, token_ids) -> dict:
-        """POST /midpoints once. Returns {token_id: float} (omits tokens with no book)."""
-        token_ids = [t for t in dict.fromkeys(token_ids) if t]
-        if not token_ids:
-            return {}
-        try:
-            data = self._post(f"{CLOB_API}/midpoints", [{"token_id": t} for t in token_ids]) or {}
-        except Exception:
-            return {}
+    def midpoints(self, token_ids, chunk: int = 250) -> dict:
+        """POST /midpoints (chunked). Returns {token_id: float} (omits tokens with no book)."""
+        ids = [t for t in dict.fromkeys(token_ids) if t]
         out = {}
-        for t, v in (data.items() if isinstance(data, dict) else []):
-            f = self._f(v, default=None) if v not in (None, "") else None
-            if f is not None:
-                out[t] = f
+        for i in range(0, len(ids), chunk):
+            try:
+                data = self._post(f"{CLOB_API}/midpoints", [{"token_id": t} for t in ids[i:i + chunk]]) or {}
+            except Exception:
+                continue
+            for t, v in (data.items() if isinstance(data, dict) else []):
+                f = self._f(v, default=None) if v not in (None, "") else None
+                if f is not None:
+                    out[t] = f
         return out
 
-    def prices(self, token_ids, side: str = "BUY") -> dict:
-        """POST /prices once. Returns {token_id: float} for the given side."""
-        token_ids = [t for t in dict.fromkeys(token_ids) if t]
-        if not token_ids:
-            return {}
-        try:
-            data = self._post(f"{CLOB_API}/prices", [{"token_id": t, "side": side} for t in token_ids]) or {}
-        except Exception:
-            return {}
+    def prices(self, token_ids, side: str = "BUY", chunk: int = 250) -> dict:
+        """POST /prices (chunked). Returns {token_id: float} for the given side."""
+        ids = [t for t in dict.fromkeys(token_ids) if t]
         out = {}
-        for t, v in (data.items() if isinstance(data, dict) else []):
-            px = v.get(side) if isinstance(v, dict) else v
-            f = self._f(px, default=None) if px not in (None, "") else None
-            if f is not None:
-                out[t] = f
+        for i in range(0, len(ids), chunk):
+            try:
+                data = self._post(f"{CLOB_API}/prices", [{"token_id": t, "side": side} for t in ids[i:i + chunk]]) or {}
+            except Exception:
+                continue
+            for t, v in (data.items() if isinstance(data, dict) else []):
+                px = v.get(side) if isinstance(v, dict) else v
+                f = self._f(px, default=None) if px not in (None, "") else None
+                if f is not None:
+                    out[t] = f
         return out
 
     def marks(self, token_ids, source: str = "midpoint") -> dict:

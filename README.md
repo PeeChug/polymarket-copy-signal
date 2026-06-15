@@ -16,14 +16,15 @@ naive control benchmark — so you can decide whether it's worth real money.
 ## What it does
 
 - Watches the **top N earners** on Polymarket's profit leaderboard (the 30-day
-  "monthly winners"; `N` configurable, default **10**).
+  "monthly winners"; `N` configurable, default **50** — the API max).
 - Each cycle, **compares every position they hold against each other** and counts
   how many independently hold the **same position** (same market + same outcome)
-  — the **overlap** / agreement. This consensus view is the headline of the
-  dashboard: positions ranked by how many of the top earners agree on them.
-- Turns agreement into **tiers**: with 10 earners, `green` = **≥5 agree** (strong),
-  `blue` = **≥3 agree** (moderate). Only green/blue positions are candidates to
-  paper-trade. (Thresholds are configurable in `config.yaml`.)
+  — the **overlap** / agreement. The dashboard also shows **overlap ÷
+  participants** — how many hold *any* side of that market — e.g. `4/5` means 4 of
+  the 5 cohort traders in that market are on the same outcome (a conviction lens).
+- Turns agreement into **tiers** (absolute overlap): with 50 earners, `green` =
+  **≥10 agree**, `blue` = **≥5 agree**. Only green/blue positions are candidates to
+  paper-trade. (All thresholds are configurable in `config.yaml`.)
 - Paper-trades qualifying signals and tracks simulated P&L over time, so you can
   measure whether copying the consensus actually pays.
 
@@ -239,14 +240,16 @@ A tabbed single-page app (no build step, no JS dependencies) — vanilla
 HTML/CSS/JS rendering the precomputed `docs/data.json`, with count-up numbers,
 sparklines, hand-rolled SVG charts, a live pulse, and auto-refresh every ~2.5 min:
 
-- **Top Earners** *(default)* — a card per cohort trader: 30-day profit (with a
-  recent-profit **sparkline**), volume, open-position count, value "on the table",
-  live open P&L, cohort overlap, an expandable list of their top positions (each
-  linking to its market), and a **"View on Polymarket"** link to their profile
-  (`polymarket.com/profile/{wallet}`).
-- **Consensus** — the agreement table (ranked, with an interactive **min-agreement
-  slider** and sortable columns), the agreement distribution, an **agreement-over-
-  time** chart, and the **consensus hit-rate** panel — win-rate of consensus
+- **Top Earners** *(default)* — a card per cohort trader, with **sort** (rank /
+  profit / volume / positions / open P&L / shared), a **show-count** selector
+  (12 / 25 / 50 / all), name search, and verified/shared filters. Each card: 30-day
+  profit (+ **sparkline**), volume, positions, value "on the table", live open P&L,
+  cohort overlap, expandable top positions (each shown as `overlap/participants`
+  and linking to its market), and a **"View on Polymarket"** profile link.
+- **Consensus** — the agreement table showing **overlap/participants** (e.g. 4/5)
+  with conviction bars, plus a **min-agreement slider**, market search, liquidity
+  filter, and sortable columns; the agreement distribution; an **agreement-over-
+  time** chart; and the **consensus hit-rate** panel — win-rate of consensus
   positions once they resolve, by agreement bucket (the core hypothesis test).
 - **Performance** — overlap vs. #1-copy control, a **cumulative-P&L-over-time**
   equity curve, the green-vs-blue tier breakdown, and open paper positions.

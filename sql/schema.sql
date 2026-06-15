@@ -97,7 +97,8 @@ create table if not exists observations (
     title            text,
     slug             text,
 
-    overlap          int  not null,        -- # of distinct cohort wallets holding it
+    overlap          int  not null,        -- # of distinct cohort wallets holding this outcome
+    participants     int,                  -- # of cohort wallets holding ANY outcome of this market
     tier             text not null,        -- 'green' | 'blue' | 'none'
     holder_wallets   text[] not null default '{}',
     holder_usernames text[] not null default '{}',

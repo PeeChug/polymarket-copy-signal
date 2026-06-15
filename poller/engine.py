@@ -18,6 +18,7 @@ a real order — the client is read-only.
 from __future__ import annotations
 
 import time
+from collections import Counter
 from datetime import datetime, timezone
 
 from poller import strategy
@@ -100,6 +101,15 @@ def _run(store, client, cfg, cid, summary, log):
     # per-trader snapshot for the dashboard (their positions + agreement enrichment)
     store.set_traders(_build_traders(cohort, cohort_positions, overlaps))
 
+    # accurate full agreement counts (independent of any dashboard cap on observations)
+    ovs = [o.overlap for o in overlaps.values()]
+    store.set_agreement({
+        "cohort_size": len(cohort), "positions": len(ovs),
+        "ge2": sum(1 for x in ovs if x >= 2), "ge3": sum(1 for x in ovs if x >= 3),
+        "ge5": sum(1 for x in ovs if x >= 5), "max_overlap": max(ovs, default=0),
+        "histogram": {str(k): v for k, v in sorted(Counter(ovs).items())},
+    })
+
     # existing open trades — needed below (and to know what to price)
     open_index = {(t["strategy"], t["condition_id"], t["outcome_index"]): t
                   for t in store.open_trades()}
@@ -143,8 +153,8 @@ def _run(store, client, cfg, cid, summary, log):
             "cycle_id": cid, "condition_id": ov.condition_id, "asset": asset,
             "outcome": ov.outcome, "outcome_index": ov.outcome_index,
             "title": ov.title, "slug": ov.slug,
-            "overlap": ov.overlap, "tier": tier,
-            "holder_wallets": ov.wallets, "holder_usernames": ov.usernames, "holder_ranks": ov.ranks,
+            "overlap": ov.overlap, "participants": ov.participants, "tier": tier,
+            "holder_wallets": ov.wallets[:20], "holder_usernames": ov.usernames[:20],
             "price": price, "liquidity": liquidity,
             "market_closed": closed, "market_active": active, "end_date": ov.end_date,
         })
@@ -229,7 +239,7 @@ def _run(store, client, cfg, cid, summary, log):
     _update_trackers(store, cohort, observed, market_map, _now_iso())
 
 
-def _build_traders(cohort, cohort_positions, overlaps, max_positions=25):
+def _build_traders(cohort, cohort_positions, overlaps, max_positions=8):
     """One row per cohort trader: leaderboard stats + their open positions,
     each position annotated with how many of the cohort also hold it."""
     traders = []
@@ -246,6 +256,7 @@ def _build_traders(cohort, cohort_positions, overlaps, max_positions=25):
                 "size": p.size, "avg_price": p.avg_price, "cur_price": p.cur_price,
                 "current_value": p.current_value, "cash_pnl": p.cash_pnl,
                 "percent_pnl": p.percent_pnl, "overlap": ov.overlap if ov else 1,
+                "participants": ov.participants if ov else 1,
             })
         rows.sort(key=lambda r: r["current_value"], reverse=True)
         traders.append({

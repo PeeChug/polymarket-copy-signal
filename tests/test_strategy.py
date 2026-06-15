@@ -58,6 +58,20 @@ class TestOverlap(unittest.TestCase):
         self.assertEqual(ov["C"].overlap, 1)
         self.assertEqual(set(ov["A"].wallets), {"w1", "w2", "w3"})  # w1 counted once
 
+    def test_participants_vs_overlap(self):
+        # market m1: 3 wallets on Yes, 1 on No -> 4 participants; Yes overlap 3 => "3/4"
+        cohort = {
+            "w1": [pos("w1", "Y", cond="m1", outcome="Yes")],
+            "w2": [pos("w2", "Y", cond="m1", outcome="Yes")],
+            "w3": [pos("w3", "Y", cond="m1", outcome="Yes")],
+            "w4": [pos("w4", "N", cond="m1", outcome="No", idx=1)],
+        }
+        ov = strategy.compute_overlaps(cohort)
+        self.assertEqual(ov["Y"].overlap, 3)
+        self.assertEqual(ov["Y"].participants, 4)   # 4 wallets hold a position in m1
+        self.assertEqual(ov["N"].overlap, 1)
+        self.assertEqual(ov["N"].participants, 4)
+
     def test_fallback_price_is_median_of_positive(self):
         cohort = {"w1": [pos("w1", "A", cur=0.2)], "w2": [pos("w2", "A", cur=0.0)],
                   "w3": [pos("w3", "A", cur=0.4)]}

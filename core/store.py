@@ -62,6 +62,8 @@ class Store:
     def set_consensus_watch(self, d: dict) -> None: return None
     def get_trader_series(self) -> dict: return {}
     def set_trader_series(self, d: dict) -> None: return None
+    def set_agreement(self, d: dict) -> None: return None
+    def get_agreement(self) -> dict: return {}
 
 
 # --------------------------------------------------------------------------- #
@@ -200,6 +202,7 @@ class MemoryStore(Store):
         self._history: list[dict] = []
         self._watch: dict = {}
         self._tseries: dict = {}
+        self._agreement: dict = {}
         self._seq = {"config": 0, "cycle": 0, "trade": 0}
 
     def _next(self, k):
@@ -302,6 +305,12 @@ class MemoryStore(Store):
     def set_trader_series(self, d):
         self._tseries = d
 
+    def set_agreement(self, d):
+        self._agreement = d
+
+    def get_agreement(self):
+        return dict(self._agreement)
+
 
 # --------------------------------------------------------------------------- #
 # File-backed (the $0 GitHub-Pages deployment — no database at all)
@@ -334,7 +343,7 @@ class FileStore(Store):
             "seq": {"config": 0, "cycle": 0, "trade": 0},
             "config_history": [], "paper_trades": [], "last_cycle": None,
             "latest_observations": [], "latest_leaderboard": [], "latest_traders": [],
-            "history": [], "consensus_watch": {}, "trader_series": {},
+            "history": [], "consensus_watch": {}, "trader_series": {}, "agreement": {},
         }
 
     def _save(self):
@@ -386,10 +395,13 @@ class FileStore(Store):
         self._append(self.lb_path, rows)
         self._save()
 
-    def insert_observations(self, rows):
+    def insert_observations(self, rows, snapshot_cap: int = 250):
         rows = [dict(r) for r in rows]
-        self._state["latest_observations"] = rows
-        self._append(self.obs_path, rows)
+        # dashboard snapshot: keep the most-agreed positions (bounded for payload size)
+        snap = sorted(rows, key=lambda o: o.get("overlap", 0), reverse=True)[:snapshot_cap]
+        self._state["latest_observations"] = snap
+        # persistent empirical record: only consensus (>=2) so the file stays bounded at scale
+        self._append(self.obs_path, [r for r in rows if (r.get("overlap") or 0) >= 2])
         self._save()
 
     def latest_observations(self, limit=500):
@@ -463,3 +475,10 @@ class FileStore(Store):
     def set_trader_series(self, d):
         self._state["trader_series"] = d
         self._save()
+
+    def set_agreement(self, d):
+        self._state["agreement"] = d
+        self._save()
+
+    def get_agreement(self):
+        return dict(self._state.get("agreement", {}))

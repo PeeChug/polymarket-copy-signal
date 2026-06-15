@@ -11,16 +11,18 @@
 # ============================================================================
 
 # --- cohort / leaderboard ---------------------------------------------------
-top_n: 10                      # watch the top N earners on the profit leaderboard
+top_n: 50                      # watch the top N earners on the profit leaderboard (API max 50)
 leaderboard_window: MONTH      # DAY | WEEK | MONTH | ALL  (MONTH = the 30-day "monthly winners")
 size_threshold: 1              # ignore dust: a wallet must hold at least this position size to count
 
 # --- tiering (overlap -> tier) ----------------------------------------------
 # overlap = how many of the top N earners independently hold the SAME position
-# (same market + same outcome). This is the "correlation"/agreement signal.
-# With 10 earners, all-10 agreement essentially never happens, so:
-tier_green_min: 5              # overlap >= this  => "green"  (STRONG agreement: half the top 10+)
-tier_blue_min: 3               # overlap >= this  => "blue"   (moderate agreement: 3 of 10+)
+# (same market + same outcome). The dashboard also shows overlap / "participants"
+# (how many hold ANY side of that market), e.g. 4/5 = strong conviction.
+# Tiers below are based on the ABSOLUTE overlap count, tuned for a 50-earner
+# cohort so paper trades stay selective (blue=3 of 50 would open 100+ trades/cycle).
+tier_green_min: 10             # overlap >= this  => "green"  (strong: 10+ of 50 agree)
+tier_blue_min: 5               # overlap >= this  => "blue"   (moderate: 5+ of 50 agree)
 
 # --- guardrails before a signal becomes a paper trade -----------------------
 min_liquidity: 1000            # USD; don't simulate filling a market we couldn't actually trade

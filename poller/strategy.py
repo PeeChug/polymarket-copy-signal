@@ -22,10 +22,11 @@ class Overlap:
     title: str
     slug: str
     end_date: object = None
-    wallets: list = field(default_factory=list)     # distinct holder wallets
+    wallets: list = field(default_factory=list)     # distinct holder wallets (this outcome)
     usernames: list = field(default_factory=list)
     ranks: list = field(default_factory=list)
     cur_prices: list = field(default_factory=list)  # holders' reported prices (fallback only)
+    participants: int = 0   # distinct cohort wallets holding ANY outcome of this market
 
     @property
     def overlap(self) -> int:
@@ -47,12 +48,14 @@ def compute_overlaps(cohort_positions: dict[str, list]) -> dict[str, Overlap]:
     Returns {asset -> Overlap}. A wallet is counted at most once per asset.
     """
     by_asset: dict[str, Overlap] = {}
+    market_holders: dict[str, set] = {}   # condition_id -> distinct wallets holding ANY outcome
     for wallet, positions in cohort_positions.items():
         seen_for_wallet = set()
         for p in positions:
             if not p.asset or p.asset in seen_for_wallet:
                 continue
             seen_for_wallet.add(p.asset)
+            market_holders.setdefault(p.condition_id, set()).add(wallet)
             ov = by_asset.get(p.asset)
             if ov is None:
                 ov = Overlap(
@@ -65,6 +68,9 @@ def compute_overlaps(cohort_positions: dict[str, list]) -> dict[str, Overlap]:
             ov.usernames.append(getattr(p, "_username", "") or "")
             ov.ranks.append(getattr(p, "_rank", 0) or 0)
             ov.cur_prices.append(p.cur_price)
+    # participants = distinct cohort wallets with ANY position in the market
+    for ov in by_asset.values():
+        ov.participants = len(market_holders.get(ov.condition_id, ()))
     return by_asset
 
 

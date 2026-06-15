@@ -21,6 +21,7 @@ def write_site(store, run_result: dict, docs_dir: str = "docs") -> str:
         leaderboard=store.latest_leaderboard(),
         config_rows=store.config_history(limit=50),
         traders=store.latest_traders(),
+        agreement=store.get_agreement(),
         meta={"generated_at": datetime.now(timezone.utc).isoformat(),
               "last_cycle": run_result},
     )
