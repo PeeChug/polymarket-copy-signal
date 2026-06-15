@@ -134,6 +134,20 @@
   .due { font-size:12px; padding:1px 7px; border-radius:999px; font-variant-numeric:tabular-nums; }
   .due.soon { background:rgba(226,177,74,.16); color:var(--amber); }
   .due.past { background:rgba(139,148,167,.14); color:var(--muted); }
+  .chartwrap { position:relative; }
+  .charttip { position:absolute; pointer-events:none; background:var(--panel2); border:1px solid var(--line);
+    border-radius:8px; padding:6px 9px; font-size:12px; z-index:6; white-space:nowrap; transform:translate(-50%,-115%); box-shadow:0 4px 16px rgba(0,0,0,.4); }
+  .charttip .t { color:var(--muted); margin-bottom:3px; }
+  .charttip i { display:inline-block; width:8px; height:8px; border-radius:2px; margin-right:5px; vertical-align:middle; }
+  .scrim { position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:55; display:none; }
+  .scrim.open { display:block; }
+  .panelx { position:fixed; top:0; right:0; height:100%; width:360px; max-width:90vw; background:var(--bg2);
+    border-left:1px solid var(--line); box-shadow:-12px 0 40px rgba(0,0,0,.45); z-index:60;
+    transform:translateX(102%); transition:transform .25s ease; overflow-y:auto; padding:18px 20px; }
+  .panelx.open { transform:none; }
+  .panelx h3 { margin:18px 0 10px; font-size:15px; } .panelx h3:first-child { margin-top:0; }
+  .panelx .row { margin:11px 0; } .panelx .row > label { display:block; color:var(--muted); font-size:12px; margin-bottom:5px; }
+  .panelx select, .panelx input { width:100%; }
   @media (max-width:720px){ .grid2{grid-template-columns:1fr;} .metrics{grid-template-columns:repeat(2,1fr);} .meta{width:100%;margin-left:0;} .calib{grid-template-columns:1fr;} }
 </style>
 </head>
@@ -145,6 +159,7 @@
     <button class="tbtn" id="refresh" title="Re-fetch the latest published data">↻ Refresh</button>
     <a class="tbtn" href="https://github.com/PeeChug/polymarket-copy-signal/actions/workflows/poller.yml" target="_blank" rel="noopener" title="Run the poller now on GitHub to fetch fresh data">⚡ Run poller ↗</a>
     <button class="tbtn" id="autopoll" title="Trigger the poller every 15 min while this tab is open (uses a GitHub token stored only in this browser)">⏱ Auto-poll: off</button>
+    <button class="tbtn" id="settingsbtn" title="Settings">⚙️</button>
   </div>
   <nav class="tabs" id="tabs">
     <button data-tab="traders" class="on">Top Earners</button>
@@ -174,6 +189,26 @@
   <section id="tab-performance" class="tab"></section>
   <section id="tab-signals" class="tab"></section>
   <p class="sub" style="margin-top:34px">Auto-updates every ~30 min via a GitHub Action reading public Polymarket APIs. Source: <a href="https://github.com/PeeChug/polymarket-copy-signal">github.com/PeeChug/polymarket-copy-signal</a>.</p>
+</div>
+<div class="scrim" id="scrim"></div>
+<div class="panelx" id="settings">
+  <h3>⚙️ Settings</h3>
+  <div class="row"><label>Auto-poll frequency (while tab open)</label>
+    <select id="setPoll"><option value="5">every 5 min</option><option value="10">every 10 min</option><option value="15">every 15 min</option><option value="30">every 30 min</option></select></div>
+  <div class="row"><label>View refresh (re-read data)</label>
+    <select id="setRefresh"><option value="1">every 1 min</option><option value="2.5">every 2.5 min</option><option value="5">every 5 min</option></select></div>
+  <div class="row"><label>Auto-poll token</label>
+    <div id="setTokenStatus" class="muted" style="font-size:12.5px;margin-bottom:6px"></div>
+    <button class="tbtn" id="setTokenBtn">Set / update token</button>
+    <button class="tbtn" id="setTokenForget">Forget token</button></div>
+  <h3>Charts</h3>
+  <div class="row"><label>Timeframe</label>
+    <select id="setTF"><option value="1">last 1h</option><option value="6">last 6h</option><option value="24">last 24h</option><option value="72">last 3d</option><option value="168">last 7d</option><option value="0">all</option></select></div>
+  <div class="row"><label>Style</label>
+    <select id="setStyle"><option value="line">line</option><option value="area">area</option></select></div>
+  <h3>Filters</h3>
+  <div class="row"><button class="tbtn" id="setReset">Reset all table filters</button></div>
+  <div class="row" style="margin-top:20px"><button class="tbtn" id="setClose">Close</button></div>
 </div>
 <div class="toast" id="toast"></div>
 
@@ -218,21 +253,47 @@ function changesPanel(d){ const ch=d.changes||{}; if(!((ch.new||[]).length||(ch.
     ${col('✅ Resolved', ch.resolved||[], x=>li(x, x.won?'<span class="pos">won</span>':'<span class="neg">lost</span>'))}</div>`); }
 
 // --- mini SVG charts (no deps) ---
-function lineChart(rows, series, {w=620,h=190,pad=34}={}){
-  if(!rows||rows.length<2) return `<div class="empty">Trend charts appear once a few cycles have run (need ≥2 data points). Check back after the next poll.</div>`;
+function filterTF(rows){ const hrs=+(state.settings.tf||0); if(!hrs||!rows) return rows;
+  const cut=Date.now()-hrs*3600000; return rows.filter(r=>{const t=Date.parse(r.ts); return isNaN(t)||t>=cut;}); }
+function fmtChartVal(s,v){ return s.money?money(v):String(Math.round(v*100)/100); }
+function chart(allRows, series, {w=640,h=200,pad=36}={}){
+  const wrap=document.createElement('div'); wrap.className='chartwrap';
+  const rows=filterTF(allRows||[]);
+  if(rows.length<2){ wrap.innerHTML='<div class="empty">Not enough points in this timeframe yet — widen it in ⚙️ Settings, or wait for more cycles.</div>'; return wrap; }
   const vals=series.flatMap(s=>rows.map(r=>+r[s.key]||0));
   let min=Math.min(...vals,0),max=Math.max(...vals,0); if(min===max)max=min+1;
-  const X=i=>pad+(w-2*pad)*(rows.length<2?0:i/(rows.length-1));
+  const X=i=>pad+(w-2*pad)*(i/(rows.length-1));
   const Y=v=>h-pad-(h-2*pad)*((v-min)/(max-min));
-  const paths=series.map(s=>{const d=rows.map((r,i)=>`${i?'L':'M'}${X(i).toFixed(1)} ${Y(+r[s.key]||0).toFixed(1)}`).join(' ');
-    return `<path d="${d}" fill="none" stroke="${s.color}" stroke-width="2.2" stroke-linejoin="round"/>`;}).join('');
-  const z=Y(0);
+  const area=state.settings.area, z=Y(0);
+  const paths=series.map(s=>{
+    const line='M'+rows.map((r,i)=>`${X(i).toFixed(1)} ${Y(+r[s.key]||0).toFixed(1)}`).join(' L');
+    let out=`<path d="${line}" fill="none" stroke="${s.color}" stroke-width="2.2" stroke-linejoin="round"/>`;
+    if(area) out=`<path d="${line} L${X(rows.length-1).toFixed(1)} ${z.toFixed(1)} L${X(0).toFixed(1)} ${z.toFixed(1)} Z" fill="${s.color}" opacity="0.12"/>`+out;
+    return out;}).join('');
+  const dots=series.map((s,si)=>`<circle class="cd cd${si}" r="3.5" fill="${s.color}" style="display:none"/>`).join('');
   const legend=series.map(s=>`<span><i style="background:${s.color}"></i>${esc(s.label)}</span>`).join('');
-  return `<svg viewBox="0 0 ${w} ${h}" class="chart" preserveAspectRatio="none">
+  wrap.innerHTML=`<svg viewBox="0 0 ${w} ${h}" class="chart" preserveAspectRatio="none">
     <line x1="${pad}" y1="${z}" x2="${w-pad}" y2="${z}" stroke="var(--line)" stroke-dasharray="3 3"/>
     <text x="4" y="${Y(max)+4}" fill="var(--dim)" font-size="11">${fmtShort(max)}</text>
     <text x="4" y="${Y(min)+4}" fill="var(--dim)" font-size="11">${fmtShort(min)}</text>
-    ${paths}</svg><div class="legend">${legend}</div>`;
+    <line class="cx" x1="0" y1="${pad}" x2="0" y2="${h-pad}" style="display:none"/>${paths}${dots}</svg>
+    <div class="legend">${legend}</div>`;
+  const tip=document.createElement('div'); tip.className='charttip'; tip.style.display='none'; wrap.appendChild(tip);
+  const svg=wrap.querySelector('svg'), cx=svg.querySelector('.cx'), dotEls=[...svg.querySelectorAll('.cd')];
+  svg.addEventListener('mousemove',e=>{
+    const r=svg.getBoundingClientRect(); if(!r.width) return;
+    let i=Math.round(((e.clientX-r.left)/r.width*w-pad)/(w-2*pad)*(rows.length-1));
+    i=Math.max(0,Math.min(rows.length-1,i)); const px=X(i);
+    cx.setAttribute('x1',px); cx.setAttribute('x2',px); cx.style.display='';
+    series.forEach((s,si)=>{ dotEls[si].setAttribute('cx',px); dotEls[si].setAttribute('cy',Y(+rows[i][s.key]||0)); dotEls[si].style.display=''; });
+    const ts=rows[i].ts?new Date(rows[i].ts):null;
+    tip.innerHTML=`<div class="t">${ts?ts.toLocaleString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}):'point '+(i+1)}</div>`+
+      series.map(s=>`<div><i style="background:${s.color}"></i>${esc(s.label)}: <b>${fmtChartVal(s,+rows[i][s.key]||0)}</b></div>`).join('');
+    const topY=Math.min(...series.map(s=>Y(+rows[i][s.key]||0)));
+    tip.style.display=''; tip.style.left=(px/w*r.width)+'px'; tip.style.top=(topY/h*r.height)+'px';
+  });
+  svg.addEventListener('mouseleave',()=>{ tip.style.display='none'; cx.style.display='none'; dotEls.forEach(d=>d.style.display='none'); });
+  return wrap;
 }
 const fmtShort=(v)=>Math.abs(v)>=1000?(v/1000).toFixed(1)+'k':(''+Math.round(v*100)/100);
 function spark(vals){ if(!vals||vals.length<2) return '';
@@ -281,7 +342,8 @@ let DATA=null;
 const state={ tab:'traders',
   trd:{sort:'rank', show:12, q:'', sharedOnly:false, verifiedOnly:false},
   cons:{key:'overlap',dir:-1,min:2,q:'',minLiq:0,due:0,contest:'any',cat:'any'},
-  sig:{key:'overlap',dir:-1,q:'',tier:'all',minOv:1,minLiq:0,hideClosed:false} };
+  sig:{key:'overlap',dir:-1,q:'',tier:'all',minOv:1,minLiq:0,hideClosed:false},
+  settings:{pollMin:15, refreshMin:2.5, tf:0, area:false} };
 
 function metric(k,v,cls='',count){ const cv=(count!=null)?`<div class="v ${cls}" data-target="${Math.abs(count)}" data-neg="${count<0?1:0}" data-fmt="money">${money(0)}</div>`:`<div class="v ${cls}">${v}</div>`; return `<div class="metric"><div class="k">${k}</div>${cv}</div>`; }
 function perfCard(title,m){ return `<div class="card"><h3>${title}</h3><div class="metrics">
@@ -373,7 +435,7 @@ function renderConsensus(){
 
   if((d.history||[]).length>=2){
     el.appendChild($(`<h2 style="margin-top:24px">Agreement over time</h2>`));
-    el.appendChild($(lineChart(d.history,[{key:'ge2',color:'var(--blue)',label:'held by ≥2'},{key:'ge3',color:'var(--green)',label:'held by ≥3'}])));
+    el.appendChild(chart(d.history,[{key:'ge2',color:'var(--blue)',label:'held by ≥2'},{key:'ge3',color:'var(--green)',label:'held by ≥3'}]));
   }
 
   el.appendChild($(`<h2 style="margin-top:24px">Consensus positions</h2>`));
@@ -441,7 +503,7 @@ function renderPerformance(){
   el.appendChild(tierCards); runCountups(tierCards);
   if((d.history||[]).some(h=>h.green_net!=null||h.blue_net!=null)){
     el.appendChild($(`<h2 style="margin-top:24px">Green vs. blue net P&L over time</h2>`));
-    el.appendChild($(lineChart(d.history,[{key:'green_net',color:'var(--green)',label:'Green'},{key:'blue_net',color:'var(--blue)',label:'Blue'}])));
+    el.appendChild(chart(d.history,[{key:'green_net',color:'var(--green)',label:'Green',money:true},{key:'blue_net',color:'var(--blue)',label:'Blue',money:true}]));
   }
   el.appendChild($(`<h2 style="margin-top:30px">Open paper positions</h2>`));
   const op=(d.open_positions||[]).map(t=>({strat:tagEl(t.strategy),tier:tagEl(t.tier_at_entry),market:mlink(t.slug,t.title,52),outcome:esc(t.outcome),ov:t.overlap_at_entry,entry:round(t.entry_price),mark:t.marked_price==null?'—':round(t.marked_price),upnl:`<span class="${sgn(t.unrealized_pnl)}">${money(t.unrealized_pnl)}</span>`,opened:esc(String(t.entry_at||'').slice(0,16).replace('T',' '))}));
@@ -524,29 +586,25 @@ function load(initial){
     const fresh=d.generated_at!==lastGen;
     DATA=d; if(initial){
       try{ const saved=JSON.parse(localStorage.getItem('pm_state')||'{}');
-        ['trd','cons','sig'].forEach(k=>{ if(saved[k]) Object.assign(state[k],saved[k]); }); }catch(e){}
+        ['trd','cons','sig','settings'].forEach(k=>{ if(saved[k]) Object.assign(state[k],saved[k]); }); }catch(e){}
       const want=(location.hash||'').replace('#','')||(()=>{try{return localStorage.getItem('pm_tab');}catch(e){return null;}})()||'traders';
       state.tab=RENDER[want]?want:'traders';
       document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('on',b.dataset.tab===state.tab));
       document.querySelectorAll('.tab').forEach(s=>s.classList.toggle('on',s.id==='tab-'+state.tab));
-      render();
+      render(); applySettings();
     } else if(fresh){ render(); toast('↻ New cycle data loaded'); }
     lastGen=d.generated_at;
   }).catch(()=>{ if(initial) document.getElementById('tab-traders').innerHTML='<div class="empty">No data published yet — the first poller run will generate it. Check back shortly.</div>'; });
 }
-showSkeleton();
-load(true);
-setInterval(()=>load(false), 150000); // auto-refresh the VIEW every 2.5 min
-
-// ---- in-page auto-poll: trigger the cloud poller every 15 min while this tab is open ----
-// Uses a GitHub fine-grained token stored ONLY in this browser (localStorage); the public
-// site never contains it. GitHub API CORS allows this cross-origin workflow_dispatch.
+// ---- in-page auto-poll + settings ----
+// Token stored ONLY in this browser (localStorage); the public site never contains it.
 const GH_DISPATCH='https://api.github.com/repos/PeeChug/polymarket-copy-signal/actions/workflows/poller.yml/dispatches';
-let pokeTimer=null;
+let pokeTimer=null, refreshTimer=null;
 const lsGet=(k,d='')=>{try{return localStorage.getItem(k)??d;}catch(e){return d;}};
 const lsSet=(k,v)=>{try{localStorage.setItem(k,v);}catch(e){}};
 const ghToken=()=>lsGet('pm_gh_token','');
 const autopollOn=()=>lsGet('pm_autopoll','0')==='1';
+const pollMs=()=>(state.settings.pollMin||15)*60000;
 async function pokePoller(){
   const tok=ghToken(); if(!tok) return false;
   try{
@@ -559,27 +617,50 @@ async function pokePoller(){
 function renderAutopoll(){ const b=document.getElementById('autopoll'); if(!b) return;
   const on=autopollOn()&&!!ghToken(); b.classList.toggle('on-acc',on);
   let label='⏱ Auto-poll: '+(on?'on':'off');
-  if(on){ const last=+lsGet('pm_lastpoke','0'); if(last){ label+=' · next ~'+Math.max(0,15-Math.floor((Date.now()-last)/60000))+'m'; } }
+  if(on){ const last=+lsGet('pm_lastpoke','0'); if(last) label+=' · next ~'+Math.max(0,(state.settings.pollMin||15)-Math.floor((Date.now()-last)/60000))+'m'; }
   b.textContent=label;
 }
-function startPoke(){ clearInterval(pokeTimer); pokeTimer=setInterval(pokePoller,900000);
-  if(Date.now()-(+lsGet('pm_lastpoke','0'))>900000) pokePoller(); renderAutopoll(); }
+function startPoke(){ clearInterval(pokeTimer); pokeTimer=setInterval(pokePoller,pollMs());
+  if(Date.now()-(+lsGet('pm_lastpoke','0'))>pollMs()) pokePoller(); renderAutopoll(); }
 function stopPoke(){ clearInterval(pokeTimer); pokeTimer=null; renderAutopoll(); }
 function toggleAutopoll(){
   if(autopollOn()){ lsSet('pm_autopoll','0'); stopPoke(); toast('Auto-poll off'); return; }
   if(!ghToken()){ const p=document.getElementById('tokenSetup'); p.style.display='block'; document.getElementById('ghtok').focus(); return; }
-  lsSet('pm_autopoll','1'); startPoke(); toast('⏱ Auto-poll on — triggers every 15 min while this tab is open');
+  lsSet('pm_autopoll','1'); startPoke(); toast('⏱ Auto-poll on — triggers every '+(state.settings.pollMin||15)+' min while this tab is open');
 }
-(function initAutopoll(){
+function startRefresh(){ clearInterval(refreshTimer); refreshTimer=setInterval(()=>load(false),(state.settings.refreshMin||2.5)*60000); }
+function syncSettingsUI(){ const g=(id)=>document.getElementById(id); if(!g('setPoll')) return;
+  g('setPoll').value=String(state.settings.pollMin); g('setRefresh').value=String(state.settings.refreshMin);
+  g('setTF').value=String(state.settings.tf); g('setStyle').value=state.settings.area?'area':'line';
+  g('setTokenStatus').textContent=ghToken()?('Token set ✓ — auto-poll '+(autopollOn()?'on':'off')):'No token set'; }
+function applySettings(){ startRefresh(); if(autopollOn()&&ghToken()) startPoke(); else { clearInterval(pokeTimer); renderAutopoll(); } syncSettingsUI(); }
+function initAutopoll(){
   const b=document.getElementById('autopoll'); if(b) b.onclick=toggleAutopoll;
   const panel=document.getElementById('tokenSetup'), inp=document.getElementById('ghtok');
   const save=document.getElementById('ghtoksave'), cancel=document.getElementById('ghtokcancel'), forget=document.getElementById('ghtokforget');
-  if(save) save.onclick=()=>{ const v=(inp.value||'').trim(); if(!v){toast('Paste a token first');return;} lsSet('pm_gh_token',v); inp.value=''; panel.style.display='none'; lsSet('pm_autopoll','1'); startPoke(); toast('Token saved (this browser only) · auto-poll on'); };
+  if(save) save.onclick=()=>{ const v=(inp.value||'').trim(); if(!v){toast('Paste a token first');return;} lsSet('pm_gh_token',v); inp.value=''; panel.style.display='none'; lsSet('pm_autopoll','1'); startPoke(); syncSettingsUI(); toast('Token saved (this browser only) · auto-poll on'); };
   if(cancel) cancel.onclick=()=>{ panel.style.display='none'; };
-  if(forget) forget.onclick=()=>{ lsSet('pm_gh_token',''); lsSet('pm_autopoll','0'); stopPoke(); if(inp)inp.value=''; panel.style.display='none'; toast('Token forgotten'); };
-  if(autopollOn()&&ghToken()) startPoke(); else renderAutopoll();
-  setInterval(renderAutopoll,60000);
-})();
+  if(forget) forget.onclick=()=>{ lsSet('pm_gh_token',''); lsSet('pm_autopoll','0'); stopPoke(); if(inp)inp.value=''; panel.style.display='none'; syncSettingsUI(); toast('Token forgotten'); };
+  renderAutopoll(); setInterval(renderAutopoll,60000);
+}
+function initSettings(){
+  const g=(id)=>document.getElementById(id), panel=g('settings'), scrim=g('scrim');
+  const open=()=>{ syncSettingsUI(); panel.classList.add('open'); scrim.classList.add('open'); };
+  const close=()=>{ panel.classList.remove('open'); scrim.classList.remove('open'); };
+  g('settingsbtn').onclick=open; scrim.onclick=close; g('setClose').onclick=close;
+  g('setPoll').onchange=e=>{ state.settings.pollMin=+e.target.value; persist(); if(autopollOn()&&ghToken()) startPoke(); renderAutopoll(); toast('Auto-poll set to every '+state.settings.pollMin+' min'); };
+  g('setRefresh').onchange=e=>{ state.settings.refreshMin=+e.target.value; persist(); startRefresh(); };
+  g('setTF').onchange=e=>{ state.settings.tf=+e.target.value; persist(); RENDER[state.tab](); };
+  g('setStyle').onchange=e=>{ state.settings.area=e.target.value==='area'; persist(); RENDER[state.tab](); };
+  g('setTokenBtn').onclick=()=>{ close(); const p=g('tokenSetup'); p.style.display='block'; g('ghtok').focus(); p.scrollIntoView({behavior:'smooth'}); };
+  g('setTokenForget').onclick=()=>{ lsSet('pm_gh_token',''); lsSet('pm_autopoll','0'); stopPoke(); syncSettingsUI(); toast('Token forgotten'); };
+  g('setReset').onclick=()=>{ Object.assign(state.trd,{sort:'rank',show:12,q:'',sharedOnly:false,verifiedOnly:false});
+    Object.assign(state.cons,{key:'overlap',dir:-1,min:2,q:'',minLiq:0,due:0,contest:'any',cat:'any'});
+    Object.assign(state.sig,{key:'overlap',dir:-1,q:'',tier:'all',minOv:1,minLiq:0,hideClosed:false});
+    persist(); RENDER[state.tab](); toast('Filters reset'); };
+}
+initAutopoll(); initSettings(); startRefresh();
+showSkeleton(); load(true);
 </script>
 </body>
 </html>
