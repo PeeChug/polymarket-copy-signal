@@ -127,6 +127,7 @@
   .toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
   .tbtn { background:var(--panel2); border:1px solid var(--line); color:var(--text); font:inherit; font-size:13px; font-weight:600; border-radius:9px; padding:6px 11px; cursor:pointer; white-space:nowrap; }
   .tbtn:hover { border-color:var(--accent); text-decoration:none; }
+  .tbtn.on-acc { border-color:var(--green); color:var(--green); background:rgba(52,211,153,.08); }
   .spin { animation:spin .65s linear; } @keyframes spin { to{transform:rotate(360deg);} }
   .stale { background:linear-gradient(90deg,#3a1f10,#2a1a12); border:1px solid #663318; color:#f3c08a; border-radius:11px; padding:10px 14px; margin:14px 0 0; font-size:13px; display:none; }
   .stale.show { display:block; }
@@ -143,6 +144,7 @@
     <div class="meta" id="meta"></div>
     <button class="tbtn" id="refresh" title="Re-fetch the latest published data">↻ Refresh</button>
     <a class="tbtn" href="https://github.com/PeeChug/polymarket-copy-signal/actions/workflows/poller.yml" target="_blank" rel="noopener" title="Run the poller now on GitHub to fetch fresh data">⚡ Run poller ↗</a>
+    <button class="tbtn" id="autopoll" title="Trigger the poller every 15 min while this tab is open (uses a GitHub token stored only in this browser)">⏱ Auto-poll: off</button>
   </div>
   <nav class="tabs" id="tabs">
     <button data-tab="traders" class="on">Top Earners</button>
@@ -155,6 +157,18 @@
 <div class="wrap">
   <div class="banner">⚠️ <b>Measurement tool, not financial advice.</b> Leaderboard performance is backward-looking and survivorship-biased — a strong paper result is a reason to keep testing, not a guarantee.</div>
   <div class="stale" id="stale"></div>
+  <div id="tokenSetup" class="card" style="display:none;margin-top:14px">
+    <b>Enable auto-poll</b> — while this tab is open, the page will trigger the cloud poller every 15&nbsp;min.
+    It needs a GitHub token, <b>stored only in this browser</b> (localStorage) and never uploaded to the public site.
+    Create a <b>fine-grained</b> token with <b>Actions: Read and write</b> scoped to this one repo:
+    <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">create token ↗</a>
+    <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <input type="password" id="ghtok" placeholder="github_pat_…" style="flex:1;min-width:240px">
+      <button class="tbtn" id="ghtoksave">Save &amp; enable</button>
+      <button class="tbtn" id="ghtokcancel">Cancel</button>
+      <button class="tbtn" id="ghtokforget" style="margin-left:auto">Forget token</button>
+    </div>
+  </div>
   <section id="tab-traders" class="tab on"></section>
   <section id="tab-consensus" class="tab"></section>
   <section id="tab-performance" class="tab"></section>
@@ -522,7 +536,50 @@ function load(initial){
 }
 showSkeleton();
 load(true);
-setInterval(()=>load(false), 150000); // auto-refresh every 2.5 min
+setInterval(()=>load(false), 150000); // auto-refresh the VIEW every 2.5 min
+
+// ---- in-page auto-poll: trigger the cloud poller every 15 min while this tab is open ----
+// Uses a GitHub fine-grained token stored ONLY in this browser (localStorage); the public
+// site never contains it. GitHub API CORS allows this cross-origin workflow_dispatch.
+const GH_DISPATCH='https://api.github.com/repos/PeeChug/polymarket-copy-signal/actions/workflows/poller.yml/dispatches';
+let pokeTimer=null;
+const lsGet=(k,d='')=>{try{return localStorage.getItem(k)??d;}catch(e){return d;}};
+const lsSet=(k,v)=>{try{localStorage.setItem(k,v);}catch(e){}};
+const ghToken=()=>lsGet('pm_gh_token','');
+const autopollOn=()=>lsGet('pm_autopoll','0')==='1';
+async function pokePoller(){
+  const tok=ghToken(); if(!tok) return false;
+  try{
+    const r=await fetch(GH_DISPATCH,{method:'POST',headers:{'Authorization':'Bearer '+tok,'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'},body:JSON.stringify({ref:'main'})});
+    if(r.status===204){ lsSet('pm_lastpoke',String(Date.now())); renderAutopoll(); toast('⏱ Poller triggered — fresh data in ~1–2 min'); return true; }
+    toast(r.status===401||r.status===403?'Auto-poll: token rejected ('+r.status+') — needs Actions: write':'Auto-poll: trigger failed ('+r.status+')');
+  }catch(e){ toast('Auto-poll: network error'); }
+  return false;
+}
+function renderAutopoll(){ const b=document.getElementById('autopoll'); if(!b) return;
+  const on=autopollOn()&&!!ghToken(); b.classList.toggle('on-acc',on);
+  let label='⏱ Auto-poll: '+(on?'on':'off');
+  if(on){ const last=+lsGet('pm_lastpoke','0'); if(last){ label+=' · next ~'+Math.max(0,15-Math.floor((Date.now()-last)/60000))+'m'; } }
+  b.textContent=label;
+}
+function startPoke(){ clearInterval(pokeTimer); pokeTimer=setInterval(pokePoller,900000);
+  if(Date.now()-(+lsGet('pm_lastpoke','0'))>900000) pokePoller(); renderAutopoll(); }
+function stopPoke(){ clearInterval(pokeTimer); pokeTimer=null; renderAutopoll(); }
+function toggleAutopoll(){
+  if(autopollOn()){ lsSet('pm_autopoll','0'); stopPoke(); toast('Auto-poll off'); return; }
+  if(!ghToken()){ const p=document.getElementById('tokenSetup'); p.style.display='block'; document.getElementById('ghtok').focus(); return; }
+  lsSet('pm_autopoll','1'); startPoke(); toast('⏱ Auto-poll on — triggers every 15 min while this tab is open');
+}
+(function initAutopoll(){
+  const b=document.getElementById('autopoll'); if(b) b.onclick=toggleAutopoll;
+  const panel=document.getElementById('tokenSetup'), inp=document.getElementById('ghtok');
+  const save=document.getElementById('ghtoksave'), cancel=document.getElementById('ghtokcancel'), forget=document.getElementById('ghtokforget');
+  if(save) save.onclick=()=>{ const v=(inp.value||'').trim(); if(!v){toast('Paste a token first');return;} lsSet('pm_gh_token',v); inp.value=''; panel.style.display='none'; lsSet('pm_autopoll','1'); startPoke(); toast('Token saved (this browser only) · auto-poll on'); };
+  if(cancel) cancel.onclick=()=>{ panel.style.display='none'; };
+  if(forget) forget.onclick=()=>{ lsSet('pm_gh_token',''); lsSet('pm_autopoll','0'); stopPoke(); if(inp)inp.value=''; panel.style.display='none'; toast('Token forgotten'); };
+  if(autopollOn()&&ghToken()) startPoke(); else renderAutopoll();
+  setInterval(renderAutopoll,60000);
+})();
 </script>
 </body>
 </html>
