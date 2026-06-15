@@ -1,6 +1,6 @@
 # Dashboard dependencies (lives at the repo root so Streamlit Community Cloud
 # auto-detects it). The GitHub Actions poller does NOT use this file — it
 # installs poller/requirements.txt instead, keeping the two jobs decoupled.
-streamlit>=1.30
+streamlit>=1.49
 pandas>=2.0
 requests>=2.31

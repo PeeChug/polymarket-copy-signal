@@ -11,6 +11,7 @@ This app NEVER trades and never talks to Polymarket — it only reads the DB
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 
@@ -29,29 +30,47 @@ st.set_page_config(page_title="Polymarket Copy-Signal Tester", layout="wide")
 # --------------------------------------------------------------------------- #
 # Connection
 # --------------------------------------------------------------------------- #
+DEMO_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "demo_data.json")
+
+
 def _secret(name: str):
-    return st.secrets.get(name) or os.environ.get(name)
+    try:
+        v = st.secrets.get(name)
+    except Exception:
+        v = None  # no secrets.toml at all (local preview)
+    return v or os.environ.get(name)
+
+
+def has_secrets() -> bool:
+    return bool(_secret("SUPABASE_URL") and
+                (_secret("SUPABASE_KEY") or _secret("SUPABASE_SERVICE_ROLE_KEY")))
 
 
 @st.cache_resource
 def get_store() -> PostgrestStore:
-    url = _secret("SUPABASE_URL")
-    key = _secret("SUPABASE_KEY") or _secret("SUPABASE_SERVICE_ROLE_KEY")
-    if not url or not key:
-        st.error("Missing SUPABASE_URL / SUPABASE_KEY in app secrets.")
-        st.stop()
-    return PostgrestStore(url, key)
+    return PostgrestStore(_secret("SUPABASE_URL"),
+                          _secret("SUPABASE_KEY") or _secret("SUPABASE_SERVICE_ROLE_KEY"))
 
 
 @st.cache_data(ttl=120)
 def load_all():
-    s = get_store()
-    return {
-        "trades": s.all_trades(),
-        "observations": s.latest_observations(),
-        "leaderboard": s.latest_leaderboard(),
-        "config_rows": s.config_history(limit=50),
-    }
+    if has_secrets():
+        s = get_store()
+        return {
+            "trades": s.all_trades(),
+            "observations": s.latest_observations(),
+            "leaderboard": s.latest_leaderboard(),
+            "config_rows": s.config_history(limit=50),
+            "_demo": False,
+        }
+    # No Supabase configured -> fall back to bundled demo data so the dashboard
+    # is viewable with zero setup.
+    if os.path.exists(DEMO_PATH):
+        with open(DEMO_PATH) as fh:
+            d = json.load(fh)
+        d["_demo"] = True
+        return d
+    return None
 
 
 def fmt_money(v):
@@ -82,6 +101,14 @@ if c_top[0].button("🔄 Refresh"):
     st.rerun()
 
 data = load_all()
+if data is None:
+    st.error("No Supabase secrets found and no bundled demo data. Add SUPABASE_URL and "
+             "SUPABASE_KEY in the app's secrets to connect your database.")
+    st.stop()
+if data.get("_demo"):
+    st.info("🧪 **Demo preview** — showing bundled sample data, not live results. "
+            "Add your Supabase secrets (and run the poller) to see real paper trades.",
+            icon="🧪")
 trades = data["trades"]
 if not trades and not data["observations"]:
     st.info("No data yet. Run the poller (`python -m poller.main`, or trigger the "
@@ -137,7 +164,7 @@ def tier_row(label, m):
 
 
 tier_df = pd.DataFrame([tier_row("🟢 green", tiers["green"]), tier_row("🔵 blue", tiers["blue"])])
-st.dataframe(tier_df, hide_index=True, use_container_width=True)
+st.dataframe(tier_df, hide_index=True, width="stretch")
 
 
 # --------------------------------------------------------------------------- #
@@ -156,7 +183,7 @@ if open_rows:
         "Unrealized P&L": round(t["unrealized_pnl"], 2),
         "Opened": str(t.get("entry_at"))[:19],
     } for t in open_rows])
-    st.dataframe(df, hide_index=True, use_container_width=True)
+    st.dataframe(df, hide_index=True, width="stretch")
     st.caption(f"{len(open_rows)} open · marks updated each poll cycle (every ~30 min).")
 else:
     st.info("No open paper positions right now.")
@@ -178,7 +205,7 @@ if sig:
         "Holders": ", ".join(h for h in (o.get("holder_usernames") or []) if h) or
                    f"{len(o.get('holder_wallets') or [])} wallet(s)",
     } for o in sig])
-    st.dataframe(df, hide_index=True, use_container_width=True)
+    st.dataframe(df, hide_index=True, width="stretch")
 else:
     st.info("No observations yet.")
 
@@ -189,7 +216,7 @@ with st.expander("Current leaderboard cohort (latest snapshot)"):
             "Rank": e.get("rank"), "Trader": e.get("username") or e.get("wallet"),
             "30d P&L": fmt_money(e.get("pnl")), "Volume": fmt_money(e.get("volume")),
             "Wallet": e.get("wallet"),
-        } for e in lb]), hide_index=True, use_container_width=True)
+        } for e in lb]), hide_index=True, width="stretch")
     else:
         st.write("No leaderboard snapshot yet.")
 
@@ -236,10 +263,13 @@ with st.form("settings"):
             "price_source": price_source, "control_respects_guardrails": bool(control_guard),
             "source": "dashboard", "note": note or None,
         }
-        get_store().insert_config(payload)
-        st.cache_data.clear()
-        st.success("Saved. The next poller cycle will use these settings.")
+        if data.get("_demo"):
+            st.info("Demo preview — connect Supabase to enable saving settings.")
+        else:
+            get_store().insert_config(payload)
+            st.cache_data.clear()
+            st.success("Saved. The next poller cycle will use these settings.")
 
 with st.expander("Config history"):
     if data["config_rows"]:
-        st.dataframe(pd.DataFrame(data["config_rows"]), hide_index=True, use_container_width=True)
+        st.dataframe(pd.DataFrame(data["config_rows"]), hide_index=True, width="stretch")

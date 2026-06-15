@@ -1,0 +1,338 @@
+{
+  "_demo": true,
+  "trades": [
+    {
+      "strategy": "overlap",
+      "condition_id": "mGREEN",
+      "asset": "mGREEN",
+      "outcome": "Yes",
+      "outcome_index": 0,
+      "title": "Will the Fed cut rates in July 2026?",
+      "status": "CLOSED",
+      "entry_at": "2026-06-15T15:52:15.101547+00:00",
+      "entry_cycle_id": 1,
+      "entry_price": 0.3,
+      "stake_usd": 100,
+      "shares": 333.33333333333337,
+      "tier_at_entry": "green",
+      "overlap_at_entry": 5,
+      "holders_at_entry": [
+        "0x99aea8f9a64d0142b6b66a4b9d02a2211d45386f",
+        "0xf8831548531d56ad6a4331493243c447a827cd1f",
+        "0x26437896ed9dfeb2f69765edcafe8fdceaab39ae",
+        "0x2c335066fe58fe9237c3d3dc7b275c2a034a0563",
+        "0x8cb4ca0e0a8f6b9a4d3e2f1c0b9a8d7e6f5c4b3a"
+      ],
+      "marked_price": 1.0,
+      "marked_at": "2026-06-15T15:52:15.101860+00:00",
+      "unrealized_pnl": 0.0,
+      "id": 1,
+      "created_at": "2026-06-15T15:52:15.101550+00:00",
+      "updated_at": "2026-06-15T15:52:15.101888+00:00",
+      "exit_at": "2026-06-15T15:52:15.101858+00:00",
+      "exit_price": 1.0,
+      "realized_pnl": 233.33333333333334,
+      "close_reason": "resolved",
+      "resolved_won": true
+    },
+    {
+      "strategy": "overlap",
+      "condition_id": "mBLUE",
+      "asset": "mBLUE",
+      "outcome": "Yes",
+      "outcome_index": 0,
+      "title": "Will Team USA win Olympic gold in basketball?",
+      "status": "OPEN",
+      "entry_at": "2026-06-15T15:52:15.101557+00:00",
+      "entry_cycle_id": 1,
+      "entry_price": 0.45,
+      "stake_usd": 100,
+      "shares": 222.22222222222223,
+      "tier_at_entry": "blue",
+      "overlap_at_entry": 3,
+      "holders_at_entry": [
+        "0x99aea8f9a64d0142b6b66a4b9d02a2211d45386f",
+        "0xf8831548531d56ad6a4331493243c447a827cd1f",
+        "0x26437896ed9dfeb2f69765edcafe8fdceaab39ae"
+      ],
+      "marked_price": 0.62,
+      "marked_at": "2026-06-15T15:52:15.101891+00:00",
+      "unrealized_pnl": 37.77777777777778,
+      "id": 2,
+      "created_at": "2026-06-15T15:52:15.101561+00:00",
+      "updated_at": "2026-06-15T15:52:15.101892+00:00"
+    },
+    {
+      "strategy": "overlap",
+      "condition_id": "mBLUE2",
+      "asset": "mBLUE2",
+      "outcome": "Yes",
+      "outcome_index": 0,
+      "title": "Will it rain in NYC on July 4, 2026?",
+      "status": "CLOSED",
+      "entry_at": "2026-06-15T15:52:15.101566+00:00",
+      "entry_cycle_id": 1,
+      "entry_price": 0.6,
+      "stake_usd": 100,
+      "shares": 166.66666666666669,
+      "tier_at_entry": "blue",
+      "overlap_at_entry": 3,
+      "holders_at_entry": [
+        "0xf8831548531d56ad6a4331493243c447a827cd1f",
+        "0x26437896ed9dfeb2f69765edcafe8fdceaab39ae",
+        "0x2c335066fe58fe9237c3d3dc7b275c2a034a0563"
+      ],
+      "marked_price": 0.0,
+      "marked_at": "2026-06-15T15:52:15.101784+00:00",
+      "unrealized_pnl": 0.0,
+      "id": 3,
+      "created_at": "2026-06-15T15:52:15.101569+00:00",
+      "updated_at": "2026-06-15T15:52:15.101786+00:00",
+      "exit_at": "2026-06-15T15:52:15.101783+00:00",
+      "exit_price": 0.0,
+      "realized_pnl": -100.00000000000001,
+      "close_reason": "resolved",
+      "resolved_won": false
+    },
+    {
+      "strategy": "control",
+      "condition_id": "mLEADER",
+      "asset": "mLEADER",
+      "outcome": "Yes",
+      "outcome_index": 0,
+      "title": "Will BTC close above $150k this month?",
+      "status": "OPEN",
+      "entry_at": "2026-06-15T15:52:15.101573+00:00",
+      "entry_cycle_id": 1,
+      "entry_price": 0.5,
+      "stake_usd": 100,
+      "shares": 200.0,
+      "tier_at_entry": "none",
+      "overlap_at_entry": 1,
+      "holders_at_entry": [
+        "0x99aea8f9a64d0142b6b66a4b9d02a2211d45386f"
+      ],
+      "marked_price": 0.58,
+      "marked_at": "2026-06-15T15:52:15.101894+00:00",
+      "unrealized_pnl": 15.999999999999993,
+      "id": 4,
+      "created_at": "2026-06-15T15:52:15.101576+00:00",
+      "updated_at": "2026-06-15T15:52:15.101895+00:00"
+    },
+    {
+      "strategy": "control",
+      "condition_id": "mBLUE",
+      "asset": "mBLUE",
+      "outcome": "Yes",
+      "outcome_index": 0,
+      "title": "Will Team USA win Olympic gold in basketball?",
+      "status": "OPEN",
+      "entry_at": "2026-06-15T15:52:15.101579+00:00",
+      "entry_cycle_id": 1,
+      "entry_price": 0.45,
+      "stake_usd": 100,
+      "shares": 222.22222222222223,
+      "tier_at_entry": "blue",
+      "overlap_at_entry": 3,
+      "holders_at_entry": [
+        "0x99aea8f9a64d0142b6b66a4b9d02a2211d45386f",
+        "0xf8831548531d56ad6a4331493243c447a827cd1f",
+        "0x26437896ed9dfeb2f69765edcafe8fdceaab39ae"
+      ],
+      "marked_price": 0.62,
+      "marked_at": "2026-06-15T15:52:15.101896+00:00",
+      "unrealized_pnl": 37.77777777777778,
+      "id": 5,
+      "created_at": "2026-06-15T15:52:15.101581+00:00",
+      "updated_at": "2026-06-15T15:52:15.101897+00:00"
+    },
+    {
+      "strategy": "control",
+      "condition_id": "mGREEN",
+      "asset": "mGREEN",
+      "outcome": "Yes",
+      "outcome_index": 0,
+      "title": "Will the Fed cut rates in July 2026?",
+      "status": "CLOSED",
+      "entry_at": "2026-06-15T15:52:15.101585+00:00",
+      "entry_cycle_id": 1,
+      "entry_price": 0.3,
+      "stake_usd": 100,
+      "shares": 333.33333333333337,
+      "tier_at_entry": "green",
+      "overlap_at_entry": 5,
+      "holders_at_entry": [
+        "0x99aea8f9a64d0142b6b66a4b9d02a2211d45386f",
+        "0xf8831548531d56ad6a4331493243c447a827cd1f",
+        "0x26437896ed9dfeb2f69765edcafe8fdceaab39ae",
+        "0x2c335066fe58fe9237c3d3dc7b275c2a034a0563",
+        "0x8cb4ca0e0a8f6b9a4d3e2f1c0b9a8d7e6f5c4b3a"
+      ],
+      "marked_price": 1.0,
+      "marked_at": "2026-06-15T15:52:15.101899+00:00",
+      "unrealized_pnl": 0.0,
+      "id": 6,
+      "created_at": "2026-06-15T15:52:15.101587+00:00",
+      "updated_at": "2026-06-15T15:52:15.101900+00:00",
+      "exit_at": "2026-06-15T15:52:15.101898+00:00",
+      "exit_price": 1.0,
+      "realized_pnl": 233.33333333333334,
+      "close_reason": "resolved",
+      "resolved_won": true
+    }
+  ],
+  "observations": [
+    {
+      "cycle_id": 4,
+      "condition_id": "mBLUE",
+      "asset": "mBLUE",
+      "outcome": "Yes",
+      "outcome_index": 0,
+      "title": "Will Team USA win Olympic gold in basketball?",
+      "slug": "mBLUE",
+      "overlap": 3,
+      "tier": "blue",
+      "holder_wallets": [
+        "0x99aea8f9a64d0142b6b66a4b9d02a2211d45386f",
+        "0xf8831548531d56ad6a4331493243c447a827cd1f",
+        "0x26437896ed9dfeb2f69765edcafe8fdceaab39ae"
+      ],
+      "holder_usernames": [
+        "WhaleKing",
+        "Inaccuratestake",
+        "Latina"
+      ],
+      "holder_ranks": [
+        1,
+        2,
+        3
+      ],
+      "price": 0.62,
+      "liquidity": 80000,
+      "market_closed": false,
+      "market_active": true,
+      "end_date": "2026-07-01T00:00:00Z"
+    },
+    {
+      "cycle_id": 4,
+      "condition_id": "mLEADER",
+      "asset": "mLEADER",
+      "outcome": "Yes",
+      "outcome_index": 0,
+      "title": "Will BTC close above $150k this month?",
+      "slug": "mLEADER",
+      "overlap": 1,
+      "tier": "none",
+      "holder_wallets": [
+        "0x99aea8f9a64d0142b6b66a4b9d02a2211d45386f"
+      ],
+      "holder_usernames": [
+        "WhaleKing"
+      ],
+      "holder_ranks": [
+        1
+      ],
+      "price": 0.58,
+      "liquidity": 80000,
+      "market_closed": false,
+      "market_active": true,
+      "end_date": "2026-07-01T00:00:00Z"
+    },
+    {
+      "cycle_id": 4,
+      "condition_id": "mNONE",
+      "asset": "mNONE",
+      "outcome": "Yes",
+      "outcome_index": 0,
+      "title": "Will the new iPhone ship before October?",
+      "slug": "mNONE",
+      "overlap": 1,
+      "tier": "none",
+      "holder_wallets": [
+        "0x8cb4ca0e0a8f6b9a4d3e2f1c0b9a8d7e6f5c4b3a"
+      ],
+      "holder_usernames": [
+        "EdgeFinder"
+      ],
+      "holder_ranks": [
+        5
+      ],
+      "price": 0.13,
+      "liquidity": 80000,
+      "market_closed": false,
+      "market_active": true,
+      "end_date": "2026-07-01T00:00:00Z"
+    }
+  ],
+  "leaderboard": [
+    {
+      "cycle_id": 4,
+      "window": "MONTH",
+      "rank": 1,
+      "wallet": "0x99aea8f9a64d0142b6b66a4b9d02a2211d45386f",
+      "username": "WhaleKing",
+      "pnl": 5022101,
+      "volume": 20088404,
+      "in_cohort": true
+    },
+    {
+      "cycle_id": 4,
+      "window": "MONTH",
+      "rank": 2,
+      "wallet": "0xf8831548531d56ad6a4331493243c447a827cd1f",
+      "username": "Inaccuratestake",
+      "pnl": 3947667,
+      "volume": 15790668,
+      "in_cohort": true
+    },
+    {
+      "cycle_id": 4,
+      "window": "MONTH",
+      "rank": 3,
+      "wallet": "0x26437896ed9dfeb2f69765edcafe8fdceaab39ae",
+      "username": "Latina",
+      "pnl": 3720357,
+      "volume": 14881428,
+      "in_cohort": true
+    },
+    {
+      "cycle_id": 4,
+      "window": "MONTH",
+      "rank": 4,
+      "wallet": "0x2c335066fe58fe9237c3d3dc7b275c2a034a0563",
+      "username": "QuantQueen",
+      "pnl": 2810004,
+      "volume": 11240016,
+      "in_cohort": true
+    },
+    {
+      "cycle_id": 4,
+      "window": "MONTH",
+      "rank": 5,
+      "wallet": "0x8cb4ca0e0a8f6b9a4d3e2f1c0b9a8d7e6f5c4b3a",
+      "username": "EdgeFinder",
+      "pnl": 2100550,
+      "volume": 8402200,
+      "in_cohort": true
+    }
+  ],
+  "config_rows": [
+    {
+      "top_n": 5,
+      "leaderboard_window": "MONTH",
+      "size_threshold": 1,
+      "tier_green_min": 5,
+      "tier_blue_min": 3,
+      "min_liquidity": 1000,
+      "max_entry_price": 0.9,
+      "min_tier_to_trade": "blue",
+      "stake_usd": 100,
+      "price_source": "midpoint",
+      "control_respects_guardrails": true,
+      "source": "default-seed",
+      "note": "demo",
+      "id": 1,
+      "created_at": "2026-06-15T15:52:15.101315+00:00"
+    }
+  ]
+}
