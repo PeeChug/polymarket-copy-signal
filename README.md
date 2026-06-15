@@ -108,11 +108,11 @@ accounts, no secrets:
   site. It's a pure render-from-JSON page (the poller does the aggregation with
   the same tested code).
 
-> **Optional alternative backend.** A Supabase + Streamlit path also ships in the
-> repo (`PostgrestStore`, `dashboard/app.py`, `sql/schema.sql`) for a private
-> deployment with a live settings editor. If you set `SUPABASE_URL`/`SUPABASE_KEY`
-> as Actions secrets, the poller automatically uses Postgres instead of files.
-> See [Optional: private Supabase + Streamlit](#optional-private-supabase--streamlit).
+> **Supabase backend (hybrid).** Set `SUPABASE_URL`/`SUPABASE_KEY` Actions
+> secrets and the poller stores everything in Postgres (full queryable history,
+> no git bloat) while still publishing `docs/data.json` each cycle — so the same
+> GitHub-Pages dashboard keeps working unchanged. See
+> [Supabase backend (hybrid)](#supabase-backend-hybrid--keeps-the-same-dashboard).
 
 ### Repo layout
 
@@ -298,23 +298,37 @@ write-capable `service_role` key only in the scheduled job.
 
 ---
 
-## Optional: private Supabase + Streamlit
+## Supabase backend (hybrid — keeps the same dashboard)
 
-If you'd rather keep everything private (and don't mind a few minutes of setup
-plus signing in to two free services), the repo also supports a Postgres +
-Streamlit deployment:
+Point the poller at Supabase Postgres for the full, queryable history (no git
+bloat) while **keeping the existing GitHub-Pages dashboard** — each cycle the
+poller still publishes `docs/data.json` from Postgres, so nothing about the UI
+changes. Setup is ~3 minutes:
 
-1. **Supabase** — create a free project, run [`sql/schema.sql`](sql/schema.sql) in
-   the SQL Editor, and copy the Project URL + `service_role` key.
-2. **GitHub** — add `SUPABASE_URL` and `SUPABASE_KEY` as Actions secrets. The
-   poller detects them and writes to Postgres instead of files (the Pages site
-   then just stops updating; harmless). You can also make the repo private.
-3. **Streamlit Community Cloud** — deploy with main file `dashboard/app.py` and the
-   same two secrets (TOML). With no secrets it shows a bundled demo;
-   `streamlit run dashboard/app.py` works locally too.
+1. **Run the schema.** In your Supabase project → SQL Editor, paste and run
+   [`sql/schema.sql`](sql/schema.sql). It creates `config_history`, `cycles`,
+   `leaderboard_snapshots`, `observations`, `paper_trades`, and `kv_store` (the
+   accumulated dashboard trackers — the consensus-resolution watch, history
+   series, per-trader sparklines, agreement, and latest-traders snapshot).
+2. **Add two Actions secrets** (repo → Settings → Secrets and variables →
+   Actions): `SUPABASE_URL` = your Project URL (`https://xxxx.supabase.co`) and
+   `SUPABASE_KEY` = the **`service_role`** key (Project Settings → API). The
+   poller auto-detects them (`build_store`) and switches from files to Postgres
+   on the next run; with no secrets it falls back to the file store.
+3. That's it. The poller writes everything to Supabase, then commits
+   `docs/data.json` for Pages as before. Config edits from the dashboard
+   (Settings → Paper trading) still flow through `config.yaml` →
+   `sync_yaml_config` → a new `config_history` row, on this backend too.
 
-The Streamlit dashboard adds a live, writeable **Settings** editor (it inserts a
-new forward-only `config_history` row).
+Notes:
+- The `service_role` key is **secret and server-side only** — it lives in the
+  Actions secret and never touches the browser. It bypasses Row-Level Security,
+  which is why the poller can write. (Tables made via raw SQL have RLS off by
+  default; if you later expose the **anon** key to read from the browser,
+  enable RLS + read-only policies first.)
+- Optional **Streamlit** dashboard: deploy `dashboard/app.py` on Streamlit
+  Community Cloud with the same two secrets for a private, writeable settings UI
+  (`streamlit run dashboard/app.py` works locally too).
 
 ---
 

@@ -51,7 +51,7 @@ create table if not exists cycles (
     run_at          timestamptz not null default now(),
     config_id       bigint references config_history(id),
     top_n           int,
-    window          text,
+    "window"        text,                 -- quoted: WINDOW is a reserved keyword in Postgres
     n_traders       int     default 0,
     n_observations  int     default 0,
     n_signals       int     default 0,   -- observations that passed guardrails this cycle
@@ -70,7 +70,7 @@ create table if not exists leaderboard_snapshots (
     id            bigint generated always as identity primary key,
     cycle_id      bigint not null references cycles(id) on delete cascade,
     captured_at   timestamptz not null default now(),
-    window        text,
+    "window"      text,                 -- quoted: WINDOW is a reserved keyword in Postgres
     rank          int,
     wallet        text not null,
     username      text,
@@ -168,3 +168,17 @@ create unique index if not exists uq_open_trade
 create index if not exists ix_pt_strategy on paper_trades(strategy);
 create index if not exists ix_pt_status   on paper_trades(status);
 create index if not exists ix_pt_asset    on paper_trades(asset);
+
+-- ----------------------------------------------------------------------------
+-- 6. kv_store  — accumulated dashboard trackers as JSON blobs, mirroring the
+--    file-store's state.json: the consensus-resolution watch, the per-cycle
+--    history series, per-trader pnl sparklines, the agreement summary, and the
+--    latest per-trader snapshot. The poller reads-modifies-writes these each
+--    cycle; the dashboard payload is built from them. (The relational tables
+--    above stay the queryable empirical record.)
+-- ----------------------------------------------------------------------------
+create table if not exists kv_store (
+    key         text primary key,   -- consensus_watch | history | trader_series | agreement | latest_traders
+    value       jsonb not null,
+    updated_at  timestamptz not null default now()
+);

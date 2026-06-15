@@ -188,6 +188,55 @@ class PostgrestStore(Store):
     def all_trades(self):
         return self._select("paper_trades", order="id.asc")
 
+    def last_cycle(self):
+        rows = self._select("cycles", order="id.desc", limit=1)
+        return rows[0] if rows else None
+
+    # -- accumulated trackers (kv_store JSON blobs) -------------------------
+    def _kv_get(self, key, default):
+        rows = self._select("kv_store", select="value", key=f"eq.{key}", limit=1)
+        return rows[0]["value"] if rows else default
+
+    def _kv_set(self, key, value):
+        # PostgREST upsert on the primary key (`key`)
+        self._req("POST", "kv_store",
+                  body={"key": key, "value": value, "updated_at": _now_iso()},
+                  prefer="resolution=merge-duplicates,return=minimal")
+
+    def set_traders(self, rows):
+        self._kv_set("latest_traders", [dict(r) for r in rows])
+
+    def latest_traders(self):
+        return self._kv_get("latest_traders", [])
+
+    def append_history(self, rec):
+        h = self._kv_get("history", [])
+        h.append(rec)
+        if len(h) > 1500:
+            h = h[-1500:]
+        self._kv_set("history", h)
+
+    def history(self, limit=1000):
+        return self._kv_get("history", [])[-limit:]
+
+    def get_consensus_watch(self):
+        return self._kv_get("consensus_watch", {})
+
+    def set_consensus_watch(self, d):
+        self._kv_set("consensus_watch", d)
+
+    def get_trader_series(self):
+        return self._kv_get("trader_series", {})
+
+    def set_trader_series(self, d):
+        self._kv_set("trader_series", d)
+
+    def set_agreement(self, d):
+        self._kv_set("agreement", d)
+
+    def get_agreement(self):
+        return self._kv_get("agreement", {})
+
 
 # --------------------------------------------------------------------------- #
 # In-memory (dry-run + tests)
@@ -280,6 +329,9 @@ class MemoryStore(Store):
 
     def all_trades(self):
         return [dict(t) for t in self._trades]
+
+    def last_cycle(self):
+        return dict(self._cycles[-1]) if self._cycles else None
 
     def set_traders(self, rows):
         self._traders_snap = [dict(r) for r in rows]

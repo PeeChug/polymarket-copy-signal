@@ -55,14 +55,14 @@ def main(argv=None) -> int:
     print(f"== Polymarket copy-signal poller :: store={kind} ==")
     client = PolymarketClient()
 
-    # Forward-only settings editor for the file deployment: a changed config.yaml
-    # becomes a new config row applied to this and future cycles only.
-    if isinstance(store, FileStore) and sync_yaml_config(store, default_yaml_path()):
+    # Forward-only settings editor (file + Supabase backends): a changed
+    # config.yaml becomes a new config row applied to this + future cycles only.
+    if not args.dry_run and sync_yaml_config(store, default_yaml_path()):
         print("applied updated config.yaml as a new forward-only config row")
 
     # interval gate: the Action wakes every 5 min, but only work once the configured
     # poll_interval_minutes has elapsed (manual --force runs skip the gate).
-    if isinstance(store, FileStore) and not args.force:
+    if not args.dry_run and not args.force:
         last = store.last_cycle()
         interval = (store.latest_config() or {}).get("poll_interval_minutes") or 15
         if last and last.get("run_at"):
@@ -78,8 +78,9 @@ def main(argv=None) -> int:
 
     result = run_cycle(store, client)
 
-    # Publish the precomputed payload the static dashboard reads.
-    if isinstance(store, FileStore):
+    # Publish the precomputed payload the static dashboard reads (hybrid: with
+    # Supabase as the DB, the poller still commits docs/data.json for Pages).
+    if not args.dry_run:
         site_path = write_site(store, result, os.environ.get("DOCS_DIR", "docs"))
         print(f"wrote dashboard payload -> {site_path}")
 
