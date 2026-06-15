@@ -182,6 +182,26 @@ const holders=(o)=>{const n=(o.holder_usernames||[]).filter(Boolean);return n.le
 const sel=(id,label,opts,val)=>`<label class="fl">${label} <select id="${id}">${opts.map(o=>`<option value="${o[0]}"${o[0]==val?' selected':''}>${o[1]}</option>`).join('')}</select></label>`;
 function npCell(o,cohort){const n=o.overlap||0,p=o.participants||n||1,cls=o.tier==='green'?'strong':(o.tier==='blue'?'mod':'');
   return `<span class="agree ${cls}" title="${n} of ${p} holders are on this side · ${n} of ${cohort} cohort">${n}/${p}<span class="bar"><i style="width:${Math.min(100,n/Math.max(p,1)*100).toFixed(0)}%"></i></span></span>`;}
+const momCell=(m)=>{m=m||0;return m>0?`<span class="pos">▲${m}</span>`:m<0?`<span class="neg">▼${-m}</span>`:'<span class="muted">–</span>';};
+function edgeFor(o,cal){ if(!cal||o.price==null) return null; const ov=o.overlap||0;
+  const b=ov>=5?cal.ge5:ov>=3?cal.ge3:ov>=2?cal.ge2:null; if(!b||b.win_rate==null) return null; return b.win_rate-o.price; }
+function categoryOf(o){ const t=((o.title||'')+' '+(o.slug||'')).toLowerCase();
+  if(/\b(fed|rate cut|cpi|inflation|gdp|recession|economy|unemployment|jobs report|interest rate)\b/.test(t)) return 'Economics';
+  if(/\b(election|president|senate|governor|mayor|congress|parliament|prime minister|vote|democrat|republican|political|impeach|nominee)\b/.test(t)) return 'Politics';
+  if(/\b(btc|bitcoin|eth|ethereum|crypto|solana|sol|xrp|doge|coin|token|nft)\b/.test(t)) return 'Crypto';
+  if(/(\bvs\b|vs\.|\bmatch\b|\bcup\b|league|nba|nfl|mlb|nhl|soccer|football|tennis|win on 20|spread:|o\/u|over\/under|\bdraw\b|\bgame\b|olympic|grand prix)/.test(t)) return 'Sports';
+  return 'Other'; }
+function downloadCSV(name, rows, cols){ const q=s=>'"'+String(s==null?'':s).replace(/"/g,'""')+'"';
+  const csv=[cols.map(c=>q(c.label)).join(',')].concat(rows.map(r=>cols.map(c=>q(typeof c.get==='function'?c.get(r):r[c.key])).join(','))).join('\n');
+  const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'})); a.download=name; a.click(); }
+function persist(){ try{ localStorage.setItem('pm_state', JSON.stringify(state)); }catch(e){} }
+function changesPanel(d){ const ch=d.changes||{}; if(!((ch.new||[]).length||(ch.grown||[]).length||(ch.resolved||[]).length)) return null;
+  const li=(x,tail)=>`<li style="padding:3px 0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${mlink(x.slug,x.title,38)} <span class="muted">[${esc(x.outcome)}]</span> ${tail||''}</li>`;
+  const col=(t,items,r)=>`<div class="cbox"><div class="lvl">${t} (${items.length})</div>`+(items.length?`<ul style="list-style:none;margin:8px 0 0;padding:0;font-size:12.5px">${items.slice(0,6).map(r).join('')}</ul>`:`<div class="muted" style="font-size:12.5px;margin-top:6px">none this cycle</div>`)+`</div>`;
+  return $(`<div class="calib" style="margin-top:8px">
+    ${col('🆕 New', ch.new||[], x=>li(x,`<span class="muted">${x.overlap} hold</span>`))}
+    ${col('📈 Growing', ch.grown||[], x=>li(x,`<span class="pos">▲${x.momentum}</span>`))}
+    ${col('✅ Resolved', ch.resolved||[], x=>li(x, x.won?'<span class="pos">won</span>':'<span class="neg">lost</span>'))}</div>`); }
 
 // --- mini SVG charts (no deps) ---
 function lineChart(rows, series, {w=620,h=190,pad=34}={}){
@@ -246,7 +266,7 @@ function relAgo(iso){ if(!iso) return ''; const d=new Date(iso); if(isNaN(d.getT
 let DATA=null;
 const state={ tab:'traders',
   trd:{sort:'rank', show:12, q:'', sharedOnly:false, verifiedOnly:false},
-  cons:{key:'overlap',dir:-1,min:2,q:'',minLiq:0,due:0},
+  cons:{key:'overlap',dir:-1,min:2,q:'',minLiq:0,due:0,contest:'any',cat:'any'},
   sig:{key:'overlap',dir:-1,q:'',tier:'all',minOv:1,minLiq:0,hideClosed:false} };
 
 function metric(k,v,cls='',count){ const cv=(count!=null)?`<div class="v ${cls}" data-target="${Math.abs(count)}" data-neg="${count<0?1:0}" data-fmt="money">${money(0)}</div>`:`<div class="v ${cls}">${v}</div>`; return `<div class="metric"><div class="k">${k}</div>${cv}</div>`; }
@@ -322,60 +342,80 @@ function renderTraders(){
 function renderConsensus(){
   const d=DATA,el=document.getElementById('tab-consensus');el.innerHTML='';
   const ag=d.agreement||{},cohort=ag.cohort_size||(d.leaderboard||[]).length||'?';
+  const cfg=d.config||{},gmin=cfg.tier_green_min||10,bmin=cfg.tier_blue_min||5,cal=d.calibration||{};
   el.appendChild($(`<h2>🤝 Where the top ${cohort} earners agree</h2>`));
-  el.appendChild($(`<p class="sub">Every position compared against each other. More earners independently holding the same market+outcome = stronger agreement = a stronger copy signal. <b>🟢 green = ≥5 of ${cohort} · 🔵 blue = ≥3.</b></p>`));
-  el.appendChild($(`<div class="chips"><span class="chip">👀 <b>${cohort}</b> earners</span><span class="chip">📊 <b>${ag.positions??'—'}</b> distinct positions</span><span class="chip">🤝 <b>${ag.ge2??0}</b> by ≥2</span><span class="chip">🔵 <b>${ag.ge3??0}</b> by ≥3</span><span class="chip">🟢 <b>${ag.ge5??0}</b> by ≥5</span><span class="chip">top <b>${ag.max_overlap??0}/${cohort}</b></span></div>`));
+  el.appendChild($(`<p class="sub">Agreement = <b>holders on this side / holders of this market</b> (e.g. 4/5 = 4 of the 5 cohort traders in this market are on the same outcome). Tier is the absolute count: <b>🟢 green ≥${gmin} · 🔵 blue ≥${bmin}</b>.</p>`));
+  el.appendChild($(`<div class="chips"><span class="chip">👀 <b>${cohort}</b> earners</span><span class="chip">📊 <b>${ag.positions??'—'}</b> positions</span><span class="chip">🤝 <b>${ag.ge2??0}</b> by ≥2</span><span class="chip">🔵 <b>${ag.ge3??0}</b> by ≥3</span><span class="chip">🟢 <b>${ag.ge5??0}</b> by ≥5</span><span class="chip">top <b>${ag.max_overlap??0}/${cohort}</b></span></div>`));
 
-  // hit-rate / calibration
+  const cp=changesPanel(d);
+  if(cp){ el.appendChild($(`<h2 style="margin-top:22px">What changed this cycle</h2>`)); el.appendChild(cp); }
+
   el.appendChild($(`<h2 style="margin-top:24px">Consensus hit-rate <span class="muted" style="font-size:13px;font-weight:400">— do high-agreement positions actually win?</span></h2>`));
-  const cal=d.calibration||{};
   const cbox=(lvl,c)=>`<div class="cbox"><div class="lvl">${lvl}</div>
     <div class="big ${c.win_rate==null?'muted':(c.win_rate>=0.5?'pos':'neg')}">${c.win_rate==null?'—':pct(c.win_rate)}</div>
     <div class="muted" style="font-size:12.5px">${c.resolved||0} resolved of ${c.tracking||0} tracked${c.avg_return!=null?` · avg return ${pct(c.avg_return)}`:''}</div></div>`;
-  el.appendChild($(`<div class="calib">${cbox('≥2 agree',cal.ge2||{})}${cbox('≥3 agree (blue)',cal.ge3||{})}${cbox('≥5 agree (green)',cal.ge5||{})}</div>`));
-  el.appendChild($(`<p class="sub" style="margin-top:8px">Win-rate of consensus positions once their market resolves, bucketed by the strongest agreement they reached. This is the core test of the hypothesis — it fills in as markets settle.</p>`));
+  el.appendChild($(`<div class="calib">${cbox('≥2 agree',cal.ge2||{})}${cbox('≥3 agree',cal.ge3||{})}${cbox('≥5 agree',cal.ge5||{})}</div>`));
+  el.appendChild($(`<p class="sub" style="margin-top:8px">Win-rate once markets resolve, by strongest agreement reached — fills in over days. Where it exists it powers the <b>Edge</b> column below (win-rate − price = how underpriced the consensus looks).</p>`));
 
-  // agreement over time
   if((d.history||[]).length>=2){
     el.appendChild($(`<h2 style="margin-top:24px">Agreement over time</h2>`));
     el.appendChild($(lineChart(d.history,[{key:'ge2',color:'var(--blue)',label:'held by ≥2'},{key:'ge3',color:'var(--green)',label:'held by ≥3'}])));
   }
 
-  // consensus table — slider + market search + liquidity filter + sortable
   el.appendChild($(`<h2 style="margin-top:24px">Consensus positions</h2>`));
-  el.appendChild($(`<p class="sub">Agreement = <b>holders on this side / holders of this market</b> (e.g. 4/5 means 4 of the 5 cohort traders who took a position in this market are on the same outcome). Hover a value for the cohort-wide count.</p>`));
   const maxc=(cohort==='?'?20:cohort);
+  const cats=['any'].concat(Array.from(new Set((d.consensus||[]).map(categoryOf))).sort());
   const tb=$(`<div class="toolbar">
     <label class="fl">Min agreement <b id="cv">${state.cons.min}</b> <input type="range" id="cslider" min="2" max="${maxc}" value="${Math.min(state.cons.min,maxc)}"></label>
     <input type="search" id="cq" placeholder="Search market…" value="${esc(state.cons.q)}">
-    ${sel('cliq','Min liquidity',[['0','any'],['1000','$1k'],['10000','$10k'],['100000','$100k']],String(state.cons.minLiq))}
-    ${sel('cdue','Resolves',[['0','any'],['7','≤ 7d'],['30','≤ 30d']],String(state.cons.due))}
+    ${sel('cliq','Min liq',[['0','any'],['1000','$1k'],['10000','$10k'],['100000','$100k']],String(state.cons.minLiq))}
+    ${sel('cdue','Resolves',[['0','any'],['7','≤7d'],['30','≤30d']],String(state.cons.due))}
+    ${sel('ccontest','Conviction',[['any','any'],['unanimous','unanimous'],['contested','contested']],state.cons.contest)}
+    ${sel('ccat','Category',cats.map(c=>[c,c]),state.cons.cat)}
+    <button class="tbtn" id="ccsv">⬇ CSV</button>
     <span class="muted" id="ccount"></span></div>`);
   el.appendChild(tb);
   const host=$(`<div></div>`); el.appendChild(host);
+  let filtered=[];
   function draw(){
+    persist();
     const q=state.cons.q.toLowerCase(), dueMax=state.cons.due;
-    let rows=(d.consensus||[]).filter(o=>(o.overlap||0)>=state.cons.min
-        &&(o.liquidity==null||o.liquidity>=state.cons.minLiq)&&(!q||(o.title||'').toLowerCase().includes(q)))
-      .map(o=>{const rd=relDate(o.end_date);
-        return {overlap:o.overlap||0, _agree:npCell(o,cohort), tier:tagEl(o.tier), market:mlink(o.slug,o.title),
-        outcome:esc(o.outcome), price:o.price==null?0:o.price, _price:o.price==null?'—':round(o.price),
-        liquidity:o.liquidity==null?0:o.liquidity, _liq:o.liquidity==null?'—':('$'+Math.round(o.liquidity).toLocaleString()),
-        rts:rd?rd.ts:Infinity, _res:rd?`<span class="due ${rd.cls}">${rd.txt}</span>`:'—',
-        since:o.first_seen?relAgo(o.first_seen):'—', earners:holders(o)};});
-    if(dueMax) rows=rows.filter(r=>r.rts!==Infinity && r.rts>=Date.now() && r.rts<=Date.now()+dueMax*86400000);
+    filtered=(d.consensus||[]).filter(o=>{
+      if((o.overlap||0)<state.cons.min) return false;
+      if(!(o.liquidity==null||o.liquidity>=state.cons.minLiq)) return false;
+      if(q&&!(o.title||'').toLowerCase().includes(q)) return false;
+      if(state.cons.cat!=='any'&&categoryOf(o)!==state.cons.cat) return false;
+      const p=o.participants||o.overlap||1;
+      if(state.cons.contest==='unanimous'&&o.overlap<p) return false;
+      if(state.cons.contest==='contested'&&o.overlap>=p) return false;
+      if(dueMax){const rd=relDate(o.end_date); if(!(rd&&rd.ts>=Date.now()&&rd.ts<=Date.now()+dueMax*86400000)) return false;}
+      return true;
+    });
+    let rows=filtered.map(o=>{const rd=relDate(o.end_date),e=edgeFor(o,cal);
+      return {overlap:o.overlap||0, mom:o.momentum||0, edge:e==null?-Infinity:e,
+        _agree:npCell(o,cohort), _mom:momCell(o.momentum), _edge:e==null?'<span class="muted">—</span>':`<span class="${e>=0?'pos':'neg'}">${e>=0?'+':''}${(e*100).toFixed(0)}%</span>`,
+        tier:tagEl(o.tier), market:mlink(o.slug,o.title), outcome:esc(o.outcome),
+        price:o.price==null?0:o.price, _price:o.price==null?'—':round(o.price),
+        rts:rd?rd.ts:Infinity, _res:rd?`<span class="due ${rd.cls}">${rd.txt}</span>`:'—', earners:holders(o)};});
     rows=sortRows(rows,state.cons.key,state.cons.dir);
-    const t=tableEl([{key:'_agree',label:'Agreement',sortKey:'overlap',num:1},{key:'tier',label:'Tier'},{key:'market',label:'Market'},
-      {key:'outcome',label:'Outcome'},{key:'_price',label:'Price',sortKey:'price',num:1},{key:'_liq',label:'Liquidity',sortKey:'liquidity',num:1},
-      {key:'_res',label:'Resolves',sortKey:'rts',num:1},{key:'since',label:'Agreed'},{key:'earners',label:'Which earners hold it'}],rows,state.cons,
+    const t=tableEl([{key:'_agree',label:'Agreement',sortKey:'overlap',num:1},{key:'_mom',label:'Mom',sortKey:'mom',num:1},
+      {key:'_edge',label:'Edge',sortKey:'edge',num:1},{key:'tier',label:'Tier'},{key:'market',label:'Market'},
+      {key:'outcome',label:'Outcome'},{key:'_price',label:'Price',sortKey:'price',num:1},
+      {key:'_res',label:'Resolves',sortKey:'rts',num:1},{key:'earners',label:'Which earners hold it'}],rows,state.cons,
       k=>{state.cons.dir=state.cons.key===k?-state.cons.dir:-1;state.cons.key=k;draw();});
     host.innerHTML=''; host.appendChild(t||$(`<div class="empty">No positions match these filters.</div>`));
-    tb.querySelector('#ccount').textContent=`${rows.length} shown`;
+    tb.querySelector('#ccount').textContent=`${filtered.length} shown`;
   }
   tb.querySelector('#cslider').oninput=e=>{state.cons.min=+e.target.value;tb.querySelector('#cv').textContent=state.cons.min;draw();};
   tb.querySelector('#cq').oninput=e=>{state.cons.q=e.target.value;draw();};
   tb.querySelector('#cliq').onchange=e=>{state.cons.minLiq=+e.target.value;draw();};
   tb.querySelector('#cdue').onchange=e=>{state.cons.due=+e.target.value;draw();};
+  tb.querySelector('#ccontest').onchange=e=>{state.cons.contest=e.target.value;draw();};
+  tb.querySelector('#ccat').onchange=e=>{state.cons.cat=e.target.value;draw();};
+  tb.querySelector('#ccsv').onclick=()=>downloadCSV('consensus.csv',filtered,[
+    {label:'agreement',get:o=>`${o.overlap}/${o.participants||o.overlap}`},{label:'overlap',key:'overlap'},{label:'participants',key:'participants'},
+    {label:'tier',key:'tier'},{label:'momentum',key:'momentum'},{label:'market',key:'title'},{label:'outcome',key:'outcome'},
+    {label:'price',key:'price'},{label:'liquidity',key:'liquidity'},{label:'category',get:categoryOf},{label:'resolves',key:'end_date'}]);
   draw();
 }
 
@@ -389,11 +429,14 @@ function renderPerformance(){
     el.appendChild($(`<h2 style="margin-top:30px">Cumulative net P&L over time</h2>`));
     el.appendChild($(lineChart(d.history,[{key:'ov_net',color:'var(--green)',label:'Overlap'},{key:'ct_net',color:'var(--muted)',label:'Control'}])));
   }
-  el.appendChild($(`<h2 style="margin-top:30px">By tier — does green beat blue?</h2>`));
-  const tr=(lab,m)=>({tier:lab,open:m.open_count,closed:m.closed_count,win:pct(m.win_rate),
-    real:`<span class="${sgn(m.realized_pnl)}">${money(m.realized_pnl)}</span>`,unreal:`<span class="${sgn(m.unrealized_pnl)}">${money(m.unrealized_pnl)}</span>`,
-    net:`<span class="${sgn(m.net_pnl)}">${money(m.net_pnl)}</span>`,roi:pct(m.roi_realized)});
-  el.appendChild(tableEl([{key:'tier',label:'Tier'},{key:'open',label:'Open',num:1},{key:'closed',label:'Closed',num:1},{key:'win',label:'Win rate',num:1},{key:'real',label:'Realized',num:1},{key:'unreal',label:'Unrealized',num:1},{key:'net',label:'Net P&L',num:1},{key:'roi',label:'ROI',num:1}],[tr('🟢 green',d.tiers.green),tr('🔵 blue',d.tiers.blue)]));
+  el.appendChild($(`<h2 style="margin-top:30px">P&L by tier — does 🟢 green beat 🔵 blue?</h2>`));
+  el.appendChild($(`<p class="sub">The overlap strategy's paper P&L split by the tier each trade entered at — so you can see whether stronger agreement actually pays.</p>`));
+  const tierCards=$(`<div class="grid grid2">${perfCard('🟢 Green tier',d.tiers.green)}${perfCard('🔵 Blue tier',d.tiers.blue)}</div>`);
+  el.appendChild(tierCards); runCountups(tierCards);
+  if((d.history||[]).some(h=>h.green_net!=null||h.blue_net!=null)){
+    el.appendChild($(`<h2 style="margin-top:24px">Green vs. blue net P&L over time</h2>`));
+    el.appendChild($(lineChart(d.history,[{key:'green_net',color:'var(--green)',label:'Green'},{key:'blue_net',color:'var(--blue)',label:'Blue'}])));
+  }
   el.appendChild($(`<h2 style="margin-top:30px">Open paper positions</h2>`));
   const op=(d.open_positions||[]).map(t=>({strat:tagEl(t.strategy),tier:tagEl(t.tier_at_entry),market:mlink(t.slug,t.title,52),outcome:esc(t.outcome),ov:t.overlap_at_entry,entry:round(t.entry_price),mark:t.marked_price==null?'—':round(t.marked_price),upnl:`<span class="${sgn(t.unrealized_pnl)}">${money(t.unrealized_pnl)}</span>`,opened:esc(String(t.entry_at||'').slice(0,16).replace('T',' '))}));
   el.appendChild(tableEl([{key:'strat',label:'Strategy'},{key:'tier',label:'Tier'},{key:'market',label:'Market'},{key:'outcome',label:'Outcome'},{key:'ov',label:'Overlap@entry',num:1},{key:'entry',label:'Entry',num:1},{key:'mark',label:'Mark',num:1},{key:'upnl',label:'Unrealized',num:1},{key:'opened',label:'Opened'}],op)||$(`<div class="empty">No open paper positions right now.</div>`));
@@ -474,6 +517,8 @@ function load(initial){
   return fetch('./data.json?t='+Date.now()).then(r=>{if(!r.ok)throw new Error('no data');return r.json();}).then(d=>{
     const fresh=d.generated_at!==lastGen;
     DATA=d; if(initial){
+      try{ const saved=JSON.parse(localStorage.getItem('pm_state')||'{}');
+        ['trd','cons','sig'].forEach(k=>{ if(saved[k]) Object.assign(state[k],saved[k]); }); }catch(e){}
       const want=(location.hash||'').replace('#','')||(()=>{try{return localStorage.getItem('pm_tab');}catch(e){return null;}})()||'traders';
       state.tab=RENDER[want]?want:'traders';
       document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('on',b.dataset.tab===state.tab));

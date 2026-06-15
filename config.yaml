@@ -15,6 +15,11 @@ top_n: 50                      # watch the top N earners on the profit leaderboa
 leaderboard_window: MONTH      # DAY | WEEK | MONTH | ALL  (MONTH = the 30-day "monthly winners")
 size_threshold: 1              # ignore dust: a wallet must hold at least this position size to count
 
+# How often the poller actually does work. The GitHub Action wakes every 5 min;
+# it only fetches + commits once this many minutes have elapsed. 5 | 10 | 15 | 30.
+# (Repo is public => unlimited Actions minutes; faster = more frequent commits.)
+poll_interval_minutes: 15
+
 # --- tiering (overlap -> tier) ----------------------------------------------
 # overlap = how many of the top N earners independently hold the SAME position
 # (same market + same outcome). The dashboard also shows overlap / "participants"

@@ -16,7 +16,7 @@ from typing import Optional
 
 # Fields the dashboard is allowed to edit / that live in config_history.
 _CONFIG_FIELDS = (
-    "top_n", "leaderboard_window", "size_threshold",
+    "top_n", "leaderboard_window", "size_threshold", "poll_interval_minutes",
     "tier_green_min", "tier_blue_min",
     "min_liquidity", "max_entry_price", "min_tier_to_trade",
     "stake_usd", "price_source", "control_respects_guardrails",
@@ -30,6 +30,7 @@ class Config:
     top_n: int = 5
     leaderboard_window: str = "MONTH"
     size_threshold: float = 1.0
+    poll_interval_minutes: int = 15
 
     tier_green_min: int = 5
     tier_blue_min: int = 3

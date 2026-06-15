@@ -16,6 +16,7 @@ import argparse
 import json
 import os
 import sys
+from datetime import datetime, timezone
 
 # allow `python -m poller.main` from the repo root and direct execution
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -44,6 +45,8 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="Polymarket copy-signal poller (read-only).")
     ap.add_argument("--dry-run", action="store_true",
                     help="Run a full live cycle with an in-memory store; write nothing.")
+    ap.add_argument("--force", action="store_true",
+                    help="Ignore the poll_interval_minutes gate (used by manual runs).")
     ap.add_argument("--dump", metavar="FILE",
                     help="(dry-run) write the resulting in-memory tables to FILE as JSON.")
     args = ap.parse_args(argv)
@@ -56,6 +59,22 @@ def main(argv=None) -> int:
     # becomes a new config row applied to this and future cycles only.
     if isinstance(store, FileStore) and sync_yaml_config(store, default_yaml_path()):
         print("applied updated config.yaml as a new forward-only config row")
+
+    # interval gate: the Action wakes every 5 min, but only work once the configured
+    # poll_interval_minutes has elapsed (manual --force runs skip the gate).
+    if isinstance(store, FileStore) and not args.force:
+        last = store.last_cycle()
+        interval = (store.latest_config() or {}).get("poll_interval_minutes") or 15
+        if last and last.get("run_at"):
+            try:
+                elapsed = (datetime.now(timezone.utc)
+                           - datetime.fromisoformat(last["run_at"])).total_seconds() / 60
+                if elapsed < interval - 1.5:  # tolerance for cron jitter
+                    print(f"skip: {elapsed:.1f} min since last cycle (interval {interval}m); "
+                          f"use --force to override.")
+                    return 0
+            except (ValueError, TypeError):
+                pass
 
     result = run_cycle(store, client)
 

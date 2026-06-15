@@ -290,10 +290,16 @@ def _update_trackers(store, cohort, observed, market_map, now_iso):
                 "condition_id": ov.condition_id, "outcome_index": ov.outcome_index,
                 "title": ov.title, "outcome": ov.outcome, "slug": ov.slug,
                 "first_seen": now_iso, "first_price": price,
-                "first_overlap": ov.overlap, "max_overlap": ov.overlap, "resolved": False,
+                "first_overlap": ov.overlap, "max_overlap": ov.overlap,
+                "cur_overlap": ov.overlap, "prev_overlap": ov.overlap, "momentum": 0,
+                "last_seen": now_iso, "resolved": False,
             }
         else:
+            w["prev_overlap"] = w.get("cur_overlap", ov.overlap)
+            w["cur_overlap"] = ov.overlap
+            w["momentum"] = ov.overlap - w["prev_overlap"]   # change since last time seen
             w["max_overlap"] = max(w.get("max_overlap", 0), ov.overlap)
+            w["last_seen"] = now_iso
             if not w.get("first_price") and price:
                 w["first_price"] = price
     # resolve any watched position whose market has closed

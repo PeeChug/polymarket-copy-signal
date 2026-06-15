@@ -5,7 +5,9 @@ name: poller
 # GitHub Pages (serving /docs on main) redeploys automatically on each push.
 on:
   schedule:
-    - cron: "*/30 * * * *"   # every 30 min (UTC). GitHub may delay under load.
+    # Wake every 5 min; the poller itself only works once `poll_interval_minutes`
+    # has elapsed (configurable 5/10/15/30). Public repo => unlimited Actions minutes.
+    - cron: "*/5 * * * *"
   workflow_dispatch:
     inputs:
       dry_run:
@@ -46,8 +48,10 @@ jobs:
         run: |
           if [ "${{ inputs.dry_run }}" = "true" ]; then
             python -m poller.main --dry-run
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            python -m poller.main --force   # manual run always works, ignoring the interval gate
           else
-            python -m poller.main
+            python -m poller.main           # scheduled: gated by poll_interval_minutes
           fi
 
       - name: Commit updated data & dashboard

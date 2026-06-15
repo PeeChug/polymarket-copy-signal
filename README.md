@@ -135,7 +135,7 @@ poller/
   engine.py                  # one run_cycle(): the whole job
   publish.py                 # writes docs/data.json for the static dashboard
   main.py                    # entry point; --dry-run; picks the store backend
-  alerts.py                  # alert SEAM (intentionally a no-op for now)
+  alerts.py                  # Telegram alert on new green/blue trade (opt-in via TELEGRAM_* secrets)
 scripts/make_demo_data.py    # generates sample data for the Streamlit demo mode
 dashboard/app.py             # optional Streamlit dashboard (Supabase path)
 requirements.txt             # optional Streamlit-dashboard deps (repo root)
@@ -220,11 +220,12 @@ thing by inserting a new `config_history` row instead of editing `config.yaml`.)
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `top_n` | 5 | Number of leaderboard traders in the cohort. |
+| `top_n` | 50 | Number of leaderboard earners in the cohort (API max 50). |
 | `leaderboard_window` | `MONTH` | `DAY`/`WEEK`/`MONTH`/`ALL`. |
+| `poll_interval_minutes` | 15 | How often the poller actually works (5/10/15/30); the Action wakes every 5 min. |
 | `size_threshold` | 1 | Min position size to count a holding (ignore dust). |
-| `tier_green_min` | 5 | Overlap ≥ this → green (default: all N). |
-| `tier_blue_min` | 3 | Overlap ≥ this → blue. |
+| `tier_green_min` | 10 | Overlap ≥ this → green (strong). |
+| `tier_blue_min` | 5 | Overlap ≥ this → blue (moderate). |
 | `min_liquidity` | 1000 | USD liquidity floor. |
 | `max_entry_price` | 0.90 | Skip near-resolution positions. |
 | `min_tier_to_trade` | `blue` | `blue` (trade blue+green) or `green` (green only). |
@@ -319,11 +320,13 @@ new forward-only `config_history` row).
 
 ## Extending later (out of scope now)
 
-No real trading, order placement, or automated execution — by design. A
-phone/Telegram alert layer may come later: the clean seam already exists at
-[`poller/alerts.py`](poller/alerts.py) → `notify_trade_opened(trade, cfg)`, which
-the engine calls once whenever a new green/blue overlap trade opens. It's a no-op
-today (zero extra deps/secrets); wiring up Telegram is a one-function change.
+No real trading, order placement, or automated execution — by design.
+
+**Telegram alerts** are implemented in [`poller/alerts.py`](poller/alerts.py) and
+fire when a new green/blue overlap paper trade opens — but only if you opt in by
+adding `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` as Actions secrets. With no
+secrets set it stays a pure no-op (zero extra deps), so nothing changes until you
+enable it.
 
 ---
 

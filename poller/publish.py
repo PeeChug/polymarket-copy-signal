@@ -34,6 +34,7 @@ def write_site(store, run_result: dict, docs_dir: str = "docs") -> str:
         "ov_unreal": perf["overlap"]["unrealized_pnl"],
         "ct_net": perf["control"]["net_pnl"], "ct_real": perf["control"]["realized_pnl"],
         "ct_unreal": perf["control"]["unrealized_pnl"],
+        "green_net": payload["tiers"]["green"]["net_pnl"], "blue_net": payload["tiers"]["blue"]["net_pnl"],
         "ge2": ag.get("ge2"), "ge3": ag.get("ge3"), "ge5": ag.get("ge5"),
         "max_overlap": ag.get("max_overlap"), "positions": ag.get("positions"),
     })
@@ -51,6 +52,30 @@ def write_site(store, run_result: dict, docs_dir: str = "docs") -> str:
         if w:
             r["first_seen"] = w.get("first_seen")
             r["peak_overlap"] = w.get("max_overlap")
+            r["momentum"] = w.get("momentum", 0)
+
+    # "what changed" this cycle: new / growing / resolved consensus (recent activity)
+    now = datetime.now(timezone.utc)
+
+    def _recent(ts, mins=5):
+        try:
+            return bool(ts) and (now - datetime.fromisoformat(ts)).total_seconds() <= mins * 60
+        except (ValueError, TypeError):
+            return False
+
+    changes = {"new": [], "grown": [], "resolved": []}
+    for w in watch.values():
+        base = {"title": w.get("title"), "outcome": w.get("outcome"), "slug": w.get("slug"),
+                "overlap": w.get("cur_overlap", w.get("max_overlap")), "momentum": w.get("momentum", 0)}
+        if _recent(w.get("resolved_at")):
+            changes["resolved"].append({**base, "won": w.get("won")})
+        elif _recent(w.get("first_seen")):
+            changes["new"].append(base)
+        elif _recent(w.get("last_seen")) and w.get("momentum", 0) > 0:
+            changes["grown"].append(base)
+    changes["new"].sort(key=lambda x: x["overlap"], reverse=True)
+    changes["grown"].sort(key=lambda x: x["momentum"], reverse=True)
+    payload["changes"] = {k: v[:20] for k, v in changes.items()}
 
     path = os.path.join(docs_dir, "data.json")
     tmp = path + ".tmp"
