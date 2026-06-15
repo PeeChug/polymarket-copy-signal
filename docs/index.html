@@ -171,6 +171,14 @@
   .pickbtn.has { border-color:var(--green); color:var(--green); }
   .sharpb { font-size:11px; padding:1px 7px; border-radius:999px; background:var(--panel2); border:1px solid var(--line); color:var(--muted); font-weight:700; }
   .sharpb.good { color:var(--green); border-color:var(--green); background:var(--green-d); }
+  .qp { display:inline-flex; gap:4px; margin-left:5px; }
+  .cqp { padding:3px 8px; font-size:12px; }
+  details.howto { background:linear-gradient(180deg,var(--panel),var(--bg2)); border:1px solid var(--line); border-radius:12px; padding:13px 16px; margin:6px 0 16px; }
+  details.howto summary { cursor:pointer; font-weight:600; font-size:14px; color:var(--accent); list-style:none; }
+  details.howto summary::-webkit-details-marker { display:none; }
+  details.howto summary:after { content:" ▾"; color:var(--dim); } details.howto[open] summary:after { content:" ▴"; }
+  details.howto .howbody { font-size:13.5px; margin-top:10px; }
+  details.howto ol { margin:8px 0; padding-left:20px; } details.howto li { margin:6px 0; }
   /* flash-on-change */
   @keyframes flup { 0%{background:rgba(52,211,153,.32);} 100%{background:transparent;} }
   @keyframes fldn { 0%{background:rgba(251,106,106,.32);} 100%{background:transparent;} }
@@ -213,13 +221,12 @@
     <button data-tab="buy">🛒 Buy Candidates</button>
     <button data-tab="picks">📌 My Picks</button>
     <button data-tab="performance">Performance</button>
-    <button data-tab="backtest">📈 Backtest</button>
+    <button data-tab="backtest">📜 History</button>
     <button data-tab="signals">All Signals</button>
   </nav>
 </header>
 
 <div class="wrap">
-  <div class="banner">⚠️ <b>Measurement tool, not financial advice.</b> Leaderboard performance is backward-looking and survivorship-biased — a strong paper result is a reason to keep testing, not a guarantee.</div>
   <div class="stale" id="stale"></div>
   <div id="tokenSetup" class="card" style="display:none;margin-top:14px">
     <b>Enable auto-poll</b> — while this tab is open, the page will trigger the cloud poller every 15&nbsp;min.
@@ -258,6 +265,15 @@
     <select id="setTheme"><option value="dark">dark</option><option value="light">light</option></select></div>
   <div class="row"><label class="fl" style="font-size:13px"><input type="checkbox" id="setNotify"> 🔔 Notify on new strong consensus (≥5)</label>
     <div class="muted" style="font-size:11.5px;margin-top:4px">Desktop notifications while this tab is open. Needs browser permission.</div></div>
+  <h3>Paper trading <span class="muted" style="font-size:11px;font-weight:400">— what it simulates</span></h3>
+  <div class="row"><label>Trade which tiers</label>
+    <select id="ptTier"><option value="blue">🔵 blue + 🟢 green</option><option value="green">🟢 green only</option></select></div>
+  <div class="row"><label>Stake per trade ($)</label><input type="number" id="ptStake" min="1" step="10"></div>
+  <div class="row"><label>🟢 Green threshold (≥ earners agree)</label><input type="number" id="ptGreen" min="2" step="1"></div>
+  <div class="row"><label>🔵 Blue threshold (≥ earners agree)</label><input type="number" id="ptBlue" min="2" step="1"></div>
+  <div class="row"><label>Max entry price (skip near-resolved)</label><input type="number" id="ptMaxP" min="0.5" max="0.99" step="0.01"></div>
+  <div class="row"><button class="tbtn" id="ptSave">💾 Save to config (commits)</button>
+    <div class="muted" id="ptStatus" style="font-size:11.5px;margin-top:6px">Forward-only: changes apply to future cycles. Needs your token to have <b>Contents: write</b>.</div></div>
   <h3>Charts</h3>
   <div class="row"><label>Timeframe</label>
     <select id="setTF"><option value="1">last 1h</option><option value="6">last 6h</option><option value="24">last 24h</option><option value="72">last 3d</option><option value="168">last 7d</option><option value="0">all</option></select></div>
@@ -411,17 +427,20 @@ function relDate(iso){ if(!iso) return null; const d=new Date(iso); if(isNaN(d.g
 function relAgo(iso){ if(!iso) return ''; const d=new Date(iso); if(isNaN(d.getTime())) return '';
   const s=(Date.now()-d.getTime())/1000;
   if(s<3600) return Math.max(1,Math.floor(s/60))+'m ago'; if(s<86400) return Math.floor(s/3600)+'h ago'; return Math.floor(s/86400)+'d ago'; }
+// a market is no longer bettable once it's resolved on-chain or past its end date
+function isResolved(o){ if(o&&o.market_closed) return true; const rd=relDate(o&&o.end_date); return !!(rd&&rd.cls==='past'); }
 
 let DATA=null;
 const state={ tab:'traders',
   trd:{sort:'rank', show:12, q:'', sharedOnly:false, verifiedOnly:false},
-  cons:{key:'overlap',dir:-1,min:2,q:'',minLiq:0,due:0,contest:'any',cat:'any'},
+  cons:{key:'overlap',dir:-1,min:2,q:'',minLiq:0,due:0,contest:'any',cat:'any',hideResolved:true},
   sig:{key:'overlap',dir:-1,q:'',tier:'all',minOv:1,minLiq:0,hideClosed:false},
   perf:{ok:'unrealized_pnl',od:-1,ck:'realized_pnl',cd:-1},
   buy:{key:'score',dir:-1,preset:'score',minLiq:1000,minAgree:3,maxPrice:0.97,due:0},
   settings:{pollMin:15, refreshMin:2.5, tf:0, area:false, bankroll:1000, notify:false} };
 // per-session row caps so big tables stay light in the DOM ("Show all" lifts them)
 const viewCap={cons:60, sig:60, buy:80};
+const histCap={resolved:50};
 
 // ---- theme + flash-on-change + strong-consensus notifications ----
 function applyTheme(t){ const r=document.documentElement; if(t==='light') r.setAttribute('data-theme','light'); else r.removeAttribute('data-theme');
@@ -549,12 +568,15 @@ function renderConsensus(){
   const maxc=(cohort==='?'?20:cohort);
   const cats=['any'].concat(Array.from(new Set((d.consensus||[]).map(categoryOf))).sort());
   const tb=$(`<div class="toolbar">
-    <label class="fl">Min agreement <b id="cv">${state.cons.min}</b> <input type="range" id="cslider" min="2" max="${maxc}" value="${Math.min(state.cons.min,maxc)}"></label>
+    <span class="fl">Min agreement <b id="cv">${state.cons.min}</b>
+      <input type="range" id="cslider" min="2" max="${Math.min(maxc,10)}" step="1" value="${Math.min(state.cons.min,Math.min(maxc,10))}" style="width:96px">
+      <span class="qp">${[2,3,5,10].map(v=>`<button class="tbtn cqp${state.cons.min===v?' on-acc':''}" data-v="${v}">≥${v}</button>`).join('')}</span></span>
     <input type="search" id="cq" placeholder="Search market…" value="${esc(state.cons.q)}">
     ${sel('cliq','Min liq',[['0','any'],['1000','$1k'],['10000','$10k'],['100000','$100k']],String(state.cons.minLiq))}
     ${sel('cdue','Resolves',[['0','any'],['7','≤7d'],['30','≤30d']],String(state.cons.due))}
     ${sel('ccontest','Conviction',[['any','any'],['unanimous','unanimous'],['contested','contested']],state.cons.contest)}
     ${sel('ccat','Category',cats.map(c=>[c,c]),state.cons.cat)}
+    <label class="fl"><input type="checkbox" id="chideres" ${state.cons.hideResolved!==false?'checked':''}> hide resolved</label>
     <button class="tbtn" id="ccsv">⬇ CSV</button>
     <span class="muted" id="ccount"></span></div>`);
   el.appendChild(tb);
@@ -565,6 +587,7 @@ function renderConsensus(){
     const q=state.cons.q.toLowerCase(), dueMax=state.cons.due;
     filtered=(d.consensus||[]).filter(o=>{
       if((o.overlap||0)<state.cons.min) return false;
+      if(state.cons.hideResolved!==false && isResolved(o)) return false;
       if(!(o.liquidity==null||o.liquidity>=state.cons.minLiq)) return false;
       if(q&&!(o.title||'').toLowerCase().includes(q)) return false;
       if(state.cons.cat!=='any'&&categoryOf(o)!==state.cons.cat) return false;
@@ -589,11 +612,14 @@ function renderConsensus(){
     host.innerHTML=''; host.appendChild(t||$(`<div class="empty">No positions match these filters.</div>`));
     tb.querySelector('#ccount').textContent=`${filtered.length} shown`;
   }
-  tb.querySelector('#cslider').oninput=e=>{state.cons.min=+e.target.value;tb.querySelector('#cv').textContent=state.cons.min;draw();};
+  const syncMinA=()=>{ tb.querySelector('#cv').textContent=state.cons.min; const s=tb.querySelector('#cslider'); s.value=Math.min(state.cons.min,+s.max); tb.querySelectorAll('.cqp').forEach(b=>b.classList.toggle('on-acc',+b.dataset.v===state.cons.min)); };
+  tb.querySelector('#cslider').oninput=e=>{state.cons.min=+e.target.value;syncMinA();draw();};
+  tb.querySelectorAll('.cqp').forEach(b=>b.onclick=()=>{state.cons.min=+b.dataset.v;syncMinA();draw();});
   tb.querySelector('#cq').oninput=e=>{state.cons.q=e.target.value;draw();};
   tb.querySelector('#cliq').onchange=e=>{state.cons.minLiq=+e.target.value;draw();};
   tb.querySelector('#cdue').onchange=e=>{state.cons.due=+e.target.value;draw();};
   tb.querySelector('#ccontest').onchange=e=>{state.cons.contest=e.target.value;draw();};
+  tb.querySelector('#chideres').onchange=e=>{state.cons.hideResolved=e.target.checked;draw();};
   tb.querySelector('#ccat').onchange=e=>{state.cons.cat=e.target.value;draw();};
   tb.querySelector('#ccsv').onclick=()=>downloadCSV('consensus.csv',filtered,[
     {label:'agreement',get:o=>`${o.overlap}/${o.participants||o.overlap}`},{label:'overlap',key:'overlap'},{label:'participants',key:'participants'},
@@ -604,8 +630,21 @@ function renderConsensus(){
 
 function renderPerformance(){
   const d=DATA,el=document.getElementById('tab-performance');el.innerHTML='';
-  el.appendChild($(`<h2>Overlap strategy — performance</h2>`));
-  el.appendChild($(`<p class="sub">Paper-trade results of buying every position that crosses the tier threshold (fixed stake each), marked to live prices. Realized = closed trades; unrealized = open.</p>`));
+  const cfg=d.config||{}, tierLabel=(cfg.min_tier_to_trade==='green'?'🟢 green only':'🔵 blue + 🟢 green');
+  el.appendChild($(`<h2>📊 Paper-trade performance</h2>`));
+  el.appendChild($(`<p class="sub">A <b>simulated</b> track record — no real money — of buying every position that crosses the tier threshold at a fixed stake and marking it to live prices. Realized = closed trades; unrealized = still open.</p>`));
+  el.appendChild($(`<details class="howto"><summary>ℹ️ How this works — read me</summary>
+    <div class="howbody">
+      <p>Each cycle the poller checks which positions enough top-earners independently hold, then books hypothetical trades so you can see whether copying the crowd would have paid:</p>
+      <ol>
+        <li><b>Entry.</b> When a position's agreement crosses your tier (currently trading <b>${tierLabel}</b> — blue ≥ ${cfg.tier_blue_min??5}, green ≥ ${cfg.tier_green_min??10} earners on the same side) it opens a paper trade at the <b>live price that moment</b>. Entry is locked and never back-dated.</li>
+        <li><b>Stake.</b> A fixed <b>$${cfg.stake_usd??100}</b> per trade (so strategies compare fairly), and only if the market clears the guardrails: liquidity ≥ $${Number(cfg.min_liquidity??1000).toLocaleString()} and price ≤ ${cfg.max_entry_price??0.9}.</li>
+        <li><b>Mark.</b> Every cycle each open trade is re-priced to the current market — that running gain/loss is <b>unrealized</b> P&L.</li>
+        <li><b>Close.</b> When the market <b>resolves</b> (outcome decided) or the cohort abandons it, the trade closes and books <b>realized</b> P&L. Win rate counts resolved trades that finished in profit.</li>
+        <li><b>Control benchmark.</b> A parallel set copies only the <b>#1 earner</b>, so you can tell if watching the whole cohort beats just following the single top trader.</li>
+      </ol>
+      <p class="muted">Stake, tier and guardrails are editable in ⚙️ Settings → Paper trading. Changes are <b>forward-only</b> — they affect future trades and never rewrite past ones.</p>
+    </div></details>`));
   const overall=$(perfCard('🟢🔵 All tiers',d.performance.overlap)); el.appendChild(overall); runCountups(overall);
 
   el.appendChild($(`<h2 style="margin-top:26px">By tier — does 🟢 green beat 🔵 blue?</h2>`));
@@ -733,7 +772,7 @@ function renderBuy(){
   const d=DATA,el=document.getElementById('tab-buy');el.innerHTML='';
   const cal=d.calibration||{}, cohort=(d.agreement||{}).cohort_size||(d.leaderboard||[]).length||'?';
   el.appendChild($(`<h2>🛒 Buy Candidates</h2>`));
-  el.appendChild($(`<p class="sub">Consensus positions ranked for a buy decision. <b>Score</b> (0–100) blends agreement, conviction (N/P), momentum, edge and liquidity. <b>Edge</b> = hit-rate − price; <b>½-Kelly $</b> and <b>EV $</b> use your bankroll and fill in once markets resolve. Not financial advice.</p>`));
+  el.appendChild($(`<p class="sub">Consensus positions ranked for a buy decision. <b>Score</b> (0–100) blends agreement, conviction (N/P), momentum, edge and liquidity. <b>Edge</b> = hit-rate − price; <b>½-Kelly $</b> and <b>EV $</b> use your bankroll and fill in once markets resolve.</p>`));
   const presets=[['score','⭐ Best overall'],['consensus','Most agreement'],['conviction','Highest conviction'],['edge','Best value'],['momentum','Momentum'],['resolving','Resolving soon']];
   const pr=$(`<div class="toolbar">${presets.map(p=>`<button class="tbtn pbtn${state.buy.preset===p[0]?' on-acc':''}" data-p="${p[0]}">${p[1]}</button>`).join('')}</div>`);
   el.appendChild(pr);
@@ -750,6 +789,7 @@ function renderBuy(){
     persist();
     const bank=+state.settings.bankroll||0;
     let rows=(d.consensus||[]).filter(o=>(o.overlap||0)>=state.buy.minAgree
+      && !isResolved(o)   // only currently-bettable markets; resolved ones live in History
       && (o.liquidity==null||o.liquidity>=state.buy.minLiq)
       && (o.price==null||o.price<=state.buy.maxPrice)
       && (!state.buy.due||(()=>{const rd=relDate(o.end_date);return rd&&rd.ts>=Date.now()&&rd.ts<=Date.now()+state.buy.due*86400000;})()));
@@ -791,21 +831,55 @@ function btRow(label,sub,m){
     _tr:n?`<span class="${tr>=0?'pos':'neg'}">${tr>=0?'+':''}$${Math.abs(tr).toFixed(2)}</span>`:'<span class="muted">—</span>',
   };
 }
-function renderBacktest(){
+function nameForWallet(w,m){ return w?(m[w]||(w.slice(0,6)+'…'+w.slice(-4))):'—'; }
+function renderBacktest(){   // 📜 History hub: winning wallets · resolved markets · strategy backtest
   const el=document.getElementById('tab-backtest'); el.innerHTML='';
   const bt=DATA.backtest||{}, S=bt.strategies||{}, T=bt.tiers||{};
   const tot=bt.tracking_total||0, rt=bt.resolved_total||0, last=rt?(((bt.curve||[]).slice(-1)[0]||{}).cum||0):0;
-  el.appendChild($(`<h2>📈 Strategy Backtester</h2>`));
-  el.appendChild($(`<p class="sub">If you'd bought <b>$1 of every consensus position</b> the instant it reached each agreement threshold and held to resolution — how would each strategy have paid off? Real settled outcomes only; it fills in as markets close. Not financial advice.</p>`));
+  const nameMap={}; (DATA.traders||[]).concat(DATA.leaderboard||[]).forEach(t=>{ if(t&&t.wallet) nameMap[t.wallet]=realName(t); });
+  el.appendChild($(`<h2>📜 History &amp; track record</h2>`));
+  el.appendChild($(`<p class="sub">Everything that has <b>resolved</b> (the outcome was decided): which wallets win most, which consensus calls hit, and how each buy-strategy would have paid. Resolved markets live here — not in Buy Candidates — and this builds up as markets close.</p>`));
+
+  // 1) Winning wallets
+  el.appendChild($(`<h2 style="margin-top:18px;font-size:17px">🏆 Winning wallets <span class="muted" style="font-size:12.5px;font-weight:400">— consensus picks, ranked by win rate</span></h2>`));
+  const scores=DATA.trader_scores||{};
+  const winners=Object.keys(scores).map(w=>({wallet:w,...scores[w]})).filter(s=>(s.resolved||0)>=1)
+    .sort((a,b)=>((b.win_rate||0)-(a.win_rate||0))||((b.resolved||0)-(a.resolved||0)));
+  if(winners.length){
+    const wrows=winners.slice(0,30).map((s,i)=>({
+      rank:`#${i+1}`,
+      who:`<a href="${profUrl(s.wallet)}" target="_blank" rel="noopener">${esc(nameForWallet(s.wallet,nameMap))}</a>${(s.resolved>=3)?' <span class="sharpb good" style="font-size:10px;padding:0 5px">🎯</span>':''}`,
+      _rec:`${s.wins||0}-${(s.resolved||0)-(s.wins||0)}`,
+      _wr:s.win_rate==null?'<span class="muted">—</span>':`<span class="${s.win_rate>=0.5?'pos':'neg'}">${Math.round(s.win_rate*100)}%</span>`,
+      _ar:s.avg_return==null?'<span class="muted">—</span>':`<span class="${s.avg_return>=0?'pos':'neg'}">${s.avg_return>=0?'+':''}${Math.round(s.avg_return*100)}%</span>`,
+      held:s.held||0 }));
+    el.appendChild(tableEl([{key:'rank',label:'#'},{key:'who',label:'Trader'},{key:'_rec',label:'W-L',num:1},{key:'_wr',label:'Win rate',num:1},{key:'_ar',label:'Avg return',num:1},{key:'held',label:'Consensus picks',num:1}],wrows));
+    el.appendChild($(`<p class="muted" style="font-size:11.5px;margin-top:6px">🎯 = 3+ resolved picks (bigger sample = more trustworthy). Win rate = consensus positions this wallet held that have since resolved in its favour.</p>`));
+  } else el.appendChild($(`<div class="empty">No resolved consensus picks yet — once watched markets settle, the wallets that called them right rank here.</div>`));
+
+  // 2) Resolved consensus markets — who held the winning side
+  el.appendChild($(`<h2 style="margin-top:26px;font-size:17px">✅ Resolved consensus markets <span class="muted" style="font-size:12.5px;font-weight:400">— who held the winning side</span></h2>`));
+  const rm=DATA.resolved_markets||[];
+  if(rm.length){
+    const rmrows=rm.map(m=>{ const names=(m.holders||[]).map(w=>nameForWallet(w,nameMap)); const shown=names.slice(0,3).join(', ')+(names.length>3?` +${names.length-3}`:'');
+      return { market:mlink(m.slug,m.title,50), outcome:esc(m.outcome), tier:tagEl(m.tier), agree:m.max_overlap||0,
+        _res:m.won?'<span class="pos">✅ won</span>':'<span class="neg">✗ lost</span>',
+        move:(m.first_price!=null&&m.exit_price!=null)?`${round(m.first_price)}→${round(m.exit_price)}`:'—',
+        when:relAgo(m.resolved_at)||'—',
+        holders:`<span title="${esc(names.join(', '))}">${(m.holders||[]).length} <span class="muted">(${esc(shown)})</span></span>` };});
+    el.appendChild(tableEl([{key:'market',label:'Market'},{key:'outcome',label:'Outcome'},{key:'tier',label:'Tier'},{key:'agree',label:'Peak agree',num:1},{key:'_res',label:'Result'},{key:'move',label:'Entry→Exit',num:1},{key:'when',label:'Resolved'},{key:'holders',label:'Held by'}],rmrows,null,null,histCap.resolved,()=>{histCap.resolved=Infinity;renderBacktest();}));
+  } else el.appendChild($(`<div class="empty">No consensus markets have resolved yet. When a market the cohort agreed on settles, it's recorded here with who held the winning side.</div>`));
+
+  // 3) Strategy backtest
+  el.appendChild($(`<h2 style="margin-top:26px;font-size:17px">📈 Strategy backtest <span class="muted" style="font-size:12.5px;font-weight:400">— $1 per consensus pick, held to resolution</span></h2>`));
   el.appendChild($(`<div class="chips"><span class="chip">📋 tracking <b>${tot}</b></span><span class="chip">✅ resolved <b>${rt}</b></span>${rt?`<span class="chip">$1/entry P&L <b class="${last>=0?'pos':'neg'}">${last>=0?'+':''}$${Math.abs(last).toFixed(2)}</b></span>`:''}</div>`));
   const rows=[btRow('≥2 agreement','any consensus',S.ge2),btRow('≥3 agreement','moderate',S.ge3),btRow('≥5 agreement','strong',S.ge5),btRow('🟢 Green tier','peak ≥10',T.green),btRow('🔵 Blue tier','peak ≥5',T.blue)];
   el.appendChild(tableEl([{key:'strat',label:'Strategy'},{key:'track',label:'Tracking',num:1},{key:'_res',label:'Resolved',num:1},{key:'_wr',label:'Win rate',num:1},{key:'_ar',label:'Avg return',num:1},{key:'_tr',label:'Total',num:1}],rows));
-  if(!rt){ el.appendChild($(`<div class="empty">No consensus positions have resolved yet — the table shows how many are being tracked at each threshold. The backtester books a result the moment a watched market settles, so this grows on its own as markets close. (Win rate &amp; returns appear once there are resolutions.)</div>`)); return; }
-  const card=$(`<div class="card" style="margin-top:16px"><h3>Cumulative return — $1 per consensus position, in resolution order</h3></div>`);
-  card.appendChild(chart((bt.curve||[]).map(p=>({ts:p.t,cum:p.cum})),[{key:'cum',color:'var(--accent)',label:'Cumulative $ per $1/entry'}]));
-  el.appendChild(card);
-  const recent=(bt.curve||[]).slice(-12).reverse().map(p=>`<li><span class="oc">${p.won?'✅ WON':'❌ lost'}</span><span class="ti">${esc((p.title||'').slice(0,64))}</span><span class="pv ${(p.cum||0)>=0?'pos':'neg'}">$${(p.cum||0).toFixed(2)}</span></li>`).join('');
-  el.appendChild($(`<div class="card" style="margin-top:16px"><h3>Most recent resolutions</h3><ul class="plist">${recent}</ul></div>`));
+  if(rt){
+    const card=$(`<div class="card" style="margin-top:16px"><h3>Cumulative return — $1 per consensus position, in resolution order</h3></div>`);
+    card.appendChild(chart((bt.curve||[]).map(p=>({ts:p.t,cum:p.cum})),[{key:'cum',color:'var(--accent)',label:'Cumulative $ per $1/entry'}]));
+    el.appendChild(card);
+  } else el.appendChild($(`<p class="muted" style="font-size:12.5px;margin-top:6px">Win rate &amp; returns fill in once consensus markets resolve.</p>`));
 }
 const RENDER={traders:renderTraders,consensus:renderConsensus,buy:renderBuy,picks:renderPicks,performance:renderPerformance,backtest:renderBacktest,signals:renderSignals};
 function setTab(name){
@@ -916,11 +990,38 @@ function toggleAutopoll(){
   lsSet('pm_autopoll','1'); startPoke(); toast('⏱ Auto-poll on — triggers every '+(state.settings.pollMin||15)+' min while this tab is open');
 }
 function startRefresh(){ clearInterval(refreshTimer); refreshTimer=setInterval(()=>load(false),(state.settings.refreshMin||2.5)*60000); }
+const GH_CONTENTS='https://api.github.com/repos/PeeChug/polymarket-copy-signal/contents/config.yaml';
+async function saveConfig(){
+  const g=id=>document.getElementById(id), st=g('ptStatus'), tok=ghToken();
+  if(!tok){ st.innerHTML='<span class="neg">Set your auto-poll token first (above).</span>'; return; }
+  const vals={ min_tier_to_trade:g('ptTier').value, stake_usd:Math.max(1,Math.round(+g('ptStake').value||100)),
+    tier_green_min:Math.max(2,Math.round(+g('ptGreen').value||10)), tier_blue_min:Math.max(2,Math.round(+g('ptBlue').value||5)),
+    max_entry_price:Math.min(0.99,Math.max(0.5,+g('ptMaxP').value||0.9)) };
+  if(vals.tier_green_min<vals.tier_blue_min){ st.innerHTML='<span class="neg">Green threshold must be ≥ blue.</span>'; return; }
+  st.textContent='Saving…';
+  const H={'Authorization':'Bearer '+tok,'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'};
+  try{
+    const r=await fetch(GH_CONTENTS+'?ref=main',{headers:H});
+    if(r.status===401){ st.innerHTML='<span class="neg">Token rejected (401).</span>'; return; }
+    if(r.status===403||r.status===404){ st.innerHTML="<span class=\"neg\">Token can't read files — re-create it with <b>Contents: Read and write</b>.</span>"; return; }
+    if(!r.ok){ st.innerHTML='<span class="neg">Read failed ('+r.status+').</span>'; return; }
+    const j=await r.json(); let yaml=atob((j.content||'').replace(/\s/g,''));
+    Object.entries(vals).forEach(([k,v])=>{ const re=new RegExp('^(\\s*'+k+':\\s*)\\S+','m'); yaml=re.test(yaml)?yaml.replace(re,'$1'+v):(yaml+'\n'+k+': '+v); });
+    const put=await fetch(GH_CONTENTS,{method:'PUT',headers:H,body:JSON.stringify({message:'config: update paper-trade settings via dashboard',content:btoa(yaml),sha:j.sha,branch:'main'})});
+    if(put.status===200||put.status===201){ st.innerHTML='<span class="pos">✓ Committed — the next poll will use it.</span>'; toast('Paper-trade config saved'); }
+    else if(put.status===403||put.status===404){ st.innerHTML="<span class=\"neg\">Token can't write files — add <b>Contents: Read and write</b> to it.</span>"; }
+    else if(put.status===409){ st.innerHTML='<span class="neg">Conflict — someone changed config.yaml; try again.</span>'; }
+    else st.innerHTML='<span class="neg">Save failed ('+put.status+').</span>';
+  }catch(e){ st.innerHTML='<span class="neg">Network error.</span>'; }
+}
 function syncSettingsUI(){ const g=(id)=>document.getElementById(id); if(!g('setPoll')) return;
   g('setPoll').value=String(state.settings.pollMin); g('setRefresh').value=String(state.settings.refreshMin);
   g('setTF').value=String(state.settings.tf); g('setStyle').value=state.settings.area?'area':'line';
   if(g('setTheme')) g('setTheme').value=curTheme();
   if(g('setNotify')) g('setNotify').checked=!!state.settings.notify;
+  const cfg=(DATA&&DATA.config)||{};
+  if(g('ptTier')){ g('ptTier').value=cfg.min_tier_to_trade||'blue'; g('ptStake').value=cfg.stake_usd??100;
+    g('ptGreen').value=cfg.tier_green_min??10; g('ptBlue').value=cfg.tier_blue_min??5; g('ptMaxP').value=cfg.max_entry_price??0.9; }
   g('setTokenStatus').textContent=ghToken()?('Token set ✓ — auto-poll '+(autopollOn()?'on':'off')):'No token set'; }
 function applySettings(){ startRefresh(); if(autopollOn()&&ghToken()) startPoke(); else { clearInterval(pokeTimer); renderAutopoll(); } syncSettingsUI(); }
 function initAutopoll(){
@@ -947,10 +1048,11 @@ function initSettings(){
     if(on && 'Notification'in window && Notification.permission!=='granted'){
       Notification.requestPermission().then(p=>{ state.settings.notify=(p==='granted'); persist(); syncSettingsUI(); if(p!=='granted') toast('Notifications blocked in browser settings'); else toast('🔔 Notifications on'); });
     } else { state.settings.notify=on && ('Notification'in window) && Notification.permission==='granted'; persist(); if(on&&!('Notification'in window)) toast('This browser has no notifications'); } };
+  if(g('ptSave')) g('ptSave').onclick=saveConfig;
   g('setTokenBtn').onclick=()=>{ close(); const p=g('tokenSetup'); p.style.display='block'; g('ghtok').focus(); p.scrollIntoView({behavior:'smooth'}); };
   g('setTokenForget').onclick=()=>{ lsSet('pm_gh_token',''); lsSet('pm_autopoll','0'); stopPoke(); syncSettingsUI(); toast('Token forgotten'); };
   g('setReset').onclick=()=>{ Object.assign(state.trd,{sort:'rank',show:12,q:'',sharedOnly:false,verifiedOnly:false});
-    Object.assign(state.cons,{key:'overlap',dir:-1,min:2,q:'',minLiq:0,due:0,contest:'any',cat:'any'});
+    Object.assign(state.cons,{key:'overlap',dir:-1,min:2,q:'',minLiq:0,due:0,contest:'any',cat:'any',hideResolved:true});
     Object.assign(state.sig,{key:'overlap',dir:-1,q:'',tier:'all',minOv:1,minLiq:0,hideClosed:false});
     persist(); RENDER[state.tab](); toast('Filters reset'); };
 }

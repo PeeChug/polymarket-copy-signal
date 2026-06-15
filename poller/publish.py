@@ -44,6 +44,15 @@ def write_site(store, run_result: dict, docs_dir: str = "docs") -> str:
     payload["backtest"] = analytics.backtest(watch)
     scores = analytics.trader_scores(watch)
     payload["trader_scores"] = scores            # keyed by wallet (smart-money lookup)
+    # resolved consensus markets (the "who won" history), newest first, capped
+    resolved_mkts = sorted([w for w in watch.values() if w.get("resolved")],
+                           key=lambda w: str(w.get("resolved_at") or ""), reverse=True)
+    payload["resolved_markets"] = [{
+        "title": w.get("title"), "outcome": w.get("outcome"), "slug": w.get("slug"),
+        "tier": w.get("tier"), "max_overlap": w.get("max_overlap"), "won": w.get("won"),
+        "first_price": w.get("first_price"), "exit_price": w.get("exit_price"),
+        "resolved_at": w.get("resolved_at"), "holders": (w.get("holders") or [])[:30],
+    } for w in resolved_mkts[:150]]
     series = store.get_trader_series()
     for t in payload["traders"]:
         t["spark"] = series.get(t["wallet"], [])
