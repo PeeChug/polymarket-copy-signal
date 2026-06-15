@@ -15,6 +15,7 @@ directly. Swapping to a different backend later is a one-file change.
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -261,3 +262,131 @@ class MemoryStore(Store):
 
     def all_trades(self):
         return [dict(t) for t in self._trades]
+
+
+# --------------------------------------------------------------------------- #
+# File-backed (the $0 GitHub-Pages deployment — no database at all)
+# --------------------------------------------------------------------------- #
+class FileStore(Store):
+    """
+    Persists everything to JSON files under `data_dir`. The GitHub Actions
+    poller commits these files back to the repo each cycle; a static dashboard
+    reads a precomputed payload. No hosted database, no secrets.
+
+      data/state.json          mutable source of truth (trades, config, counters)
+      data/observations.jsonl  append-only log of EVERY observation (honesty rule #2)
+      data/leaderboard.jsonl   append-only leaderboard snapshots
+    """
+
+    def __init__(self, data_dir: str = "data"):
+        self.dir = data_dir
+        os.makedirs(self.dir, exist_ok=True)
+        self.state_path = os.path.join(self.dir, "state.json")
+        self.obs_path = os.path.join(self.dir, "observations.jsonl")
+        self.lb_path = os.path.join(self.dir, "leaderboard.jsonl")
+        self._state = self._load()
+
+    def _load(self) -> dict:
+        if os.path.exists(self.state_path):
+            with open(self.state_path) as fh:
+                return json.load(fh)
+        return {
+            "seq": {"config": 0, "cycle": 0, "trade": 0},
+            "config_history": [], "paper_trades": [], "last_cycle": None,
+            "latest_observations": [], "latest_leaderboard": [],
+        }
+
+    def _save(self):
+        tmp = self.state_path + ".tmp"
+        with open(tmp, "w") as fh:
+            json.dump(self._state, fh, indent=2, default=str)
+        os.replace(tmp, self.state_path)  # atomic
+
+    def _append(self, path, rows):
+        with open(path, "a") as fh:
+            for r in rows:
+                fh.write(json.dumps(r, default=str) + "\n")
+
+    def _next(self, k):
+        self._state["seq"][k] += 1
+        return self._state["seq"][k]
+
+    # config
+    def latest_config(self):
+        ch = self._state["config_history"]
+        return dict(ch[-1]) if ch else None
+
+    def insert_config(self, payload):
+        row = {**payload, "id": self._next("config"), "created_at": _now_iso()}
+        self._state["config_history"].append(row)
+        self._save()
+        return dict(row)
+
+    def config_history(self, limit=50):
+        return [dict(r) for r in reversed(self._state["config_history"][-limit:])]
+
+    # cycles
+    def create_cycle(self, payload):
+        row = {**payload, "id": self._next("cycle"), "run_at": _now_iso()}
+        self._state["last_cycle"] = row
+        self._save()
+        return dict(row)
+
+    def update_cycle(self, cycle_id, patch):
+        lc = self._state.get("last_cycle")
+        if lc and lc["id"] == cycle_id:
+            lc.update(patch)
+            self._save()
+
+    # snapshots / observations
+    def insert_leaderboard(self, rows):
+        rows = [dict(r) for r in rows]
+        self._state["latest_leaderboard"] = rows
+        self._append(self.lb_path, rows)
+        self._save()
+
+    def insert_observations(self, rows):
+        rows = [dict(r) for r in rows]
+        self._state["latest_observations"] = rows
+        self._append(self.obs_path, rows)
+        self._save()
+
+    def latest_observations(self, limit=500):
+        obs = sorted(self._state.get("latest_observations", []),
+                     key=lambda o: o.get("overlap", 0), reverse=True)
+        return [dict(o) for o in obs[:limit]]
+
+    def latest_leaderboard(self):
+        return [dict(r) for r in sorted(self._state.get("latest_leaderboard", []),
+                                        key=lambda r: r.get("rank", 999))]
+
+    # paper trades
+    def open_trades(self, strategy=None):
+        return [dict(t) for t in self._state["paper_trades"]
+                if t["status"] == "OPEN" and (strategy is None or t["strategy"] == strategy)]
+
+    def insert_trade(self, payload):
+        for t in self._state["paper_trades"]:
+            if (t["status"] == "OPEN" and t["strategy"] == payload["strategy"]
+                    and t["condition_id"] == payload["condition_id"]
+                    and t["outcome_index"] == payload["outcome_index"]):
+                return None
+        row = {**payload, "id": self._next("trade"),
+               "created_at": _now_iso(), "updated_at": _now_iso()}
+        self._state["paper_trades"].append(row)
+        self._save()
+        return dict(row)
+
+    def update_trade(self, trade_id, patch):
+        for t in self._state["paper_trades"]:
+            if t["id"] == trade_id:
+                t.update(patch)
+                t["updated_at"] = _now_iso()
+                self._save()
+
+    def all_trades(self):
+        return [dict(t) for t in self._state["paper_trades"]]
+
+    def last_cycle(self):
+        lc = self._state.get("last_cycle")
+        return dict(lc) if lc else None

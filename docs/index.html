@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex" />
+<title>Polymarket Copy-Signal Tester</title>
+<style>
+  :root {
+    --bg: #0e1117; --panel: #171a21; --panel2: #1e222b; --line: #2a2f3a;
+    --text: #e6e8ec; --muted: #9aa3b2; --green: #2ec27e; --blue: #4c8dff;
+    --red: #ff5d5d; --amber: #d9a441;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 28px 20px 60px; }
+  h1 { font-size: 30px; margin: 0 0 4px; }
+  h2 { font-size: 21px; margin: 36px 0 6px; }
+  .sub { color: var(--muted); font-size: 13.5px; margin: 0 0 8px; }
+  .banner { background: #2a2410; border: 1px solid #4a3d12; color: #f0d9a0;
+    border-radius: 10px; padding: 12px 14px; margin: 16px 0; font-size: 13.5px; }
+  .pill { display:inline-block; font-size:11px; padding:2px 8px; border-radius:999px;
+    border:1px solid var(--line); color:var(--muted); }
+  .pill.live { color: var(--green); border-color:#1d5; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  .card { background: var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px 18px; }
+  .card h3 { margin:0 0 12px; font-size:16px; }
+  .metrics { display:grid; grid-template-columns:repeat(3,1fr); gap:12px 10px; }
+  .metric .k { color:var(--muted); font-size:11.5px; text-transform:uppercase; letter-spacing:.03em; }
+  .metric .v { font-size:21px; font-weight:600; margin-top:2px; }
+  .pos { color: var(--green); } .neg { color: var(--red); }
+  table { width:100%; border-collapse:collapse; font-size:13.5px; }
+  .scroll { overflow-x:auto; border:1px solid var(--line); border-radius:10px; margin-top:8px; }
+  th,td { text-align:left; padding:8px 10px; white-space:nowrap; }
+  thead th { background:var(--panel2); color:var(--muted); font-weight:600;
+    position:sticky; top:0; border-bottom:1px solid var(--line); }
+  tbody tr:nth-child(even){ background:rgba(255,255,255,.02); }
+  td.num, th.num { text-align:right; font-variant-numeric: tabular-nums; }
+  .tag { font-size:11px; padding:1px 7px; border-radius:999px; font-weight:600; }
+  .tag.green { background:rgba(46,194,126,.15); color:var(--green); }
+  .tag.blue  { background:rgba(76,141,255,.15); color:var(--blue); }
+  .tag.none  { background:rgba(154,163,178,.12); color:var(--muted); }
+  .tag.overlap { background:rgba(46,194,126,.12); color:#bfe; }
+  .tag.control { background:rgba(154,163,178,.14); color:var(--muted); }
+  .muted { color:var(--muted); }
+  .empty { color:var(--muted); padding:14px; background:var(--panel); border:1px solid var(--line);
+    border-radius:10px; margin-top:8px; font-size:13.5px; }
+  details { margin-top:8px; } summary { cursor:pointer; color:var(--muted); }
+  code { background:var(--panel2); padding:1px 6px; border-radius:5px; }
+  a { color: var(--blue); }
+  @media (max-width:760px){ .grid2{grid-template-columns:1fr;} .metrics{grid-template-columns:repeat(2,1fr);} }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>📊 Polymarket Copy-Signal Tester</h1>
+  <p class="sub">Read-only paper-trading measurement tool — it never places real orders.
+     <span id="freshness"></span></p>
+
+  <div class="banner">
+    <b>⚠️ Measurement tool, not financial advice.</b> Leaderboard performance is backward-looking
+    and survivorship-biased. A strong paper result is a reason to keep testing, not a guarantee of
+    future returns.
+  </div>
+
+  <div id="content"><p class="muted">Loading…</p></div>
+
+  <p class="sub" style="margin-top:40px">
+    Data refreshes every ~30 min via a GitHub Action that reads public Polymarket APIs and simulates
+    trades. Source &amp; methodology:
+    <a href="https://github.com/PeeChug/polymarket-copy-signal">github.com/PeeChug/polymarket-copy-signal</a>.
+  </p>
+</div>
+
+<script>
+const $ = (h) => { const t=document.createElement('template'); t.innerHTML=h.trim(); return t.content.firstChild; };
+const esc = (s) => String(s==null?'':s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const money = (v) => v==null ? '—' : (v<0?'-':'') + '$' + Math.abs(v).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+const pct = (v) => v==null ? '—' : (v*100).toFixed(1) + '%';
+const sign = (v) => v==null ? '' : (v>0?'pos':(v<0?'neg':''));
+const round = (v,n=3) => v==null ? '—' : Number(v).toFixed(n);
+const tag = (t) => `<span class="tag ${t||'none'}">${esc(t||'none')}</span>`;
+
+function metric(k, v, cls='') { return `<div class="metric"><div class="k">${k}</div><div class="v ${cls}">${v}</div></div>`; }
+
+function card(title, m) {
+  return `<div class="card"><h3>${title}</h3><div class="metrics">
+    ${metric('Net P&L', money(m.net_pnl), sign(m.net_pnl))}
+    ${metric('Realized', money(m.realized_pnl), sign(m.realized_pnl))}
+    ${metric('Unrealized', money(m.unrealized_pnl), sign(m.unrealized_pnl))}
+    ${metric('Open', m.open_count)}
+    ${metric('Closed', m.closed_count)}
+    ${metric('Win rate', pct(m.win_rate))}
+    ${metric('ROI (realized)', pct(m.roi_realized), sign(m.roi_realized))}
+    ${metric('ROI (incl. open)', pct(m.roi_total), sign(m.roi_total))}
+    ${metric('Staked', money(m.staked_all))}
+  </div></div>`;
+}
+
+function tableEl(headers, rows) {
+  if (!rows.length) return null;
+  const thead = '<tr>' + headers.map(h => `<th class="${h.num?'num':''}">${esc(h.label)}</th>`).join('') + '</tr>';
+  const body = rows.map(r => '<tr>' + headers.map(h => `<td class="${h.num?'num':''}">${r[h.key]==null?'':r[h.key]}</td>`).join('') + '</tr>').join('');
+  const wrap = $(`<div class="scroll"><table><thead>${thead}</thead><tbody>${body}</tbody></table></div>`);
+  return wrap;
+}
+
+function holders(o) {
+  const names = (o.holder_usernames||[]).filter(Boolean);
+  if (names.length) return esc(names.join(', '));
+  const n = (o.holder_wallets||[]).length;
+  return `<span class="muted">${n} wallet(s)</span>`;
+}
+
+function render(d) {
+  const c = document.getElementById('content');
+  c.innerHTML = '';
+  const lc = d.last_cycle || {};
+  const isEmpty = (d.counts && d.counts.trades === 0);
+
+  // freshness
+  const gen = d.generated_at ? new Date(d.generated_at) : null;
+  document.getElementById('freshness').innerHTML =
+    (gen ? `· updated ${gen.toLocaleString()} ` : '') +
+    (lc.status === 'ok' ? '<span class="pill live">live</span>' : '<span class="pill">—</span>');
+
+  // 1. strategy vs control
+  c.appendChild($(`<h2>Overlap strategy vs. control benchmark</h2>`));
+  c.appendChild($(`<p class="sub">Control = naively copy the #1-ranked trader. If overlap doesn't beat it, the tiering adds no value.</p>`));
+  c.appendChild($(`<div class="grid2">${card('🟢🔵 Overlap', d.performance.overlap)}${card('1️⃣ Control (#1 copy)', d.performance.control)}</div>`));
+
+  if (isEmpty) {
+    c.appendChild($(`<div class="empty">No paper trades have opened yet. A position only becomes a trade once enough
+      of the top traders independently hold the same market+outcome to cross the tier threshold and pass the guardrails.
+      The cohort and live signals below are already being logged every cycle — watch the "Recent signals" overlap column.</div>`));
+  }
+
+  // 2. tier breakdown
+  c.appendChild($(`<h2>Overlap strategy by tier</h2>`));
+  c.appendChild($(`<p class="sub">Does green (all N agree) actually beat blue (≥ blue threshold)?</p>`));
+  const tierRows = [['🟢 green', d.tiers.green], ['🔵 blue', d.tiers.blue]].map(([label, m]) => ({
+    tier: label, open: m.open_count, closed: m.closed_count, win: pct(m.win_rate),
+    real: `<span class="${sign(m.realized_pnl)}">${money(m.realized_pnl)}</span>`,
+    unreal: `<span class="${sign(m.unrealized_pnl)}">${money(m.unrealized_pnl)}</span>`,
+    net: `<span class="${sign(m.net_pnl)}">${money(m.net_pnl)}</span>`, roi: pct(m.roi_realized),
+  }));
+  c.appendChild(tableEl([
+    {key:'tier',label:'Tier'},{key:'open',label:'Open',num:1},{key:'closed',label:'Closed',num:1},
+    {key:'win',label:'Win rate',num:1},{key:'real',label:'Realized',num:1},{key:'unreal',label:'Unrealized',num:1},
+    {key:'net',label:'Net P&L',num:1},{key:'roi',label:'ROI',num:1},
+  ], tierRows));
+
+  // 3. open positions
+  c.appendChild($(`<h2>Open paper positions</h2>`));
+  const op = (d.open_positions||[]).map(t => ({
+    strat: tag(t.strategy), tier: tag(t.tier_at_entry), market: esc((t.title||'').slice(0,56)),
+    outcome: esc(t.outcome), ov: t.overlap_at_entry, entry: round(t.entry_price),
+    mark: t.marked_price==null?'—':round(t.marked_price),
+    shares: t.shares==null?'—':Number(t.shares).toFixed(1),
+    upnl: `<span class="${sign(t.unrealized_pnl)}">${money(t.unrealized_pnl)}</span>`,
+    opened: esc(String(t.entry_at||'').slice(0,16).replace('T',' ')),
+  }));
+  const opTable = tableEl([
+    {key:'strat',label:'Strategy'},{key:'tier',label:'Tier'},{key:'market',label:'Market'},
+    {key:'outcome',label:'Outcome'},{key:'ov',label:'Overlap@entry',num:1},{key:'entry',label:'Entry',num:1},
+    {key:'mark',label:'Mark',num:1},{key:'shares',label:'Shares',num:1},{key:'upnl',label:'Unrealized',num:1},
+    {key:'opened',label:'Opened'},
+  ], op);
+  c.appendChild(opTable || $(`<div class="empty">No open paper positions right now.</div>`));
+
+  // 4. recent signals
+  c.appendChild($(`<h2>Recent signals</h2>`));
+  c.appendChild($(`<p class="sub">Latest observation per market from the most recent cycle, sorted by overlap. Every one of these is logged every cycle.</p>`));
+  const sig = (d.signals||[]).map(o => ({
+    ov: o.overlap, tier: tag(o.tier), market: esc((o.title||'').slice(0,56)), outcome: esc(o.outcome),
+    price: o.price==null?'—':round(o.price), liq: o.liquidity==null?'—':('$'+Math.round(o.liquidity).toLocaleString()),
+    closed: o.market_closed ? 'yes' : 'no', holders: holders(o),
+  }));
+  const sigTable = tableEl([
+    {key:'ov',label:'Overlap',num:1},{key:'tier',label:'Tier'},{key:'market',label:'Market'},
+    {key:'outcome',label:'Outcome'},{key:'price',label:'Price',num:1},{key:'liq',label:'Liquidity',num:1},
+    {key:'closed',label:'Closed'},{key:'holders',label:'Holders'},
+  ], sig);
+  c.appendChild(sigTable || $(`<div class="empty">No observations yet.</div>`));
+
+  // leaderboard
+  const lb = (d.leaderboard||[]).map(e => ({
+    rank: e.rank, trader: esc(e.username || (e.wallet||'').slice(0,10)),
+    pnl: money(e.pnl), vol: money(e.volume),
+    wallet: `<span class="muted">${esc((e.wallet||'').slice(0,14))}…</span>`,
+  }));
+  const lbTable = tableEl([
+    {key:'rank',label:'#',num:1},{key:'trader',label:'Trader'},{key:'pnl',label:'30d P&L',num:1},
+    {key:'vol',label:'Volume',num:1},{key:'wallet',label:'Wallet'},
+  ], lb);
+  if (lbTable) {
+    const det = $(`<details><summary>Current leaderboard cohort (latest snapshot)</summary></details>`);
+    det.appendChild(lbTable); c.appendChild(det);
+  }
+
+  // config
+  c.appendChild($(`<h2>⚙️ Settings (current)</h2>`));
+  c.appendChild($(`<p class="sub">Forward-only: settings live in <code>config.yaml</code> in the repo. Editing &amp; committing it
+    applies to future cycles only and never rewrites past trades.</p>`));
+  const cfg = d.config || {};
+  const keys = ['top_n','leaderboard_window','tier_green_min','tier_blue_min','min_tier_to_trade',
+    'min_liquidity','max_entry_price','stake_usd','price_source','control_respects_guardrails','size_threshold'];
+  const cfgRows = keys.filter(k => k in cfg).map(k => ({ k, v: String(cfg[k]) }));
+  c.appendChild(tableEl([{key:'k',label:'Setting'},{key:'v',label:'Value'}], cfgRows) ||
+    $(`<div class="empty">No config recorded yet.</div>`));
+}
+
+fetch('./data.json?t=' + Date.now())
+  .then(r => { if (!r.ok) throw new Error('no data yet'); return r.json(); })
+  .then(render)
+  .catch(() => {
+    document.getElementById('content').innerHTML =
+      `<div class="empty">No data published yet. The first poller run will generate it — check back shortly.</div>`;
+  });
+</script>
+</body>
+</html>

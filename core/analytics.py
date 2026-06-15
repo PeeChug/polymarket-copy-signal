@@ -93,3 +93,28 @@ def latest_signal_per_market(observations: list[dict]) -> list[dict]:
     rows = list(latest.values())
     rows.sort(key=lambda r: (r.get("overlap") or 0), reverse=True)
     return rows
+
+
+def dashboard_payload(trades, observations, leaderboard, config_rows, meta=None) -> dict:
+    """
+    Everything the static GitHub-Pages dashboard needs, precomputed server-side
+    (in the poller) so the page is pure render-from-JSON.
+    """
+    meta = meta or {}
+    return {
+        "generated_at": meta.get("generated_at"),
+        "last_cycle": meta.get("last_cycle"),
+        "performance": strategy_performance(trades),
+        "tiers": tier_breakdown(trades),
+        "open_positions": open_positions(trades),
+        "signals": latest_signal_per_market(observations),
+        "config": config_rows[0] if config_rows else None,
+        "config_history": config_rows,
+        "leaderboard": leaderboard,
+        "counts": {
+            "trades": len(trades),
+            "open": sum(1 for t in trades if t.get("status") == "OPEN"),
+            "closed": sum(1 for t in trades if t.get("status") == "CLOSED"),
+            "observations_last_cycle": len(observations),
+        },
+    }

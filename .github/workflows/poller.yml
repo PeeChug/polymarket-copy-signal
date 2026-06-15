@@ -1,25 +1,25 @@
 name: poller
 
-# Runs the read-only Polymarket copy-signal poller on a schedule.
-# - cron: every 30 minutes (well within free Actions minutes on a private repo)
-# - workflow_dispatch: a manual "Run workflow" button so you can poll on demand
+# Read-only Polymarket copy-signal poller. Runs on a schedule, writes its
+# results to JSON files in the repo (no database), and commits them back.
+# GitHub Pages (serving /docs on main) redeploys automatically on each push.
 on:
   schedule:
     - cron: "*/30 * * * *"   # every 30 min (UTC). GitHub may delay under load.
   workflow_dispatch:
     inputs:
       dry_run:
-        description: "Dry run (hit Polymarket live, write nothing to the DB)"
+        description: "Dry run (hit Polymarket live, commit nothing)"
         type: boolean
         default: false
 
-# Never let two cycles overlap (a slow run + the next tick).
+# Never let two cycles overlap (a slow run + the next tick); avoids push races.
 concurrency:
   group: poller
   cancel-in-progress: false
 
 permissions:
-  contents: read
+  contents: write   # the poller commits updated data/ and docs/ back to the repo
 
 jobs:
   poll:
@@ -39,6 +39,8 @@ jobs:
 
       - name: Run poller
         env:
+          # If these secrets are set the poller uses Supabase instead of files;
+          # left empty (the default) it uses the free file-based store.
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
         run: |
@@ -46,4 +48,17 @@ jobs:
             python -m poller.main --dry-run
           else
             python -m poller.main
+          fi
+
+      - name: Commit updated data & dashboard
+        if: ${{ inputs.dry_run != true }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data docs
+          if git diff --cached --quiet; then
+            echo "No data changes this cycle."
+          else
+            git commit -m "poll: update data & dashboard [skip ci]"
+            git push
           fi

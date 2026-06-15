@@ -7,7 +7,7 @@ automatically, and measures whether the strategy actually works — alongside a
 naive control benchmark — so you can decide whether it's worth real money.
 
 > ## 🚫 It never places real orders.
-> It only reads public Polymarket data and simulates trades in a database.
+> It only reads public Polymarket data and simulates trades in plain repo files.
 > There is no order-placement code anywhere, no wallet key, no execution path.
 > This is a **measurement tool, not financial advice** (see [Caveats](#caveats)).
 
@@ -66,59 +66,77 @@ realized   P&L = shares × (exit  − entry)
 
 ## Architecture — the $0 stack
 
-Two parts on different schedules that talk **only** through a shared database.
+Live deployment: **https://peechug.github.io/polymarket-copy-signal/**
+
+Everything runs on GitHub alone — no database, no server, no third-party
+accounts, no secrets:
 
 ```
-                          ┌───────────────────────────┐
-   GitHub Actions cron    │   Polymarket public APIs   │
-   (every 30 min)         │  data-api / clob / gamma   │  (read-only, no auth)
-        │                 └───────────────────────────┘
-        │  python -m poller.main          ▲
-        ▼                                  │ reads leaderboard, positions,
-   ┌─────────┐   writes snapshots,         │ prices, market status
-   │ Poller  │───observations, trades──┐   │
-   └─────────┘                         │   │
-                                       ▼   │
-                         ┌──────────────────────────┐
-                         │  Supabase Postgres (free) │
-                         └──────────────────────────┘
-                                       ▲
-                          reads (+ writes config rows)
-                                       │
-                                  ┌─────────┐
-                                  │Streamlit│  (Community Cloud, free)
-                                  │dashboard│
-                                  └─────────┘
+   ┌───────────────────────────┐
+   │   Polymarket public APIs   │  (read-only, no auth)
+   │  data-api / clob / gamma   │
+   └─────────────┬─────────────┘
+                 │ reads leaderboard, positions, prices, status
+                 ▼
+   ┌──────────────────────────────┐   commits JSON   ┌────────────────────┐
+   │  Poller  (GitHub Actions cron │ ───────────────▶ │  repo files         │
+   │  every 30 min, no secrets)    │   back to repo   │  data/*.json(l)     │
+   └──────────────────────────────┘                  │  docs/data.json     │
+                                                      └─────────┬──────────┘
+                                                  push triggers │
+                                                                ▼
+                                          ┌──────────────────────────────┐
+                                          │  GitHub Pages (free)          │
+                                          │  static dashboard at /docs    │
+                                          └──────────────────────────────┘
 ```
 
-- **Poller** — a scheduled job (GitHub Actions). Fetches the leaderboard and
-  positions, computes overlap, logs observations, opens/closes paper trades.
-  Minimal deps (`requests`, `PyYAML`) so it installs fast.
-- **Database** — hosted Postgres (Supabase free tier). Stores leaderboard
-  snapshots, every observation, paper trades, and config history.
-- **Dashboard** — a Streamlit app (Streamlit Community Cloud free tier) that
-  reads results and edits settings.
+- **Poller** — a scheduled GitHub Action. Fetches the leaderboard and positions,
+  computes overlap, logs observations, opens/closes paper trades, writes the
+  results to JSON files, and **commits them back to the repo**. Minimal deps
+  (`requests`, `PyYAML`). No secrets, because all data is public.
+- **Store** — plain JSON files in the repo (`core/store.py: FileStore`). No
+  hosted database. `data/state.json` is the source of truth; every observation
+  is also appended to `data/observations.jsonl` (the empirical record).
+- **Dashboard** — a static page (`docs/index.html`) served free by GitHub Pages.
+  Each poll commits a precomputed `docs/data.json`; pushing it auto-rebuilds the
+  site. It's a pure render-from-JSON page (the poller does the aggregation with
+  the same tested code).
+
+> **Optional alternative backend.** A Supabase + Streamlit path also ships in the
+> repo (`PostgrestStore`, `dashboard/app.py`, `sql/schema.sql`) for a private
+> deployment with a live settings editor. If you set `SUPABASE_URL`/`SUPABASE_KEY`
+> as Actions secrets, the poller automatically uses Postgres instead of files.
+> See [Optional: private Supabase + Streamlit](#optional-private-supabase--streamlit).
 
 ### Repo layout
 
 ```
-config.yaml                  # default settings (only seeds an EMPTY database)
-requirements.txt             # DASHBOARD deps (repo root, for Streamlit Cloud)
-sql/schema.sql               # run once in Supabase to create the tables
+config.yaml                  # live settings (edit + commit = forward-only change)
+docs/
+  index.html                 # the static GitHub Pages dashboard
+  data.json                  # precomputed payload (written by the poller each cycle)
+data/                        # the file "database" (committed by the poller)
+  state.json                 #   trades + config history + counters (source of truth)
+  observations.jsonl         #   append-only log of EVERY observation (honesty rule #2)
 core/
-  config.py                  # Config model + forward-only loader
-  store.py                   # PostgrestStore (Supabase) + MemoryStore (dry-run/tests)
-  analytics.py               # pure aggregation for the dashboard (tested)
+  config.py                  # Config model + forward-only loader / yaml sync
+  store.py                   # FileStore (default) + PostgrestStore + MemoryStore
+  analytics.py               # pure aggregation, incl. the dashboard payload (tested)
 poller/
-  requirements.txt           # POLLER deps (minimal)
+  requirements.txt           # POLLER deps (minimal: requests, PyYAML)
   polymarket.py              # ⭐ the ONLY file that knows the raw API shape
   strategy.py                # pure overlap/tiering/guardrails/P&L (tested)
   engine.py                  # one run_cycle(): the whole job
-  main.py                    # entry point; supports --dry-run
+  publish.py                 # writes docs/data.json for the static dashboard
+  main.py                    # entry point; --dry-run; picks the store backend
   alerts.py                  # alert SEAM (intentionally a no-op for now)
-dashboard/app.py             # Streamlit dashboard
+scripts/make_demo_data.py    # generates sample data for the Streamlit demo mode
+dashboard/app.py             # optional Streamlit dashboard (Supabase path)
+requirements.txt             # optional Streamlit-dashboard deps (repo root)
+sql/schema.sql               # optional Supabase table definitions
 tests/                       # unittest suite (no network/DB needed)
-.github/workflows/poller.yml # 30-min cron + manual trigger
+.github/workflows/poller.yml # 30-min cron + manual trigger; commits data back
 ```
 
 The whole app depends only on the **normalized** output of
@@ -154,67 +172,46 @@ miss). All of this is handled in `polymarket.py`.
 
 ## Setup
 
-### 0. Local check first (recommended, no accounts needed)
+**The default (GitHub Pages) deployment needs no setup beyond the repo itself** —
+the Action runs on a schedule, commits data, and Pages serves the dashboard. If
+you cloned this fresh, the one-time enablement is:
+
+1. Push to GitHub (public repo, so free Pages can serve it).
+2. **Settings → Pages → Build and deployment → Deploy from a branch → `main` / `/docs`.**
+   (Or via the CLI: `gh api -X POST repos/OWNER/REPO/pages -f 'source[branch]=main' -f 'source[path]=/docs'`.)
+3. **Actions → poller → Run workflow** to populate data immediately (otherwise wait
+   for the next 30-min cron tick). The dashboard is then live at
+   `https://OWNER.github.io/REPO/`.
+
+That's it — `$0`, no database, no secrets.
+
+### Local check first (recommended)
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r poller/requirements.txt
-python -m unittest discover -s tests -t .   # 24 tests, no network
-python -m poller.polymarket --selftest      # confirm live endpoints
+python -m unittest discover -s tests -t .   # 27 tests, no network
+python -m poller.polymarket --selftest      # confirm live Polymarket endpoints
 python -m poller.main --dry-run             # full cycle, live data, writes NOTHING
+python -m poller.main                        # real cycle -> writes data/ + docs/data.json locally
 ```
 
-### 1. Supabase (database)
-
-1. Create a free project at <https://supabase.com>.
-2. Open **SQL Editor** → paste the contents of [`sql/schema.sql`](sql/schema.sql)
-   → **Run**. This creates all tables and the one-open-trade-per-market index.
-3. **Project Settings → API**: copy the **Project URL** and the **`service_role`**
-   key. (See the [security note](#security) before exposing the dashboard.)
-
-### 2. GitHub (the poller)
-
-1. Push this repo to a **private** GitHub repo.
-2. **Settings → Secrets and variables → Actions → New repository secret**, add:
-   - `SUPABASE_URL` — your project URL
-   - `SUPABASE_KEY` — the `service_role` key
-3. The workflow (`.github/workflows/poller.yml`) runs every 30 min automatically.
-   To run on demand: **Actions → poller → Run workflow** (it has a manual trigger
-   and an optional *dry-run* checkbox).
-
-> Scheduled workflows only run from the **default branch**, and GitHub may delay
-> a cron tick under load. The first scheduled run can take up to ~30 min to appear
-> — use the manual trigger to seed data immediately.
-
-### 3. Streamlit Community Cloud (the dashboard)
-
-1. Go to <https://share.streamlit.io>, **New app**, point it at this repo.
-2. Set **Main file path** to `dashboard/app.py`.
-3. In **Advanced settings → Secrets**, add (TOML):
-   ```toml
-   SUPABASE_URL = "https://YOUR-PROJECT.supabase.co"
-   SUPABASE_KEY = "your-service-role-key"
-   ```
-4. Deploy. Streamlit Cloud auto-installs the repo-root `requirements.txt`.
-
-### 4. Verify, then trust the output
-
-Trigger the workflow once (or run `--dry-run` locally), open the dashboard, and
-confirm the leaderboard cohort and recent signals look sane **before** drawing
-conclusions from the paper-trade results.
+Preview the static dashboard locally: `cd docs && python3 -m http.server` then open
+<http://localhost:8000>.
 
 ---
 
 ## Configuration is forward-only
 
-`config.yaml` holds sensible defaults, but it **only seeds the first config row
-when the database is empty**. After that, the database is the source of truth.
+`config.yaml` is the live settings file. **To change a setting, edit `config.yaml`
+and commit it.** On the next cycle the poller notices the change and appends a new
+timestamped row to the config history (`data/state.json` → `config_history`), then
+uses it. Changes therefore apply **only to future cycles** and never rewrite past
+trades — git history *is* the forward-only audit trail. The dashboard shows the
+current settings read-only.
 
-The dashboard's **Settings** editor changes settings by **inserting a new
-timestamped `config_history` row** — it never edits an existing one. The poller
-always reads the newest row, so changes apply **only to future cycles** and never
-rewrite past trades. To audit what was live when, read `config_history` (every
-cycle records the `config_id` it used).
+(In the optional Supabase path, the Streamlit **Settings** editor does the same
+thing by inserting a new `config_history` row instead of editing `config.yaml`.)
 
 | Setting | Default | Meaning |
 |---|---|---|
@@ -239,37 +236,60 @@ cycle records the `config_id` it used).
 - **Overlap by tier** — does green beat blue?
 - **Open paper positions** — with live mark-to-market P&L (marks refresh each cycle).
 - **Recent signals** — latest observation per market, sorted by overlap.
-- **Settings editor** — saves a new forward-only config row.
+- **Current settings** — read-only (change them by editing `config.yaml`).
 
 ---
 
 ## Cost target: $0 / month
 
-A private repo polling every 30 minutes (~1,440 short runs/month) stays within
-GitHub's free Actions minutes, and Supabase + Streamlit Community Cloud free tiers
-cover the rest.
+Everything is free: GitHub Actions (a ~10-second run every 30 min ≈ 1,440 runs/
+month, well within free minutes) and GitHub Pages hosting. No database bill, no
+host bill, no secrets to leak. The trade-off is that the published repo is
+**public** (there are no secrets to expose — only public Polymarket data and
+simulated trades).
 
 > **Faster polling** (e.g. every minute) would exceed free Actions minutes and
 > need a small **~$5/month always-on worker** (Fly.io / Railway / a tiny VPS
 > running `poller/main.py` on a loop). Not needed for this test — 30-minute
 > cadence is plenty to measure a multi-day/week strategy.
 
+Note: the poller commits once per cycle, so the repo accumulates ~48 small
+commits/day. That's by design (the commits *are* the database) and is free.
+
 ---
 
 ## Security
 
-Using the `service_role` key is fine for a **private, personal** tool: it lives
-only in GitHub Actions secrets and Streamlit secrets, and the repo is private.
+The default (file/Pages) deployment has **no secrets at all** — the poller only
+reads public Polymarket data and writes public files, so there is nothing
+sensitive to protect. The repo is public by necessity (free Pages); that exposes
+your code and paper-trade results, but no keys and no money.
 
-**If you ever make the dashboard public**, do not ship it the `service_role`
-key. Instead:
+If you switch to the optional Supabase backend, treat the `service_role` key as a
+secret: keep it only in GitHub Actions secrets (and Streamlit secrets if you use
+that dashboard). Should you ever expose that dashboard publicly, enable
+Row-Level Security, use the read-only `anon` key for the dashboard, and keep the
+write-capable `service_role` key only in the scheduled job.
 
-1. Enable **Row-Level Security** on the tables and add read-only policies.
-2. Create/use the Supabase **`anon`** key for the dashboard (read-only).
-3. Keep the write-capable `service_role` key **only** in the GitHub Actions
-   secret used by the poller.
+---
 
-That way the write key never leaves the scheduled job.
+## Optional: private Supabase + Streamlit
+
+If you'd rather keep everything private (and don't mind a few minutes of setup
+plus signing in to two free services), the repo also supports a Postgres +
+Streamlit deployment:
+
+1. **Supabase** — create a free project, run [`sql/schema.sql`](sql/schema.sql) in
+   the SQL Editor, and copy the Project URL + `service_role` key.
+2. **GitHub** — add `SUPABASE_URL` and `SUPABASE_KEY` as Actions secrets. The
+   poller detects them and writes to Postgres instead of files (the Pages site
+   then just stops updating; harmless). You can also make the repo private.
+3. **Streamlit Community Cloud** — deploy with main file `dashboard/app.py` and the
+   same two secrets (TOML). With no secrets it shows a bundled demo;
+   `streamlit run dashboard/app.py` works locally too.
+
+The Streamlit dashboard adds a live, writeable **Settings** editor (it inserts a
+new forward-only `config_history` row).
 
 ---
 

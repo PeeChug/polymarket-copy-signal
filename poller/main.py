@@ -20,19 +20,24 @@ import sys
 # allow `python -m poller.main` from the repo root and direct execution
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from core.store import PostgrestStore, MemoryStore  # noqa: E402
+from core.store import PostgrestStore, MemoryStore, FileStore  # noqa: E402
+from core.config import sync_yaml_config, default_yaml_path     # noqa: E402
 from poller.engine import run_cycle                 # noqa: E402
 from poller.polymarket import PolymarketClient       # noqa: E402
+from poller.publish import write_site                # noqa: E402
 
 
 def build_store(dry_run: bool):
+    """Pick a backend: in-memory for dry-run, Supabase if configured, else the
+    free file-based store (the default for the GitHub-Pages deployment)."""
     if dry_run:
         return MemoryStore(), "memory (dry-run)"
     url = os.environ.get("SUPABASE_URL")
     key = os.environ.get("SUPABASE_KEY") or os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
-    if not url or not key:
-        sys.exit("ERROR: set SUPABASE_URL and SUPABASE_KEY env vars (or use --dry-run).")
-    return PostgrestStore(url, key), "supabase"
+    if url and key:
+        return PostgrestStore(url, key), "supabase"
+    data_dir = os.environ.get("DATA_DIR", "data")
+    return FileStore(data_dir), f"file ({data_dir})"
 
 
 def main(argv=None) -> int:
@@ -47,7 +52,17 @@ def main(argv=None) -> int:
     print(f"== Polymarket copy-signal poller :: store={kind} ==")
     client = PolymarketClient()
 
+    # Forward-only settings editor for the file deployment: a changed config.yaml
+    # becomes a new config row applied to this and future cycles only.
+    if isinstance(store, FileStore) and sync_yaml_config(store, default_yaml_path()):
+        print("applied updated config.yaml as a new forward-only config row")
+
     result = run_cycle(store, client)
+
+    # Publish the precomputed payload the static dashboard reads.
+    if isinstance(store, FileStore):
+        site_path = write_site(store, result, os.environ.get("DOCS_DIR", "docs"))
+        print(f"wrote dashboard payload -> {site_path}")
 
     if args.dry_run:
         trades = store.all_trades()

@@ -98,3 +98,22 @@ def load_config(store, seed_path: Optional[str] = None) -> Config:
     payload["note"] = "auto-seeded from config.yaml on first run"
     inserted = store.insert_config(payload)
     return Config.from_row(inserted or payload)
+
+
+def sync_yaml_config(store, path: Optional[str] = None) -> bool:
+    """
+    Forward-only settings editor for the file-based deployment: if config.yaml
+    differs from the newest stored config (or none exists yet), append a NEW
+    config row. Editing config.yaml and committing therefore changes only future
+    cycles and never rewrites past trades. Returns True if a new row was written.
+    """
+    path = path or default_yaml_path()
+    yaml_cfg = defaults_from_yaml(path)
+    latest = store.latest_config()
+    if latest is not None and Config.from_row(latest).editable_dict() == yaml_cfg.editable_dict():
+        return False
+    payload = yaml_cfg.editable_dict()
+    payload["source"] = "config.yaml"
+    payload["note"] = "synced from config.yaml" if latest else "initial from config.yaml"
+    store.insert_config(payload)
+    return True
