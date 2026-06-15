@@ -421,15 +421,7 @@ function renderConsensus(){
 
 function renderPerformance(){
   const d=DATA,el=document.getElementById('tab-performance');el.innerHTML='';
-  el.appendChild($(`<h2>Overlap strategy vs. control benchmark</h2>`));
-  el.appendChild($(`<p class="sub">Paper trades only. Control = naively copy the #1-ranked trader. If overlap doesn't beat it, the tiering adds no value.</p>`));
-  const cards=$(`<div class="grid grid2">${perfCard('🟢🔵 Overlap',d.performance.overlap)}${perfCard('1️⃣ Control (#1 copy)',d.performance.control)}</div>`);
-  el.appendChild(cards); runCountups(cards);
-  if((d.history||[]).length>=2){
-    el.appendChild($(`<h2 style="margin-top:30px">Cumulative net P&L over time</h2>`));
-    el.appendChild($(lineChart(d.history,[{key:'ov_net',color:'var(--green)',label:'Overlap'},{key:'ct_net',color:'var(--muted)',label:'Control'}])));
-  }
-  el.appendChild($(`<h2 style="margin-top:30px">P&L by tier — does 🟢 green beat 🔵 blue?</h2>`));
+  el.appendChild($(`<h2>P&L by tier — does 🟢 green beat 🔵 blue?</h2>`));
   el.appendChild($(`<p class="sub">The overlap strategy's paper P&L split by the tier each trade entered at — so you can see whether stronger agreement actually pays.</p>`));
   const tierCards=$(`<div class="grid grid2">${perfCard('🟢 Green tier',d.tiers.green)}${perfCard('🔵 Blue tier',d.tiers.blue)}</div>`);
   el.appendChild(tierCards); runCountups(tierCards);
