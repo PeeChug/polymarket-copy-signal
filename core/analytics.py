@@ -147,6 +147,80 @@ def calibration(watch) -> dict:
     return out
 
 
+def _watch_entries(watch):
+    return list(watch.values()) if isinstance(watch, dict) else (watch or [])
+
+
+def trader_scores(watch) -> dict[str, dict]:
+    """Per-trader 'sharp' record on CONSENSUS positions (held by >=2 of the cohort).
+
+    For every watched position, credit each holder wallet; among the ones that
+    have resolved, how often did the trader's side win and what was the average
+    buy-at-first-sighting return. Keyed by wallet so the dashboard can merge it
+    into traders[]. Accrues as markets resolve (empty until the first resolution).
+    """
+    agg: dict[str, dict] = {}
+    for w in _watch_entries(watch):
+        resolved = bool(w.get("resolved"))
+        won = bool(w.get("won"))
+        fp, xp = w.get("first_price"), w.get("exit_price")
+        ret = ((xp - fp) / fp) if (resolved and fp and xp is not None) else None
+        for wallet in (w.get("holders") or []):
+            a = agg.setdefault(wallet, {"held": 0, "resolved": 0, "wins": 0, "ret_sum": 0.0, "ret_n": 0})
+            a["held"] += 1
+            if resolved:
+                a["resolved"] += 1
+                a["wins"] += 1 if won else 0
+                if ret is not None:
+                    a["ret_sum"] += ret
+                    a["ret_n"] += 1
+    out = {}
+    for wallet, a in agg.items():
+        out[wallet] = {
+            "held": a["held"], "resolved": a["resolved"], "wins": a["wins"],
+            "win_rate": (a["wins"] / a["resolved"]) if a["resolved"] else None,
+            "avg_return": (a["ret_sum"] / a["ret_n"]) if a["ret_n"] else None,
+        }
+    return out
+
+
+def backtest(watch) -> dict:
+    """Replay the core hypothesis: buy $1 of every consensus position at first
+    sighting and hold to resolution. Reports per agreement threshold (>=2/3/5)
+    and per tier (green/blue), plus a cumulative-return equity curve ordered by
+    resolution. Real numbers for whatever has resolved; grows over time.
+    """
+    entries = _watch_entries(watch)
+
+    def stat(pool):
+        resolved = [w for w in pool if w.get("resolved")]
+        wins = sum(1 for w in resolved if w.get("won"))
+        rets = [(w["exit_price"] - w["first_price"]) / w["first_price"]
+                for w in resolved if w.get("first_price") and w.get("exit_price") is not None]
+        return {
+            "tracking": len(pool), "resolved": len(resolved), "wins": wins,
+            "losses": len(resolved) - wins,
+            "win_rate": (wins / len(resolved)) if resolved else None,
+            "avg_return": (sum(rets) / len(rets)) if rets else None,
+            "total_return": round(sum(rets), 4) if rets else 0.0,
+        }
+
+    strategies = {k: stat([w for w in entries if (w.get("max_overlap") or 0) >= th])
+                  for k, th in (("ge2", 2), ("ge3", 3), ("ge5", 5))}
+    tiers = {tier: stat([w for w in entries if w.get("tier") == tier]) for tier in ("green", "blue")}
+
+    resolved = sorted(
+        [w for w in entries if w.get("resolved") and w.get("first_price") and w.get("exit_price") is not None],
+        key=lambda w: str(w.get("resolved_at") or ""))
+    curve, cum = [], 0.0
+    for w in resolved:
+        cum += (w["exit_price"] - w["first_price"]) / w["first_price"]
+        curve.append({"t": w.get("resolved_at"), "cum": round(cum, 4), "won": bool(w.get("won")),
+                      "title": w.get("title"), "overlap": w.get("max_overlap"), "tier": w.get("tier")})
+    return {"strategies": strategies, "tiers": tiers, "curve": curve,
+            "resolved_total": len(resolved), "tracking_total": len(entries)}
+
+
 def dashboard_payload(trades, observations, leaderboard, config_rows, traders=None,
                       agreement=None, meta=None) -> dict:
     """

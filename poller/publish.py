@@ -39,14 +39,18 @@ def write_site(store, run_result: dict, docs_dir: str = "docs") -> str:
         "max_overlap": ag.get("max_overlap"), "positions": ag.get("positions"),
     })
     payload["history"] = store.history(limit=1000)
-    payload["calibration"] = analytics.calibration(store.get_consensus_watch())
+    watch = store.get_consensus_watch()
+    payload["calibration"] = analytics.calibration(watch)
+    payload["backtest"] = analytics.backtest(watch)
+    scores = analytics.trader_scores(watch)
+    payload["trader_scores"] = scores            # keyed by wallet (smart-money lookup)
     series = store.get_trader_series()
     for t in payload["traders"]:
         t["spark"] = series.get(t["wallet"], [])
+        t["sharp"] = scores.get(t["wallet"])     # per-trader consensus hit-rate (accrues)
 
     # enrich signals/consensus with consensus age + peak agreement from the watch
     # (consensus items are references into the signals list, so iterating signals covers both)
-    watch = store.get_consensus_watch()
     for r in payload["signals"]:
         w = watch.get(f"{r.get('condition_id')}|{r.get('outcome_index')}")
         if w:

@@ -293,15 +293,22 @@ def _update_trackers(store, cohort, observed, market_map, now_iso):
                 "first_overlap": ov.overlap, "max_overlap": ov.overlap,
                 "cur_overlap": ov.overlap, "prev_overlap": ov.overlap, "momentum": 0,
                 "last_seen": now_iso, "resolved": False,
+                # for smart-money + backtest: who held it (union over time) and tier at peak
+                "holders": sorted(set(ov.wallets[:50])), "tier": tier,
             }
         else:
             w["prev_overlap"] = w.get("cur_overlap", ov.overlap)
             w["cur_overlap"] = ov.overlap
             w["momentum"] = ov.overlap - w["prev_overlap"]   # change since last time seen
+            if ov.overlap >= w.get("max_overlap", 0):
+                w["tier"] = tier                              # tier at the peak agreement
             w["max_overlap"] = max(w.get("max_overlap", 0), ov.overlap)
             w["last_seen"] = now_iso
             if not w.get("first_price") and price:
                 w["first_price"] = price
+            holders = set(w.get("holders") or [])
+            holders.update(ov.wallets[:50])
+            w["holders"] = sorted(holders)[:50]
     # resolve any watched position whose market has closed
     for w in watch.values():
         if w.get("resolved"):

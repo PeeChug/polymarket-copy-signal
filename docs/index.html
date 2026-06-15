@@ -169,6 +169,8 @@
   .dd { cursor:pointer; color:var(--dim); margin-left:6px; text-decoration:none; font-size:12px; } .dd:hover { color:var(--accent); }
   .pickbtn { cursor:pointer; border:1px solid var(--line); background:var(--panel2); color:var(--muted); border-radius:6px; font-size:14px; line-height:1; padding:2px 7px; }
   .pickbtn.has { border-color:var(--green); color:var(--green); }
+  .sharpb { font-size:11px; padding:1px 7px; border-radius:999px; background:var(--panel2); border:1px solid var(--line); color:var(--muted); font-weight:700; }
+  .sharpb.good { color:var(--green); border-color:var(--green); background:var(--green-d); }
   /* flash-on-change */
   @keyframes flup { 0%{background:rgba(52,211,153,.32);} 100%{background:transparent;} }
   @keyframes fldn { 0%{background:rgba(251,106,106,.32);} 100%{background:transparent;} }
@@ -211,6 +213,7 @@
     <button data-tab="buy">🛒 Buy Candidates</button>
     <button data-tab="picks">📌 My Picks</button>
     <button data-tab="performance">Performance</button>
+    <button data-tab="backtest">📈 Backtest</button>
     <button data-tab="signals">All Signals</button>
   </nav>
 </header>
@@ -235,6 +238,7 @@
   <section id="tab-buy" class="tab"></section>
   <section id="tab-picks" class="tab"></section>
   <section id="tab-performance" class="tab"></section>
+  <section id="tab-backtest" class="tab"></section>
   <section id="tab-signals" class="tab"></section>
   <p class="sub" style="margin-top:34px">Auto-updates every ~30 min via a GitHub Action reading public Polymarket APIs. Source: <a href="https://github.com/PeeChug/polymarket-copy-signal">github.com/PeeChug/polymarket-copy-signal</a>.</p>
 </div>
@@ -290,10 +294,17 @@ function edgeFor(o,cal){ if(!cal||o.price==null) return null; const ov=o.overlap
   const b=ov>=5?cal.ge5:ov>=3?cal.ge3:ov>=2?cal.ge2:null; if(!b||b.win_rate==null) return null; return b.win_rate-o.price; }
 function winRateFor(o,cal){ if(!cal) return null; const ov=o.overlap||0; const b=ov>=5?cal.ge5:ov>=3?cal.ge3:ov>=2?cal.ge2:null; return b&&b.win_rate!=null?b.win_rate:null; }
 function kelly(w,p){ return (w!=null&&p!=null&&p>0&&p<1&&w>p)?(w-p)/(1-p):0; }  // fraction of bankroll
+function smartMoney(o){ const ts=DATA&&DATA.trader_scores; if(!ts) return null;
+  const rates=[]; (o.holder_wallets||[]).forEach(w=>{ const s=ts[w]; if(s&&(s.resolved||0)>=3&&s.win_rate!=null) rates.push(s.win_rate); });
+  return rates.length?rates.reduce((a,b)=>a+b,0)/rates.length:null; }
 function candScore(o,cohort){ const N=(cohort==='?'?10:cohort), ov=o.overlap||0, p=o.participants||ov||1, mom=o.momentum||0, liq=o.liquidity||0, e=edgeFor(o,DATA.calibration);
   const sBreadth=Math.min(1,ov/Math.max(5,N*0.2)), sConv=ov/p, sMom=mom>0?Math.min(1,mom/4):0,
     sLiq=liq>=10000?1:liq>=1000?0.6:0.2, sEdge=e!=null?Math.max(0,Math.min(1,e/0.25)):0.3;
-  return Math.round(100*(0.30*sBreadth+0.30*sConv+0.15*sMom+0.10*sLiq+0.15*sEdge)); }
+  const base=0.30*sBreadth+0.30*sConv+0.15*sMom+0.10*sLiq+0.15*sEdge;
+  const sm=smartMoney(o);   // holders' historical consensus win-rate (null until resolutions accrue)
+  if(sm==null) return Math.round(100*base);
+  const sSmart=Math.max(0,Math.min(1,(sm-0.4)/0.4));   // 40%→0, 80%→1
+  return Math.round(100*(0.85*base+0.15*sSmart)); }
 function categoryOf(o){ const t=((o.title||'')+' '+(o.slug||'')).toLowerCase();
   if(/\b(fed|rate cut|cpi|inflation|gdp|recession|economy|unemployment|jobs report|interest rate)\b/.test(t)) return 'Economics';
   if(/\b(election|president|senate|governor|mayor|congress|parliament|prime minister|vote|democrat|republican|political|impeach|nominee)\b/.test(t)) return 'Politics';
@@ -454,10 +465,11 @@ function traderCard(t,cohort){
     const sh=(p.overlap||0)>=2?`<span class="shb" title="${p.overlap} of ${p.participants||p.overlap} holders on this side">🤝 ${p.overlap}/${p.participants||p.overlap}</span>`:'';
     return `<li><span class="oc">${esc(p.outcome)}</span><span class="ti">${mlink(p.slug,p.title,52)}</span>${sh}<span class="pv">${fmtC(p.current_value)}</span></li>`;}).join('');
   const more=(t.n_positions||0)>8?`<li class="muted" style="border:0">+${t.n_positions-8} more…</li>`:'';
+  const sp=t.sharp&&(t.sharp.resolved||0)>=3?`<span class="sharpb ${t.sharp.win_rate>=0.5?'good':''}" title="Won ${Math.round((t.sharp.win_rate||0)*100)}% of ${t.sharp.resolved} resolved consensus picks${t.sharp.avg_return!=null?` · avg ${t.sharp.avg_return>=0?'+':''}${Math.round(t.sharp.avg_return*100)}%`:''}">🎯 ${Math.round((t.sharp.win_rate||0)*100)}%</span>`:'';
   return `<div class="tcard">
     <div class="thead"><div class="rankb r${t.rank}">${t.rank}</div>
       <div class="ava" style="background:${col}">${letter}${img}</div>
-      <div class="who"><div class="nm"><a href="${profUrl(t.wallet)}" target="_blank" rel="noopener">${esc(nm)}</a>${t.verified?'<span class="vbadge" title="verified">✓</span>':''}</div>
+      <div class="who"><div class="nm"><a href="${profUrl(t.wallet)}" target="_blank" rel="noopener">${esc(nm)}</a>${t.verified?'<span class="vbadge" title="verified">✓</span>':''}${sp}</div>
         <div class="sm">${t.x_username?`<a class="xlink" href="https://x.com/${esc(t.x_username)}" target="_blank" rel="noopener">@${esc(t.x_username)}</a> · `:''}${esc((t.wallet||'').slice(0,6))}…${esc((t.wallet||'').slice(-4))}</div></div></div>
     <div class="pnlrow"><div class="pnlbig ${sgn(t.pnl)}"><span class="lab">30-day profit</span><span data-target="${Math.abs(t.pnl||0)}" data-neg="${(t.pnl||0)<0?1:0}">${fmtC(0)}</span></div>${spark(t.spark)}</div>
     <div class="statrow">
@@ -768,7 +780,34 @@ function renderBuy(){
   tb.querySelector('#bBank').oninput=e=>{state.settings.bankroll=+e.target.value||0;persist();draw();};
   draw();
 }
-const RENDER={traders:renderTraders,consensus:renderConsensus,buy:renderBuy,picks:renderPicks,performance:renderPerformance,signals:renderSignals};
+function btRow(label,sub,m){
+  m=m||{}; const wr=m.win_rate, ar=m.avg_return, tr=m.total_return||0, n=m.resolved||0;
+  return {
+    strat:`<b>${label}</b> <span class="muted" style="font-size:11.5px">${esc(sub)}</span>`,
+    track:m.tracking||0,
+    _res:n?`${n} <span class="muted">(${m.wins||0}W/${m.losses||0}L)</span>`:'<span class="muted">0</span>',
+    _wr:wr==null?'<span class="muted">—</span>':`<span class="${wr>=0.5?'pos':'neg'}">${(wr*100).toFixed(0)}%</span>`,
+    _ar:ar==null?'<span class="muted">—</span>':`<span class="${ar>=0?'pos':'neg'}">${ar>=0?'+':''}${(ar*100).toFixed(0)}%</span>`,
+    _tr:n?`<span class="${tr>=0?'pos':'neg'}">${tr>=0?'+':''}$${Math.abs(tr).toFixed(2)}</span>`:'<span class="muted">—</span>',
+  };
+}
+function renderBacktest(){
+  const el=document.getElementById('tab-backtest'); el.innerHTML='';
+  const bt=DATA.backtest||{}, S=bt.strategies||{}, T=bt.tiers||{};
+  const tot=bt.tracking_total||0, rt=bt.resolved_total||0, last=rt?(((bt.curve||[]).slice(-1)[0]||{}).cum||0):0;
+  el.appendChild($(`<h2>📈 Strategy Backtester</h2>`));
+  el.appendChild($(`<p class="sub">If you'd bought <b>$1 of every consensus position</b> the instant it reached each agreement threshold and held to resolution — how would each strategy have paid off? Real settled outcomes only; it fills in as markets close. Not financial advice.</p>`));
+  el.appendChild($(`<div class="chips"><span class="chip">📋 tracking <b>${tot}</b></span><span class="chip">✅ resolved <b>${rt}</b></span>${rt?`<span class="chip">$1/entry P&L <b class="${last>=0?'pos':'neg'}">${last>=0?'+':''}$${Math.abs(last).toFixed(2)}</b></span>`:''}</div>`));
+  const rows=[btRow('≥2 agreement','any consensus',S.ge2),btRow('≥3 agreement','moderate',S.ge3),btRow('≥5 agreement','strong',S.ge5),btRow('🟢 Green tier','peak ≥10',T.green),btRow('🔵 Blue tier','peak ≥5',T.blue)];
+  el.appendChild(tableEl([{key:'strat',label:'Strategy'},{key:'track',label:'Tracking',num:1},{key:'_res',label:'Resolved',num:1},{key:'_wr',label:'Win rate',num:1},{key:'_ar',label:'Avg return',num:1},{key:'_tr',label:'Total',num:1}],rows));
+  if(!rt){ el.appendChild($(`<div class="empty">No consensus positions have resolved yet — the table shows how many are being tracked at each threshold. The backtester books a result the moment a watched market settles, so this grows on its own as markets close. (Win rate &amp; returns appear once there are resolutions.)</div>`)); return; }
+  const card=$(`<div class="card" style="margin-top:16px"><h3>Cumulative return — $1 per consensus position, in resolution order</h3></div>`);
+  card.appendChild(chart((bt.curve||[]).map(p=>({ts:p.t,cum:p.cum})),[{key:'cum',color:'var(--accent)',label:'Cumulative $ per $1/entry'}]));
+  el.appendChild(card);
+  const recent=(bt.curve||[]).slice(-12).reverse().map(p=>`<li><span class="oc">${p.won?'✅ WON':'❌ lost'}</span><span class="ti">${esc((p.title||'').slice(0,64))}</span><span class="pv ${(p.cum||0)>=0?'pos':'neg'}">$${(p.cum||0).toFixed(2)}</span></li>`).join('');
+  el.appendChild($(`<div class="card" style="margin-top:16px"><h3>Most recent resolutions</h3><ul class="plist">${recent}</ul></div>`));
+}
+const RENDER={traders:renderTraders,consensus:renderConsensus,buy:renderBuy,picks:renderPicks,performance:renderPerformance,backtest:renderBacktest,signals:renderSignals};
 function setTab(name){
   state.tab=name; location.hash=name;
   try{localStorage.setItem('pm_tab',name);}catch(e){}
@@ -786,7 +825,7 @@ document.addEventListener('click',e=>{
 });
 function showHelp(){ const m=document.getElementById('modal'); m.innerHTML=`<span class="x" id="modalx">×</span><h3>⌨️ Keyboard shortcuts</h3>
   <div class="help-grid">
-    <div><kbd>1</kbd> … <kbd>6</kbd></div><div class="d">Jump to a tab (Top Earners → All Signals)</div>
+    <div><kbd>1</kbd> … <kbd>7</kbd></div><div class="d">Jump to a tab (Top Earners → All Signals)</div>
     <div><kbd>/</kbd></div><div class="d">Focus the search box on this tab</div>
     <div><kbd>r</kbd></div><div class="d">Refresh data now</div>
     <div><kbd>t</kbd></div><div class="d">Toggle light / dark theme</div>
@@ -799,7 +838,7 @@ document.addEventListener('keydown',e=>{
   if(e.key==='Escape'){ document.getElementById('modal').classList.remove('open'); const p=document.getElementById('settings'); if(p)p.classList.remove('open'); document.getElementById('scrim').classList.remove('open'); return; }
   const tag=((e.target&&e.target.tagName)||'').toLowerCase();
   if(tag==='input'||tag==='select'||tag==='textarea'||e.metaKey||e.ctrlKey||e.altKey) return;
-  if(e.key>='1'&&e.key<='6'){ const t=['traders','consensus','buy','picks','performance','signals'][+e.key-1]; if(t)setTab(t); }
+  if(e.key>='1'&&e.key<='7'){ const t=['traders','consensus','buy','picks','performance','backtest','signals'][+e.key-1]; if(t)setTab(t); }
   else if(e.key==='/'){ const s=document.querySelector('.tab.on input[type=search]'); if(s){ e.preventDefault(); s.focus(); } }
   else if(e.key==='r'||e.key==='R'){ manualRefresh(); }
   else if(e.key==='t'||e.key==='T'){ toggleTheme(); }

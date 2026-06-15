@@ -109,6 +109,49 @@ class TestCalibration(unittest.TestCase):
         self.assertEqual(cal["ge2"]["resolved"], 0)
 
 
+class TestSmartMoneyAndBacktest(unittest.TestCase):
+    WATCH = {
+        "a": {"max_overlap": 6, "tier": "green", "resolved": True, "won": True,
+              "first_price": 0.4, "exit_price": 1.0, "resolved_at": "2026-06-16T00:00:00Z",
+              "holders": ["w1", "w2"], "title": "A"},
+        "b": {"max_overlap": 3, "tier": "blue", "resolved": True, "won": False,
+              "first_price": 0.5, "exit_price": 0.0, "resolved_at": "2026-06-17T00:00:00Z",
+              "holders": ["w1", "w3"], "title": "B"},
+        "c": {"max_overlap": 2, "tier": "blue", "resolved": False, "holders": ["w2"], "title": "C"},
+    }
+
+    def test_trader_scores(self):
+        sc = analytics.trader_scores(self.WATCH)
+        # w1 held a (win) and b (loss) -> 2 resolved, 1 win, 50%
+        self.assertEqual(sc["w1"]["held"], 2)
+        self.assertEqual(sc["w1"]["resolved"], 2)
+        self.assertEqual(sc["w1"]["wins"], 1)
+        self.assertAlmostEqual(sc["w1"]["win_rate"], 0.5)
+        self.assertAlmostEqual(sc["w1"]["avg_return"], (1.5 + -1.0) / 2)
+        # w2 held a (win) and c (open) -> 1 resolved win, 100%
+        self.assertEqual(sc["w2"]["held"], 2)
+        self.assertEqual(sc["w2"]["resolved"], 1)
+        self.assertAlmostEqual(sc["w2"]["win_rate"], 1.0)
+
+    def test_backtest(self):
+        bt = analytics.backtest(self.WATCH)
+        self.assertEqual(bt["strategies"]["ge2"]["tracking"], 3)
+        self.assertEqual(bt["strategies"]["ge2"]["resolved"], 2)
+        self.assertAlmostEqual(bt["strategies"]["ge2"]["win_rate"], 0.5)
+        self.assertEqual(bt["strategies"]["ge5"]["resolved"], 1)
+        self.assertEqual(bt["tiers"]["green"]["resolved"], 1)
+        self.assertEqual(bt["tiers"]["blue"]["resolved"], 1)
+        # equity curve ordered by resolution, cumulative $1/entry return: +1.5 then -1.0
+        self.assertEqual([round(p["cum"], 2) for p in bt["curve"]], [1.5, 0.5])
+        self.assertEqual(bt["resolved_total"], 2)
+
+    def test_backtest_empty(self):
+        bt = analytics.backtest({})
+        self.assertEqual(bt["resolved_total"], 0)
+        self.assertEqual(bt["curve"], [])
+        self.assertIsNone(bt["strategies"]["ge2"]["win_rate"])
+
+
 class TestSignals(unittest.TestCase):
     def test_latest_per_market_sorted_by_overlap(self):
         obs = [
