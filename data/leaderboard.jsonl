@@ -3,3 +3,8 @@
 {"cycle_id": 1, "window": "MONTH", "rank": 3, "wallet": "0x26437896ed9dfeb2f69765edcafe8fdceaab39ae", "username": "Latina", "pnl": 3727906.626747496, "volume": 25839830.908438005, "in_cohort": true}
 {"cycle_id": 1, "window": "MONTH", "rank": 4, "wallet": "0x2c335066fe58fe9237c3d3dc7b275c2a034a0563", "username": "0x2c335066FE58fe9237c3d3Dc7b275C2a034a0563-1759935795465", "pnl": 2640545.9527774937, "volume": 93159165.33484298, "in_cohort": true}
 {"cycle_id": 1, "window": "MONTH", "rank": 5, "wallet": "0x8cb4ca5af7d9361322340bb307a828d288c91057", "username": "", "pnl": 2074493.5740039202, "volume": 6946510.387595999, "in_cohort": true}
+{"cycle_id": 2, "window": "MONTH", "rank": 1, "wallet": "0x99aea8f9a64d0142b6b66a4b9d02a2211d45386f", "username": "LEEEROYJENKINS", "pnl": 5022100.7512351945, "volume": 10668399.702823, "in_cohort": true}
+{"cycle_id": 2, "window": "MONTH", "rank": 2, "wallet": "0xf8831548531d56ad6a4331493243c447a827cd1f", "username": "Inaccuratestake", "pnl": 3947667.0118341204, "volume": 19153226.719343003, "in_cohort": true}
+{"cycle_id": 2, "window": "MONTH", "rank": 3, "wallet": "0x26437896ed9dfeb2f69765edcafe8fdceaab39ae", "username": "Latina", "pnl": 3727906.626747496, "volume": 25839830.908438005, "in_cohort": true}
+{"cycle_id": 2, "window": "MONTH", "rank": 4, "wallet": "0x2c335066fe58fe9237c3d3dc7b275c2a034a0563", "username": "0x2c335066FE58fe9237c3d3Dc7b275C2a034a0563-1759935795465", "pnl": 2640545.9527774937, "volume": 93159165.33484298, "in_cohort": true}
+{"cycle_id": 2, "window": "MONTH", "rank": 5, "wallet": "0x8cb4ca5af7d9361322340bb307a828d288c91057", "username": "", "pnl": 2074493.5740039202, "volume": 6946510.387595999, "in_cohort": true}

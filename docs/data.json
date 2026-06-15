@@ -1,16 +1,16 @@
 {
-  "generated_at": "2026-06-15T16:13:30.254629+00:00",
+  "generated_at": "2026-06-15T16:20:19.346087+00:00",
   "last_cycle": {
-    "cycle_id": 1,
+    "cycle_id": 2,
     "n_traders": 5,
     "n_observations": 24,
     "n_signals": 1,
-    "opened_overlap": 1,
+    "opened_overlap": 0,
     "opened_control": 0,
     "closed": 0,
     "status": "ok",
     "error": null,
-    "duration_ms": 6767
+    "duration_ms": 6795
   },
   "performance": {
     "overlap": {
@@ -20,13 +20,13 @@
       "losses": 0,
       "win_rate": null,
       "realized_pnl": 0,
-      "unrealized_pnl": 0.0,
-      "net_pnl": 0.0,
+      "unrealized_pnl": -15.294117647058824,
+      "net_pnl": -15.294117647058824,
       "staked_closed": 0,
       "staked_open": 100.0,
       "staked_all": 100.0,
       "roi_realized": null,
-      "roi_total": 0.0
+      "roi_total": -0.15294117647058825
     },
     "control": {
       "open_count": 0,
@@ -67,13 +67,13 @@
       "losses": 0,
       "win_rate": null,
       "realized_pnl": 0,
-      "unrealized_pnl": 0.0,
-      "net_pnl": 0.0,
+      "unrealized_pnl": -15.294117647058824,
+      "net_pnl": -15.294117647058824,
       "staked_closed": 0,
       "staked_open": 100.0,
       "staked_all": 100.0,
       "roi_realized": null,
-      "roi_total": 0.0
+      "roi_total": -0.15294117647058825
     }
   },
   "open_positions": [
@@ -97,18 +97,18 @@
         "0x2c335066fe58fe9237c3d3dc7b275c2a034a0563",
         "0x8cb4ca5af7d9361322340bb307a828d288c91057"
       ],
-      "marked_price": 0.425,
-      "marked_at": "2026-06-15T16:13:30.249551+00:00",
-      "unrealized_pnl": 0.0,
+      "marked_price": 0.36,
+      "marked_at": "2026-06-15T16:20:19.344309+00:00",
+      "unrealized_pnl": -15.294117647058824,
       "id": 1,
       "created_at": "2026-06-15T16:13:30.246941+00:00",
-      "updated_at": "2026-06-15T16:13:30.249618+00:00",
-      "mark_value": 100.0
+      "updated_at": "2026-06-15T16:20:19.344325+00:00",
+      "mark_value": 84.70588235294117
     }
   ],
   "signals": [
     {
-      "cycle_id": 1,
+      "cycle_id": 2,
       "condition_id": "0xe76d397afa47ea028b914eec69543c69f9bbec8c313bd3a1dba022bd050b4c22",
       "asset": "42106124341898993878219494110169972860555152191755106967043750072528134315088",
       "outcome": "Spain",
@@ -132,14 +132,14 @@
         4,
         5
       ],
-      "price": 0.425,
-      "liquidity": 1481960.698,
+      "price": 0.36,
+      "liquidity": 32892.5036,
       "market_closed": false,
       "market_active": true,
       "end_date": "2026-06-15"
     },
     {
-      "cycle_id": 1,
+      "cycle_id": 2,
       "condition_id": "0x0c9ada12c527451fbdd43c0397a8a006b8aaf2a01567ae069d37220b51937595",
       "asset": "21099887182068653164347641846316470453763034851874063977340528628016776716246",
       "outcome": "Yes",
@@ -158,13 +158,13 @@
         2
       ],
       "price": 0.595,
-      "liquidity": 67711.5767,
+      "liquidity": 65671.1482,
       "market_closed": false,
       "market_active": true,
       "end_date": "2026-06-02"
     },
     {
-      "cycle_id": 1,
+      "cycle_id": 2,
       "condition_id": "0xa5501b4dc0c99c382b1c2871ad9141c7f58509a0f962f70a38bb6566ec570049",
       "asset": "3612393435281522540359979834655761894598376313180591710384535406994913064931",
       "outcome": "Yes",
@@ -182,14 +182,14 @@
       "holder_ranks": [
         4
       ],
-      "price": 0.875,
-      "liquidity": 1445423.8194,
+      "price": 0.855,
+      "liquidity": 769993.122,
       "market_closed": false,
       "market_active": true,
       "end_date": "2026-06-15"
     },
     {
-      "cycle_id": 1,
+      "cycle_id": 2,
       "condition_id": "0xf29e8ca118bc47e9d5d162191382c8700213730e6f5959d69b006c64e16685a8",
       "asset": "85135836978485179530031184162395126176783303519695757365796392230161124240788",
       "outcome": "Yes",
@@ -207,14 +207,14 @@
       "holder_ranks": [
         4
       ],
-      "price": 0.036,
-      "liquidity": 637541.02131,
+      "price": 0.033,
+      "liquidity": 84284.89086,
       "market_closed": false,
       "market_active": true,
       "end_date": "2026-06-15"
     },
     {
-      "cycle_id": 1,
+      "cycle_id": 2,
       "condition_id": "0xd86a816093fcd0a0e1ca440bc5ce199bd3c5a8d6139e044b076958164f8c5423",
       "asset": "5904694069529905826680225678119990013628860098514322777023141327768111791078",
       "outcome": "Yes",
@@ -232,14 +232,14 @@
       "holder_ranks": [
         4
       ],
-      "price": 0.956,
-      "liquidity": 712237.12573,
+      "price": 0.953,
+      "liquidity": 636186.57922,
       "market_closed": false,
       "market_active": true,
       "end_date": "2026-06-15"
     },
     {
-      "cycle_id": 1,
+      "cycle_id": 2,
       "condition_id": "0xc34b198e91f197098da3f782c066328e199a6342e6798753de2bfa9ae568ae93",
       "asset": "83072215710101175871081563765894926731657038656927257285040774204247563097609",
       "outcome": "Yes",
@@ -257,14 +257,14 @@
       "holder_ranks": [
         4
       ],
-      "price": 0.0925,
-      "liquidity": 681107.31574,
+      "price": 0.108,
+      "liquidity": 90008.5799,
       "market_closed": false,
       "market_active": true,
       "end_date": "2026-06-15"
     },
     {
-      "cycle_id": 1,
+      "cycle_id": 2,
       "condition_id": "0x85980a4d08e4cf7911782b632108d17b124171c1e1610cf7861e260c6daf3538",
       "asset": "99124197360263115356180485758906225193712536154336191636725841881851359643673",
       "outcome": "No",
@@ -283,13 +283,13 @@
         4
       ],
       "price": 0.9905,
-      "liquidity": 1307945.76946,
+      "liquidity": 1299190.0503,
       "market_closed": false,
       "market_active": true,
       "end_date": "1970-01-01"
     },
     {
-      "cycle_id": 1,
+      "cycle_id": 2,
       "condition_id": "0x6114a8a3f9ac214f48a7e20d169f1c7a5c84082cb6f7058ed9fe1137b11fd0e7",
       "asset": "31867385211987925701696042012772036156561382644688734856312468506547392739862",
       "outcome": "Yes",
@@ -307,14 +307,14 @@
       "holder_ranks": [
         4
       ],
-      "price": 0.9755,
-      "liquidity": 464295.4411,
+      "price": 0.9765,
+      "liquidity": 486342.21797,
       "market_closed": false,
       "market_active": true,
       "end_date": "2026-05-31"
     },
     {
-      "cycle_id": 1,
+      "cycle_id": 2,
       "condition_id": "0x344327632a0ab1c28b40003f14bfe75cb7d5bd65c58b4e34199cfc17a77104fe",
       "asset": "9795381952707532508300564260070290176408168146470046587132355104363068409465",
       "outcome": "No",
@@ -333,13 +333,13 @@
         4
       ],
       "price": 0.785,
-      "liquidity": 2351065.8819,
+      "liquidity": 2223429.4782,
       "market_closed": false,
       "market_active": true,
       "end_date": "2026-06-15"
     },
     {
-      "cycle_id": 1,
+      "cycle_id": 2,
       "condition_id": "0x8fd3e58b5b483aa62512799bfb9c14aebf397174652dc5f4818fce3500f31fa7",
       "asset": "4916047290248948147935434468593353949790384739968864732968868999183622581986",
       "outcome": "Solary",
@@ -364,7 +364,7 @@
       "end_date": "2026-06-15"
     },
     {
-      "cycle_id": 1,
+      "cycle_id": 2,
       "condition_id": "0xcd05a73f2ddf6c07340b4f1c6c853c4754b2f4428045fec1b295c192e399e563",
       "asset": "43622742022278622161691747800165620568650199484595894183614451113203208631060",
       "outcome": "No",
@@ -383,13 +383,13 @@
         4
       ],
       "price": 0.725,
-      "liquidity": 2083208.2921,
+      "liquidity": 2124452.3297,
       "market_closed": false,
       "market_active": true,
       "end_date": "2026-06-16"
     },
     {
-      "cycle_id": 1,
+      "cycle_id": 2,
       "condition_id": "0x2e6d1ff6f974c65a4584646d73ea5bea113762c7cb1c12270507ec80e774821b",
       "asset": "74618279216031216585274967364192928995965225661641388170512438798377605170248",
       "outcome": "No",
@@ -407,14 +407,14 @@
       "holder_ranks": [
         4
       ],
-      "price": 0.645,
+      "price": 0.715,
       "liquidity": 132168.8359,
       "market_closed": false,
       "market_active": true,
       "end_date": "2026-06-15"
     },
     {
-      "cycle_id": 1,
+      "cycle_id": 2,
       "condition_id": "0x0bbc63372aaf0867db23fc361b4e37f7d3125c7acef6cc8e2d5ce40f65b7e523",
       "asset": "96836228201794844622945838043146844817568481033220546312063092006402562136679",
       "outcome": "New York Yankees",
@@ -439,7 +439,7 @@
       "end_date": "2026-06-13"
     },
     {
-      "cycle_id": 1,
+      "cycle_id": 2,
       "condition_id": "0x36f93dcdb75e18f9dd7f4bd4f976dd901562e6f779a86c8ac847f154e37e69d2",
       "asset": "5086522073452006934883339199111441210770559925015225743419187266307574016868",
       "outcome": "No",
@@ -458,13 +458,13 @@
         4
       ],
       "price": 0.765,
-      "liquidity": 1490970.2393,
+      "liquidity": 1405152.6059,
       "market_closed": false,
       "market_active": true,
       "end_date": "2026-06-15"
     },
     {
-      "cycle_id": 1,
+      "cycle_id": 2,
       "condition_id": "0x2745c38ff0617cb345c1d2df19b4f74ea777508e07411e88eeb6ab3affcda2a2",
       "asset": "106725919441008051918080506395399719013818419425017982342714970506626839446049",
       "outcome": "No",
@@ -489,7 +489,7 @@
       "end_date": "2027-01-01"
     },
     {
-      "cycle_id": 1,
+      "cycle_id": 2,
       "condition_id": "0x4da3a5e2a18e682f7b6407ef1c853adf09de0a3e1a5637879827ac11792f5166",
       "asset": "107587932603242132861671983271040970220026703848076723091415809695401923360406",
       "outcome": "No",
@@ -508,13 +508,13 @@
         4
       ],
       "price": 0.995,
-      "liquidity": 18603.71677,
+      "liquidity": 21365.7586,
       "market_closed": false,
       "market_active": true,
       "end_date": "2026-06-30"
     },
     {
-      "cycle_id": 1,
+      "cycle_id": 2,
       "condition_id": "0x1ce1f3aa890d89772a81279225f4a534961d6f762c0ce85ea00349996df55278",
       "asset": "9364116942379760767843034675853196794538869155165364140282761861738628553456",
       "outcome": "Over",
@@ -532,14 +532,14 @@
       "holder_ranks": [
         4
       ],
-      "price": 0.395,
-      "liquidity": 921654.2049,
+      "price": 0.3,
+      "liquidity": 59793.2773,
       "market_closed": false,
       "market_active": true,
       "end_date": "2026-06-15"
     },
     {
-      "cycle_id": 1,
+      "cycle_id": 2,
       "condition_id": "0x25828b4649bd0782ab270ed9fc8c8959be05b6bd81e5b91e8f7cb68963037d79",
       "asset": "59486116310743024081838680937594020163247061787610574678567773120755143590403",
       "outcome": "Frances Tiafoe",
@@ -557,14 +557,14 @@
       "holder_ranks": [
         4
       ],
-      "price": 0.655,
-      "liquidity": 68498.6297,
+      "price": 0.735,
+      "liquidity": 69170.3501,
       "market_closed": false,
       "market_active": true,
       "end_date": "2026-06-22"
     },
     {
-      "cycle_id": 1,
+      "cycle_id": 2,
       "condition_id": "0x2f81074aba3de3fc780d4839f9e6696b9bb684a9e1c61044bd3d3b488741b15f",
       "asset": "80853629500268012059927122982466495475165493396816223336837442143724516040782",
       "outcome": "BetBoom Team",
@@ -583,13 +583,13 @@
         4
       ],
       "price": 0.9995,
-      "liquidity": 55301.4548,
+      "liquidity": 46047.4639,
       "market_closed": false,
       "market_active": true,
       "end_date": "2026-06-15"
     },
     {
-      "cycle_id": 1,
+      "cycle_id": 2,
       "condition_id": "0xb91b824fdb3bad6b3ce6864c90d26d6da850b02615833362cd1da20ed52de3a6",
       "asset": "112507026471808115885580685733370735662282393010925407043211190340634939343593",
       "outcome": "EDward Gaming",
@@ -608,13 +608,13 @@
         4
       ],
       "price": 0.9995,
-      "liquidity": 380359.69836,
+      "liquidity": 379023.2592,
       "market_closed": false,
       "market_active": true,
       "end_date": "2026-06-15"
     },
     {
-      "cycle_id": 1,
+      "cycle_id": 2,
       "condition_id": "0xe326d1abf5fb59b82ecfdff3348e75f90561eace327ba1bdc8d38d045ddbe775",
       "asset": "44020894143429291435765313920570636537547227867267163638960074550696342100042",
       "outcome": "No",
@@ -633,13 +633,13 @@
         4
       ],
       "price": 0.915,
-      "liquidity": 67417.1832,
+      "liquidity": 69501.1923,
       "market_closed": false,
       "market_active": true,
       "end_date": "2027-01-01"
     },
     {
-      "cycle_id": 1,
+      "cycle_id": 2,
       "condition_id": "0x7eda46e65550e50bb4812c2fae87995c1ad2ff462f8c6ad19d1cd52c0647c00b",
       "asset": "108840202532594012230726030706432031103354651361304884160690111061473661676845",
       "outcome": "EDward Gaming",
@@ -664,7 +664,7 @@
       "end_date": "2026-06-15"
     },
     {
-      "cycle_id": 1,
+      "cycle_id": 2,
       "condition_id": "0x20af55ab35186377b81219db6cb8615240cba42cea41731091be9484a5f5b122",
       "asset": "99566541619640652317512639709808184120400767516277184685355777020179304540844",
       "outcome": "Yes",
@@ -682,14 +682,14 @@
       "holder_ranks": [
         4
       ],
-      "price": 0.976,
-      "liquidity": 303970.16123,
+      "price": 0.977,
+      "liquidity": 313639.8116,
       "market_closed": false,
       "market_active": true,
       "end_date": "2026-07-31"
     },
     {
-      "cycle_id": 1,
+      "cycle_id": 2,
       "condition_id": "0x6d4e4bf288d8caa229a72a48b985722df1b803e11a9d0d7e9a3fa8275ecccb34",
       "asset": "37895244194050034103716086162029008030453409573420147745990983310246853999787",
       "outcome": "No",
@@ -707,7 +707,7 @@
       "holder_ranks": [
         4
       ],
-      "price": 0.9665,
+      "price": 0.967,
       "liquidity": 60878.45586,
       "market_closed": false,
       "market_active": true,
@@ -752,7 +752,7 @@
   ],
   "leaderboard": [
     {
-      "cycle_id": 1,
+      "cycle_id": 2,
       "window": "MONTH",
       "rank": 1,
       "wallet": "0x99aea8f9a64d0142b6b66a4b9d02a2211d45386f",
@@ -762,7 +762,7 @@
       "in_cohort": true
     },
     {
-      "cycle_id": 1,
+      "cycle_id": 2,
       "window": "MONTH",
       "rank": 2,
       "wallet": "0xf8831548531d56ad6a4331493243c447a827cd1f",
@@ -772,7 +772,7 @@
       "in_cohort": true
     },
     {
-      "cycle_id": 1,
+      "cycle_id": 2,
       "window": "MONTH",
       "rank": 3,
       "wallet": "0x26437896ed9dfeb2f69765edcafe8fdceaab39ae",
@@ -782,7 +782,7 @@
       "in_cohort": true
     },
     {
-      "cycle_id": 1,
+      "cycle_id": 2,
       "window": "MONTH",
       "rank": 4,
       "wallet": "0x2c335066fe58fe9237c3d3dc7b275c2a034a0563",
@@ -792,7 +792,7 @@
       "in_cohort": true
     },
     {
-      "cycle_id": 1,
+      "cycle_id": 2,
       "window": "MONTH",
       "rank": 5,
       "wallet": "0x8cb4ca5af7d9361322340bb307a828d288c91057",
