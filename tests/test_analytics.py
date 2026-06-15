@@ -56,6 +56,36 @@ class TestStrategyPerformance(unittest.TestCase):
         self.assertEqual(perf["overlap"]["net_pnl"], 0.0)
 
 
+class TestConsensus(unittest.TestCase):
+    def setUp(self):
+        # one cycle's observations across a top-10 cohort
+        self.obs = [
+            {"asset": "A", "overlap": 6, "tier": "green", "title": "Strong", "observed_at": "t"},
+            {"asset": "B", "overlap": 3, "tier": "blue", "title": "Mod", "observed_at": "t"},
+            {"asset": "C", "overlap": 2, "tier": "none", "title": "Weak", "observed_at": "t"},
+            {"asset": "D", "overlap": 1, "tier": "none", "title": "Solo", "observed_at": "t"},
+            {"asset": "E", "overlap": 1, "tier": "none", "title": "Solo2", "observed_at": "t"},
+        ]
+        self.lb = [{"rank": i + 1, "wallet": f"w{i}"} for i in range(10)]
+
+    def test_agreement_summary(self):
+        a = analytics.agreement_summary(self.obs, cohort_size=10)
+        self.assertEqual(a["cohort_size"], 10)
+        self.assertEqual(a["positions"], 5)
+        self.assertEqual(a["ge2"], 3)        # A, B, C
+        self.assertEqual(a["ge3"], 2)        # A, B
+        self.assertEqual(a["ge5"], 1)        # A
+        self.assertEqual(a["max_overlap"], 6)
+        self.assertEqual(a["histogram"], {"1": 2, "2": 1, "3": 1, "6": 1})
+
+    def test_payload_consensus_excludes_single_holders(self):
+        p = analytics.dashboard_payload([], self.obs, self.lb, [{"top_n": 10}])
+        # consensus = only positions with 2+ holders, strongest first
+        self.assertEqual([s["asset"] for s in p["consensus"]], ["A", "B", "C"])
+        self.assertEqual(p["agreement"]["cohort_size"], 10)
+        self.assertEqual(p["consensus"][0]["overlap"], 6)
+
+
 class TestSignals(unittest.TestCase):
     def test_latest_per_market_sorted_by_overlap(self):
         obs = [

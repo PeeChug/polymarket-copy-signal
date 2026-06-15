@@ -44,6 +44,12 @@
   .tag.overlap { background:rgba(46,194,126,.12); color:#bfe; }
   .tag.control { background:rgba(154,163,178,.14); color:var(--muted); }
   .muted { color:var(--muted); }
+  .chips { display:flex; flex-wrap:wrap; gap:8px; margin:12px 0 6px; }
+  .chip { background:var(--panel2); border:1px solid var(--line); border-radius:999px;
+    padding:5px 12px; font-size:13px; }
+  .chip b { font-variant-numeric: tabular-nums; }
+  .agree { font-variant-numeric: tabular-nums; font-weight:700; }
+  .agree.strong { color: var(--green); } .agree.mod { color: var(--blue); }
   .empty { color:var(--muted); padding:14px; background:var(--panel); border:1px solid var(--line);
     border-radius:10px; margin-top:8px; font-size:13.5px; }
   details { margin-top:8px; } summary { cursor:pointer; color:var(--muted); }
@@ -125,7 +131,44 @@ function render(d) {
     (gen ? `· updated ${gen.toLocaleString()} ` : '') +
     (lc.status === 'ok' ? '<span class="pill live">live</span>' : '<span class="pill">—</span>');
 
-  // 1. strategy vs control
+  // ★ THE HEADLINE: where the top earners agree (the "correlation" readout) ★
+  const ag = d.agreement || {};
+  const cohort = ag.cohort_size || (d.leaderboard || []).length || '?';
+  const consensus = d.consensus || [];
+  c.appendChild($(`<h2>🤝 Where the top ${cohort} earners agree</h2>`));
+  c.appendChild($(`<p class="sub">Each cycle we pull the top ${cohort} earners on the 30-day profit
+    leaderboard and compare every position they hold against each other. A position held by more of them
+    independently = stronger agreement = a stronger copy signal.
+    <b>🟢 green = ≥5 of ${cohort} agree · 🔵 blue = ≥3 agree.</b></p>`));
+  c.appendChild($(`<div class="chips">
+    <span class="chip">👀 <b>${cohort}</b> earners watched</span>
+    <span class="chip">📊 <b>${ag.positions ?? '—'}</b> distinct positions held</span>
+    <span class="chip">🤝 <b>${ag.ge2 ?? 0}</b> held by ≥2</span>
+    <span class="chip">🔵 <b>${ag.ge3 ?? 0}</b> by ≥3</span>
+    <span class="chip">🟢 <b>${ag.ge5 ?? 0}</b> by ≥5 (strong)</span>
+    <span class="chip">top agreement <b>${ag.max_overlap ?? 0}/${cohort}</b></span>
+  </div>`));
+  const consRows = consensus.map(o => {
+    const n = o.overlap || 0, cls = n >= 5 ? 'strong' : (n >= 3 ? 'mod' : '');
+    return {
+      agree: `<span class="agree ${cls}">${n} / ${cohort}</span>`, tier: tag(o.tier),
+      market: esc((o.title || '').slice(0, 60)), outcome: esc(o.outcome),
+      price: o.price == null ? '—' : round(o.price),
+      liq: o.liquidity == null ? '—' : ('$' + Math.round(o.liquidity).toLocaleString()),
+      earners: holders(o),
+    };
+  });
+  const consTable = tableEl([
+    {key:'agree',label:'Agreement',num:1},{key:'tier',label:'Tier'},{key:'market',label:'Market'},
+    {key:'outcome',label:'Outcome'},{key:'price',label:'Price',num:1},{key:'liq',label:'Liquidity',num:1},
+    {key:'earners',label:'Which earners hold it'},
+  ], consRows);
+  c.appendChild(consTable || $(`<div class="empty">No two of the top ${cohort} earners currently hold the
+    same market+outcome. These are whales with idiosyncratic books, so agreement comes and goes — every
+    position is still logged (see "All observed positions" below), and a signal becomes a paper trade the
+    moment ≥3 of them line up.</div>`));
+
+  // strategy vs control
   c.appendChild($(`<h2>Overlap strategy vs. control benchmark</h2>`));
   c.appendChild($(`<p class="sub">Control = naively copy the #1-ranked trader. If overlap doesn't beat it, the tiering adds no value.</p>`));
   c.appendChild($(`<div class="grid2">${card('🟢🔵 Overlap', d.performance.overlap)}${card('1️⃣ Control (#1 copy)', d.performance.control)}</div>`));
@@ -169,9 +212,10 @@ function render(d) {
   ], op);
   c.appendChild(opTable || $(`<div class="empty">No open paper positions right now.</div>`));
 
-  // 4. recent signals
-  c.appendChild($(`<h2>Recent signals</h2>`));
-  c.appendChild($(`<p class="sub">Latest observation per market from the most recent cycle, sorted by overlap. Every one of these is logged every cycle.</p>`));
+  // all observed positions (the full record, incl. single-holder noise)
+  c.appendChild($(`<h2>All observed positions (this cycle)</h2>`));
+  c.appendChild($(`<p class="sub">Every position the cohort holds — including ones only a single earner holds —
+    logged every cycle so you can measure the real agreement distribution before trusting any cutoff (honesty rule #2).</p>`));
   const sig = (d.signals||[]).map(o => ({
     ov: o.overlap, tier: tag(o.tier), market: esc((o.title||'').slice(0,56)), outcome: esc(o.outcome),
     price: o.price==null?'—':round(o.price), liq: o.liquidity==null?'—':('$'+Math.round(o.liquidity).toLocaleString()),

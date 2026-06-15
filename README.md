@@ -15,13 +15,17 @@ naive control benchmark — so you can decide whether it's worth real money.
 
 ## What it does
 
-- Watches the **top N traders** on Polymarket's profit leaderboard (the 30-day
-  "monthly winners"; `N` configurable, default 5).
-- Each cycle, counts how many of them independently hold the **same position**
-  (same market + same outcome) — the **overlap**.
-- Turns overlap into **tiers**: `green` = all N hold it, `blue` = at least 3.
-  Only green/blue positions are candidates to paper-trade.
-- Paper-trades qualifying signals and tracks simulated P&L over time.
+- Watches the **top N earners** on Polymarket's profit leaderboard (the 30-day
+  "monthly winners"; `N` configurable, default **10**).
+- Each cycle, **compares every position they hold against each other** and counts
+  how many independently hold the **same position** (same market + same outcome)
+  — the **overlap** / agreement. This consensus view is the headline of the
+  dashboard: positions ranked by how many of the top earners agree on them.
+- Turns agreement into **tiers**: with 10 earners, `green` = **≥5 agree** (strong),
+  `blue` = **≥3 agree** (moderate). Only green/blue positions are candidates to
+  paper-trade. (Thresholds are configurable in `config.yaml`.)
+- Paper-trades qualifying signals and tracks simulated P&L over time, so you can
+  measure whether copying the consensus actually pays.
 
 ### Three rules that keep the test honest
 
@@ -231,6 +235,9 @@ thing by inserting a new `config_history` row instead of editing `config.yaml`.)
 
 ## What the dashboard shows
 
+- **🤝 Where the top earners agree** *(the headline)* — every position held by ≥2
+  of the top N, ranked by agreement strength, with which earners hold each, plus a
+  summary of the agreement distribution (how many positions are held by ≥2 / ≥3 / ≥5).
 - **Overlap vs. control** — open/closed counts, win rate, realized & unrealized
   P&L, and ROI, side by side.
 - **Overlap by tier** — does green beat blue?

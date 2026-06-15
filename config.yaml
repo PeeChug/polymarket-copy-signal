@@ -11,14 +11,16 @@
 # ============================================================================
 
 # --- cohort / leaderboard ---------------------------------------------------
-top_n: 5                       # watch the top N traders on the profit leaderboard
+top_n: 10                      # watch the top N earners on the profit leaderboard
 leaderboard_window: MONTH      # DAY | WEEK | MONTH | ALL  (MONTH = the 30-day "monthly winners")
 size_threshold: 1              # ignore dust: a wallet must hold at least this position size to count
 
 # --- tiering (overlap -> tier) ----------------------------------------------
-# overlap = how many of the N cohort wallets independently hold the same position.
-tier_green_min: 5              # overlap >= this  => "green"  (default: all N)
-tier_blue_min: 3               # overlap >= this  => "blue"
+# overlap = how many of the top N earners independently hold the SAME position
+# (same market + same outcome). This is the "correlation"/agreement signal.
+# With 10 earners, all-10 agreement essentially never happens, so:
+tier_green_min: 5              # overlap >= this  => "green"  (STRONG agreement: half the top 10+)
+tier_blue_min: 3               # overlap >= this  => "blue"   (moderate agreement: 3 of 10+)
 
 # --- guardrails before a signal becomes a paper trade -----------------------
 min_liquidity: 1000            # USD; don't simulate filling a market we couldn't actually trade

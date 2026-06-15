@@ -10,6 +10,8 @@ P&L conventions match poller/strategy.py:
 
 from __future__ import annotations
 
+from collections import Counter
+
 
 def _num(v, default=0.0) -> float:
     try:
@@ -95,19 +97,43 @@ def latest_signal_per_market(observations: list[dict]) -> list[dict]:
     return rows
 
 
+def agreement_summary(observations, cohort_size=None) -> dict:
+    """
+    How much the top earners agree this cycle — the core 'correlation' readout.
+    Counts distinct (market, outcome) positions by how many of the cohort hold them.
+    """
+    def ov(o):
+        return int(o.get("overlap") or 0)
+    return {
+        "cohort_size": cohort_size,
+        "positions": len(observations),                       # distinct positions held by anyone in the cohort
+        "ge2": sum(1 for o in observations if ov(o) >= 2),     # held by 2+ earners
+        "ge3": sum(1 for o in observations if ov(o) >= 3),     # moderate agreement
+        "ge5": sum(1 for o in observations if ov(o) >= 5),     # strong agreement
+        "max_overlap": max((ov(o) for o in observations), default=0),
+        "histogram": {str(k): v for k, v in sorted(Counter(ov(o) for o in observations).items())},
+    }
+
+
 def dashboard_payload(trades, observations, leaderboard, config_rows, meta=None) -> dict:
     """
     Everything the static GitHub-Pages dashboard needs, precomputed server-side
     (in the poller) so the page is pure render-from-JSON.
     """
     meta = meta or {}
+    signals = latest_signal_per_market(observations)
+    cohort_size = len(leaderboard) if leaderboard else (
+        (config_rows[0] or {}).get("top_n") if config_rows else None)
     return {
         "generated_at": meta.get("generated_at"),
         "last_cycle": meta.get("last_cycle"),
+        # the headline: positions the top earners AGREE on (held by 2+), strongest first
+        "consensus": [s for s in signals if (s.get("overlap") or 0) >= 2],
+        "agreement": agreement_summary(observations, cohort_size),
         "performance": strategy_performance(trades),
         "tiers": tier_breakdown(trades),
         "open_positions": open_positions(trades),
-        "signals": latest_signal_per_market(observations),
+        "signals": signals,
         "config": config_rows[0] if config_rows else None,
         "config_history": config_rows,
         "leaderboard": leaderboard,
