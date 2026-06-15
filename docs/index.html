@@ -148,6 +148,16 @@
   .panelx h3 { margin:18px 0 10px; font-size:15px; } .panelx h3:first-child { margin-top:0; }
   .panelx .row { margin:11px 0; } .panelx .row > label { display:block; color:var(--muted); font-size:12px; margin-bottom:5px; }
   .panelx select, .panelx input { width:100%; }
+  .modal { position:fixed; left:50%; top:50%; transform:translate(-50%,-50%); width:580px; max-width:92vw; max-height:85vh;
+    overflow-y:auto; background:var(--bg2); border:1px solid var(--line); border-radius:14px; box-shadow:0 20px 60px rgba(0,0,0,.5);
+    z-index:65; padding:20px 22px; display:none; }
+  .modal.open { display:block; }
+  .modal .x { position:absolute; top:12px; right:16px; cursor:pointer; color:var(--muted); font-size:20px; line-height:1; }
+  .modal .kv { display:grid; grid-template-columns:auto 1fr; gap:4px 14px; font-size:13.5px; margin:10px 0; }
+  .modal .kv .k { color:var(--muted); }
+  .dd { cursor:pointer; color:var(--dim); margin-left:6px; text-decoration:none; font-size:12px; } .dd:hover { color:var(--accent); }
+  .pickbtn { cursor:pointer; border:1px solid var(--line); background:var(--panel2); color:var(--muted); border-radius:6px; font-size:14px; line-height:1; padding:2px 7px; }
+  .pickbtn.has { border-color:var(--green); color:var(--green); }
   @media (max-width:720px){ .grid2{grid-template-columns:1fr;} .metrics{grid-template-columns:repeat(2,1fr);} .meta{width:100%;margin-left:0;} .calib{grid-template-columns:1fr;} }
 </style>
 </head>
@@ -165,6 +175,7 @@
     <button data-tab="traders" class="on">Top Earners</button>
     <button data-tab="consensus">Consensus</button>
     <button data-tab="buy">🛒 Buy Candidates</button>
+    <button data-tab="picks">📌 My Picks</button>
     <button data-tab="performance">Performance</button>
     <button data-tab="signals">All Signals</button>
   </nav>
@@ -188,6 +199,7 @@
   <section id="tab-traders" class="tab on"></section>
   <section id="tab-consensus" class="tab"></section>
   <section id="tab-buy" class="tab"></section>
+  <section id="tab-picks" class="tab"></section>
   <section id="tab-performance" class="tab"></section>
   <section id="tab-signals" class="tab"></section>
   <p class="sub" style="margin-top:34px">Auto-updates every ~30 min via a GitHub Action reading public Polymarket APIs. Source: <a href="https://github.com/PeeChug/polymarket-copy-signal">github.com/PeeChug/polymarket-copy-signal</a>.</p>
@@ -212,6 +224,7 @@
   <div class="row"><button class="tbtn" id="setReset">Reset all table filters</button></div>
   <div class="row" style="margin-top:20px"><button class="tbtn" id="setClose">Close</button></div>
 </div>
+<div class="modal" id="modal"></div>
 <div class="toast" id="toast"></div>
 
 <script>
@@ -480,11 +493,11 @@ function renderConsensus(){
     let rows=filtered.map(o=>{const rd=relDate(o.end_date),e=edgeFor(o,cal);
       return {overlap:o.overlap||0, mom:o.momentum||0, edge:e==null?-Infinity:e,
         _agree:npCell(o,cohort), _mom:momCell(o.momentum), _edge:e==null?'<span class="muted">—</span>':`<span class="${e>=0?'pos':'neg'}">${e>=0?'+':''}${(e*100).toFixed(0)}%</span>`,
-        tier:tagEl(o.tier), market:mlink(o.slug,o.title), outcome:esc(o.outcome),
+        tier:tagEl(o.tier), market:mlinkDD(o), pick:pickBtn(o), outcome:esc(o.outcome),
         price:o.price==null?0:o.price, _price:o.price==null?'—':round(o.price),
         rts:rd?rd.ts:Infinity, _res:rd?`<span class="due ${rd.cls}">${rd.txt}</span>`:'—', earners:holders(o)};});
     rows=sortRows(rows,state.cons.key,state.cons.dir);
-    const t=tableEl([{key:'_agree',label:'Agreement',sortKey:'overlap',num:1},{key:'_mom',label:'Mom',sortKey:'mom',num:1},
+    const t=tableEl([{key:'pick',label:''},{key:'_agree',label:'Agreement',sortKey:'overlap',num:1},{key:'_mom',label:'Mom',sortKey:'mom',num:1},
       {key:'_edge',label:'Edge',sortKey:'edge',num:1},{key:'tier',label:'Tier'},{key:'market',label:'Market'},
       {key:'outcome',label:'Outcome'},{key:'_price',label:'Price',sortKey:'price',num:1},
       {key:'_res',label:'Resolves',sortKey:'rts',num:1},{key:'earners',label:'Which earners hold it'}],rows,state.cons,
@@ -587,6 +600,51 @@ function renderSignals(){
   draw();
 }
 
+// --- My Picks (portfolio tracker) + per-market drill-down ---
+function picksGet(){ try{return JSON.parse(localStorage.getItem('pm_picks')||'{}');}catch(e){return {};} }
+function picksSet(p){ try{localStorage.setItem('pm_picks',JSON.stringify(p));}catch(e){} }
+function findPos(asset){ return (DATA.consensus||[]).find(c=>c.asset===asset)||(DATA.signals||[]).find(s=>s.asset===asset)||null; }
+function mlinkDD(o){ return mlink(o.slug,o.title)+` <a class="dd" data-asset="${esc(o.asset)}" title="Details">🔍</a>`; }
+function pickBtn(o){ const has=!!picksGet()[o.asset]; return `<button class="pickbtn${has?' has':''}" data-pick="${esc(o.asset)}" title="${has?'In My Picks — click to remove':'Add to My Picks'}">${has?'✓':'＋'}</button>`; }
+function togglePick(asset){ const p=picksGet(); if(p[asset]){ delete p[asset]; toast('Removed from My Picks'); } else { const o=findPos(asset); if(!o){toast('Position not found');return;} p[asset]={asset:asset,title:o.title,outcome:o.outcome,slug:o.slug,entry:o.price==null?0:o.price,stake:100,added:Date.now()}; toast('Added to My Picks @ '+(o.price==null?'?':round(o.price))); } picksSet(p); }
+function holders0(o){ const n=(o.holder_usernames||[]).filter(Boolean); return n.length?esc(n.join(', ')):((o.holder_wallets||[]).length+' wallets'); }
+function closeModal(){ document.getElementById('modal').classList.remove('open'); if(!document.getElementById('settings').classList.contains('open')) document.getElementById('scrim').classList.remove('open'); }
+function openMarket(asset){
+  const o=findPos(asset); if(!o){toast('Details unavailable for this market');return;}
+  const cohort=(DATA.agreement||{}).cohort_size||'?', e=edgeFor(o,DATA.calibration), rd=relDate(o.end_date), u=mktUrl(o.slug);
+  const holders=[]; (DATA.traders||[]).forEach(t=>(t.positions||[]).forEach(p=>{ if(p.asset===asset) holders.push({name:realName(t),rank:t.rank,size:p.size,avg:p.avg_price,pnl:p.cash_pnl}); }));
+  holders.sort((a,b)=>(b.size||0)-(a.size||0));
+  const hrows=holders.length?`<div class="scroll" style="margin-top:8px"><table><thead><tr><th>Trader</th><th class="num">Size</th><th class="num">Avg entry</th><th class="num">Open P&L</th></tr></thead><tbody>${holders.map(h=>`<tr><td>#${h.rank} ${esc(h.name)}</td><td class="num">${fmtC(h.size)}</td><td class="num">${round(h.avg)}</td><td class="num"><span class="${sgn(h.pnl)}">${money(h.pnl)}</span></td></tr>`).join('')}</tbody></table></div>`
+    : `<div class="muted" style="font-size:13px;margin-top:8px">Per-holder detail isn't in the latest snapshot (only each trader's top positions are stored). Holders: ${holders0(o)}</div>`;
+  const m=document.getElementById('modal');
+  m.innerHTML=`<span class="x" id="modalx">×</span><h3>${esc((o.title||'').slice(0,90))}</h3>
+    <div class="muted" style="font-size:13px">${esc(o.outcome)}${u?` · <a href="${u}" target="_blank" rel="noopener">open on Polymarket ↗</a>`:''}</div>
+    <div class="kv"><div class="k">Agreement</div><div><b>${o.overlap||0}/${o.participants||o.overlap||0}</b> holders on this side · ${o.overlap||0} of ${cohort} cohort</div>
+      <div class="k">Tier</div><div>${tagEl(o.tier)}</div><div class="k">Price</div><div>${o.price==null?'—':round(o.price)}</div>
+      <div class="k">Edge</div><div>${e==null?'<span class="muted">— (needs resolutions)</span>':('<span class="'+(e>=0?'pos':'neg')+'">'+(e>=0?'+':'')+(e*100).toFixed(0)+'%</span>')}</div>
+      <div class="k">Momentum</div><div>${momCell(o.momentum)}</div>
+      <div class="k">Liquidity</div><div>${o.liquidity==null?'—':'$'+Math.round(o.liquidity).toLocaleString()}</div>
+      <div class="k">Resolves</div><div>${rd?('<span class="due '+rd.cls+'">'+rd.txt+'</span>'):'—'}</div>
+      <div class="k">First seen</div><div>${o.first_seen?relAgo(o.first_seen):'—'}</div></div>
+    <h3 style="font-size:14px;margin-top:14px">Holders (${holders.length} in snapshot)</h3>${hrows}
+    <div style="margin-top:14px"><button class="tbtn" data-pick="${esc(asset)}">${picksGet()[asset]?'✓ in My Picks':'＋ Add to My Picks'}</button></div>`;
+  m.classList.add('open'); document.getElementById('scrim').classList.add('open'); document.getElementById('modalx').onclick=closeModal;
+}
+function renderPicks(){
+  const el=document.getElementById('tab-picks');el.innerHTML='';
+  el.appendChild($(`<h2>📌 My Picks</h2>`));
+  el.appendChild($(`<p class="sub">Positions you marked as bought — your own tracker, stored only in this browser. Recorded at the price when you added them; P&L marks to the latest price each refresh. Add picks with the ＋ button on Consensus or Buy Candidates.</p>`));
+  const picks=Object.values(picksGet());
+  if(!picks.length){ el.appendChild($(`<div class="empty">No picks yet. On Consensus or Buy Candidates, hit the ＋ button to track a position here and watch your hypothetical P&L.</div>`)); return; }
+  let totCost=0,totVal=0;
+  const rows=picks.map(pk=>{ const o=findPos(pk.asset),cur=o&&o.price!=null?o.price:pk.entry,shares=pk.entry>0?pk.stake/pk.entry:0,val=shares*cur,pnl=val-pk.stake; totCost+=pk.stake; totVal+=val;
+    return {market:mlinkDD({asset:pk.asset,slug:pk.slug,title:pk.title}),outcome:esc(pk.outcome),entry:round(pk.entry),cur:o?round(cur):'—',stake:'$'+pk.stake,
+      _pnl:`<span class="${sgn(pnl)}">${money(pnl)}</span>`,_pct:`<span class="${sgn(pnl)}">${(pk.stake?pnl/pk.stake*100:0).toFixed(0)}%</span>`,
+      added:esc(new Date(pk.added).toLocaleDateString()),rm:`<button class="pickbtn has" data-pick="${esc(pk.asset)}" title="Remove">✕</button>`};});
+  const totPnl=totVal-totCost;
+  el.appendChild($(`<div class="chips"><span class="chip">📦 <b>${picks.length}</b> picks</span><span class="chip">cost <b>${money(totCost)}</b></span><span class="chip">value <b>${money(totVal)}</b></span><span class="chip">P&L <b class="${sgn(totPnl)}">${money(totPnl)}</b> (${totCost?(totPnl/totCost*100).toFixed(0):0}%)</span></div>`));
+  el.appendChild(tableEl([{key:'market',label:'Market'},{key:'outcome',label:'Outcome'},{key:'entry',label:'Your entry',num:1},{key:'cur',label:'Now',num:1},{key:'stake',label:'Stake',num:1},{key:'_pnl',label:'P&L',num:1},{key:'_pct',label:'P&L %',num:1},{key:'added',label:'Added'},{key:'rm',label:''}],rows));
+}
 function renderBuy(){
   const d=DATA,el=document.getElementById('tab-buy');el.innerHTML='';
   const cal=d.calibration||{}, cohort=(d.agreement||{}).cohort_size||(d.leaderboard||[]).length||'?';
@@ -616,7 +674,7 @@ function renderBuy(){
       const f=kelly(w,price),stake=Math.round(0.5*f*bank),ev=(w!=null&&price)?stake*(w/price-1):null,rd=relDate(o.end_date),sc=candScore(o,cohort);
       return {score:sc,_score:`<b>${sc}</b>`, overlap:ov,_agree:npCell(o,cohort), conv:ov/p, edge:e==null?-Infinity:e,
         _edge:e==null?'<span class="muted">—</span>':`<span class="${e>=0?'pos':'neg'}">${e>=0?'+':''}${(e*100).toFixed(0)}%</span>`,
-        mom:o.momentum||0,_mom:momCell(o.momentum), market:mlink(o.slug,o.title), outcome:esc(o.outcome),
+        mom:o.momentum||0,_mom:momCell(o.momentum), market:mlinkDD(o), pick:pickBtn(o), outcome:esc(o.outcome),
         price:price==null?0:price,_price:price==null?'—':round(price), liquidity:o.liquidity==null?0:o.liquidity,_liq:o.liquidity==null?'—':('$'+Math.round(o.liquidity).toLocaleString()),
         rts:rd?rd.ts:Infinity,_res:rd?`<span class="due ${rd.cls}">${rd.txt}</span>`:'—',
         stake:stake,_stake:(w!=null&&stake>0)?('$'+stake.toLocaleString()):'<span class="muted">—</span>',
@@ -624,7 +682,7 @@ function renderBuy(){
     const pk={score:'score',consensus:'overlap',conviction:'conv',edge:'edge',momentum:'mom',resolving:'rts'}[state.buy.preset]||'score';
     let sorted=sortRows(mapped,pk,state.buy.preset==='resolving'?1:-1);
     if(state.buy.preset==='resolving') sorted=sorted.filter(r=>r.rts!==Infinity);
-    const t=tableEl([{key:'_score',label:'Score'},{key:'_agree',label:'Agreement'},{key:'_edge',label:'Edge'},{key:'_mom',label:'Mom'},
+    const t=tableEl([{key:'pick',label:''},{key:'_score',label:'Score'},{key:'_agree',label:'Agreement'},{key:'_edge',label:'Edge'},{key:'_mom',label:'Mom'},
       {key:'market',label:'Market'},{key:'outcome',label:'Outcome'},{key:'_price',label:'Price',num:1},{key:'_liq',label:'Liquidity',num:1},
       {key:'_res',label:'Resolves',num:1},{key:'_stake',label:'½-Kelly $',num:1},{key:'_ev',label:'EV $',num:1}],sorted);
     host.innerHTML=''; host.appendChild(t||$(`<div class="empty">No candidates match these filters — loosen them, or wait for stronger consensus.</div>`));
@@ -638,7 +696,7 @@ function renderBuy(){
   tb.querySelector('#bBank').oninput=e=>{state.settings.bankroll=+e.target.value||0;persist();draw();};
   draw();
 }
-const RENDER={traders:renderTraders,consensus:renderConsensus,buy:renderBuy,performance:renderPerformance,signals:renderSignals};
+const RENDER={traders:renderTraders,consensus:renderConsensus,buy:renderBuy,picks:renderPicks,performance:renderPerformance,signals:renderSignals};
 function setTab(name){
   state.tab=name; location.hash=name;
   try{localStorage.setItem('pm_tab',name);}catch(e){}
@@ -647,6 +705,13 @@ function setTab(name){
   RENDER[name] && RENDER[name]();
 }
 document.getElementById('tabs').addEventListener('click',e=>{if(e.target.dataset.tab)setTab(e.target.dataset.tab);});
+document.addEventListener('click',e=>{
+  const dd=e.target.closest('.dd'); if(dd){e.preventDefault();openMarket(dd.dataset.asset);return;}
+  const pb=e.target.closest('[data-pick]'); if(pb){const a=pb.getAttribute('data-pick'); togglePick(a); const on=!!picksGet()[a];
+    document.querySelectorAll(`.pickbtn[data-pick="${CSS.escape(a)}"]`).forEach(b=>{ b.classList.toggle('has',on); b.textContent=on?'✓':'＋'; b.title=on?'In My Picks — click to remove':'Add to My Picks'; });
+    if(document.getElementById('modal').classList.contains('open'))openMarket(a);
+    if(state.tab==='picks')renderPicks();}
+});
 
 let lastGen=null, metaTimer=null;
 function relTime(d){ if(!d)return ''; const s=(Date.now()-d.getTime())/1000;
@@ -737,7 +802,8 @@ function initSettings(){
   const g=(id)=>document.getElementById(id), panel=g('settings'), scrim=g('scrim');
   const open=()=>{ syncSettingsUI(); panel.classList.add('open'); scrim.classList.add('open'); };
   const close=()=>{ panel.classList.remove('open'); scrim.classList.remove('open'); };
-  g('settingsbtn').onclick=open; scrim.onclick=close; g('setClose').onclick=close;
+  g('settingsbtn').onclick=open; g('setClose').onclick=close;
+  scrim.onclick=()=>{ panel.classList.remove('open'); g('modal').classList.remove('open'); scrim.classList.remove('open'); };
   g('setPoll').onchange=e=>{ state.settings.pollMin=+e.target.value; persist(); if(autopollOn()&&ghToken()) startPoke(); renderAutopoll(); toast('Auto-poll set to every '+state.settings.pollMin+' min'); };
   g('setRefresh').onchange=e=>{ state.settings.refreshMin=+e.target.value; persist(); startRefresh(); };
   g('setTF').onchange=e=>{ state.settings.tf=+e.target.value; persist(); RENDER[state.tab](); };
