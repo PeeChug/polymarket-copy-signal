@@ -51,6 +51,10 @@ class Store:
     def update_trade(self, trade_id: int, patch: dict) -> None: raise NotImplementedError
     def all_trades(self) -> list[dict]: raise NotImplementedError
 
+    # per-trader snapshot for the dashboard — optional; default no-op
+    def set_traders(self, rows: list[dict]) -> None: return None
+    def latest_traders(self) -> list[dict]: return []
+
 
 # --------------------------------------------------------------------------- #
 # Supabase / PostgREST
@@ -263,6 +267,12 @@ class MemoryStore(Store):
     def all_trades(self):
         return [dict(t) for t in self._trades]
 
+    def set_traders(self, rows):
+        self._traders_snap = [dict(r) for r in rows]
+
+    def latest_traders(self):
+        return [dict(r) for r in getattr(self, "_traders_snap", [])]
+
 
 # --------------------------------------------------------------------------- #
 # File-backed (the $0 GitHub-Pages deployment — no database at all)
@@ -293,7 +303,7 @@ class FileStore(Store):
         return {
             "seq": {"config": 0, "cycle": 0, "trade": 0},
             "config_history": [], "paper_trades": [], "last_cycle": None,
-            "latest_observations": [], "latest_leaderboard": [],
+            "latest_observations": [], "latest_leaderboard": [], "latest_traders": [],
         }
 
     def _save(self):
@@ -390,3 +400,10 @@ class FileStore(Store):
     def last_cycle(self):
         lc = self._state.get("last_cycle")
         return dict(lc) if lc else None
+
+    def set_traders(self, rows):
+        self._state["latest_traders"] = [dict(r) for r in rows]
+        self._save()
+
+    def latest_traders(self):
+        return [dict(r) for r in self._state.get("latest_traders", [])]

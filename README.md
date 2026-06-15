@@ -235,15 +235,21 @@ thing by inserting a new `config_history` row instead of editing `config.yaml`.)
 
 ## What the dashboard shows
 
-- **🤝 Where the top earners agree** *(the headline)* — every position held by ≥2
-  of the top N, ranked by agreement strength, with which earners hold each, plus a
-  summary of the agreement distribution (how many positions are held by ≥2 / ≥3 / ≥5).
-- **Overlap vs. control** — open/closed counts, win rate, realized & unrealized
-  P&L, and ROI, side by side.
-- **Overlap by tier** — does green beat blue?
-- **Open paper positions** — with live mark-to-market P&L (marks refresh each cycle).
-- **Recent signals** — latest observation per market, sorted by overlap.
-- **Current settings** — read-only (change them by editing `config.yaml`).
+A tabbed single-page app (no build step) — vanilla HTML/CSS/JS rendering the
+precomputed `docs/data.json`:
+
+- **Top Earners** *(default)* — a card per cohort trader: 30-day profit, volume,
+  open-position count, current value "on the table", live open P&L, how many of
+  their positions overlap with the rest of the cohort, an expandable list of
+  their top positions (each linking to its Polymarket market), and a **"View on
+  Polymarket"** link to their real profile (`polymarket.com/profile/{wallet}`).
+- **Consensus** — every position held by ≥2 of the top N, ranked by agreement,
+  with which earners hold each, plus the agreement distribution (≥2 / ≥3 / ≥5).
+- **Performance** — overlap strategy vs. #1-copy control (counts, win rate,
+  realized/unrealized P&L, ROI), the green-vs-blue tier breakdown, and open
+  paper positions with live marks.
+- **All Signals** — every observed position this cycle, including single-holder
+  ones (honesty rule #2).
 
 ---
 

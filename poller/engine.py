@@ -99,6 +99,9 @@ def _run(store, client, cfg, cid, summary, log):
     log(f"{sum(len(v) for v in cohort_positions.values())} positions across cohort "
         f"-> {len(overlaps)} distinct (market,outcome) pairs")
 
+    # per-trader snapshot for the dashboard (their positions + agreement enrichment)
+    store.set_traders(_build_traders(cohort, cohort_positions, overlaps))
+
     # ---- caches (fetch each market / mark once per cycle) ------------------
     market_cache: dict = {}
     mark_cache: dict = {}
@@ -226,6 +229,35 @@ def _run(store, client, cfg, cid, summary, log):
             store.update_trade(t["id"], {
                 "marked_price": mark, "marked_at": _now_iso(), "unrealized_pnl": upnl,
             })
+
+
+def _build_traders(cohort, cohort_positions, overlaps, max_positions=25):
+    """One row per cohort trader: leaderboard stats + their open positions,
+    each position annotated with how many of the cohort also hold it."""
+    traders = []
+    for e in cohort:
+        positions = cohort_positions.get(e.wallet, [])
+        rows, total_value, open_pnl = [], 0.0, 0.0
+        for p in positions:
+            ov = overlaps.get(p.asset)
+            total_value += p.current_value
+            open_pnl += p.cash_pnl
+            rows.append({
+                "title": p.title, "outcome": p.outcome, "asset": p.asset,
+                "condition_id": p.condition_id, "slug": p.slug,
+                "size": p.size, "avg_price": p.avg_price, "cur_price": p.cur_price,
+                "current_value": p.current_value, "cash_pnl": p.cash_pnl,
+                "percent_pnl": p.percent_pnl, "overlap": ov.overlap if ov else 1,
+            })
+        rows.sort(key=lambda r: r["current_value"], reverse=True)
+        traders.append({
+            "rank": e.rank, "wallet": e.wallet, "username": e.username,
+            "pnl": e.pnl, "volume": e.volume, "profile_image": e.profile_image,
+            "x_username": e.x_username, "verified": e.verified,
+            "n_positions": len(positions), "total_value": total_value, "open_pnl": open_pnl,
+            "positions": rows[:max_positions],
+        })
+    return traders
 
 
 def _close(store, trade, exit_price, reason, summary, resolved_won):

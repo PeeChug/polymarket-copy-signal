@@ -76,6 +76,9 @@ class LeaderboardEntry:
     username: str
     pnl: float
     volume: float
+    profile_image: str = ""
+    x_username: str = ""
+    verified: bool = False
 
 
 @dataclass
@@ -93,6 +96,8 @@ class Position:
     title: str
     slug: str
     end_date: Optional[str]
+    cash_pnl: float = 0.0     # the trader's open P&L on this position (USD)
+    percent_pnl: float = 0.0  # their open P&L as a fraction
 
 
 @dataclass
@@ -204,6 +209,9 @@ class PolymarketClient:
                     username=row.get("userName") or "",
                     pnl=self._f(row.get("pnl")),
                     volume=self._f(row.get("vol")),
+                    profile_image=row.get("profileImage") or "",
+                    x_username=row.get("xUsername") or "",
+                    verified=bool(row.get("verifiedBadge")),
                 )
             )
         out.sort(key=lambda e: e.rank)
@@ -235,6 +243,8 @@ class PolymarketClient:
                     title=row.get("title") or "",
                     slug=row.get("slug") or "",
                     end_date=row.get("endDate"),
+                    cash_pnl=self._f(row.get("cashPnl")),
+                    percent_pnl=self._f(row.get("percentPnl")),
                 )
             )
         return out

@@ -7,261 +7,313 @@
 <title>Polymarket Copy-Signal Tester</title>
 <style>
   :root {
-    --bg: #0e1117; --panel: #171a21; --panel2: #1e222b; --line: #2a2f3a;
-    --text: #e6e8ec; --muted: #9aa3b2; --green: #2ec27e; --blue: #4c8dff;
-    --red: #ff5d5d; --amber: #d9a441;
+    --bg:#0b0e14; --bg2:#0f131c; --panel:#161b26; --panel2:#1c2230; --line:#252c3a;
+    --text:#e8eaf0; --muted:#8b94a7; --dim:#5f6878;
+    --green:#34d399; --green-d:#0f3d30; --blue:#5b9dff; --blue-d:#15294d;
+    --red:#fb6a6a; --amber:#e2b14a; --gold:#f4c44a; --silver:#c4ccd8; --bronze:#cd854a;
+    --accent:#7c5cff;
   }
-  * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--text);
-    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
-  .wrap { max-width: 1080px; margin: 0 auto; padding: 28px 20px 60px; }
-  h1 { font-size: 30px; margin: 0 0 4px; }
-  h2 { font-size: 21px; margin: 36px 0 6px; }
-  .sub { color: var(--muted); font-size: 13.5px; margin: 0 0 8px; }
-  .banner { background: #2a2410; border: 1px solid #4a3d12; color: #f0d9a0;
-    border-radius: 10px; padding: 12px 14px; margin: 16px 0; font-size: 13.5px; }
-  .pill { display:inline-block; font-size:11px; padding:2px 8px; border-radius:999px;
-    border:1px solid var(--line); color:var(--muted); }
-  .pill.live { color: var(--green); border-color:#1d5; }
-  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
-  .card { background: var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px 18px; }
-  .card h3 { margin:0 0 12px; font-size:16px; }
-  .metrics { display:grid; grid-template-columns:repeat(3,1fr); gap:12px 10px; }
-  .metric .k { color:var(--muted); font-size:11.5px; text-transform:uppercase; letter-spacing:.03em; }
-  .metric .v { font-size:21px; font-weight:600; margin-top:2px; }
-  .pos { color: var(--green); } .neg { color: var(--red); }
+  * { box-sizing:border-box; }
+  html,body { margin:0; }
+  body { background:radial-gradient(1200px 600px at 70% -10%, #16203a 0%, var(--bg) 55%) fixed, var(--bg);
+    color:var(--text); font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased; }
+  a { color:var(--blue); text-decoration:none; } a:hover { text-decoration:underline; }
+  .wrap { max-width:1180px; margin:0 auto; padding:22px 20px 70px; }
+
+  /* header */
+  .top { position:sticky; top:0; z-index:20; backdrop-filter:blur(10px);
+    background:rgba(11,14,20,.82); border-bottom:1px solid var(--line); }
+  .topin { max-width:1180px; margin:0 auto; padding:12px 20px; display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+  .brand { font-size:17px; font-weight:700; letter-spacing:.2px; }
+  .brand .ro { font-size:11px; color:var(--muted); font-weight:500; border:1px solid var(--line);
+    padding:2px 7px; border-radius:999px; margin-left:8px; vertical-align:middle; }
+  .meta { color:var(--muted); font-size:12.5px; margin-left:auto; display:flex; align-items:center; gap:8px; }
+  .pill { font-size:11px; padding:2px 9px; border-radius:999px; border:1px solid var(--line); color:var(--muted); }
+  .pill.live { color:var(--green); border-color:#1c5; background:rgba(52,211,153,.08); }
+  .tabs { display:flex; gap:4px; max-width:1180px; margin:0 auto; padding:0 14px; }
+  .tabs button { background:none; border:0; color:var(--muted); font:inherit; font-weight:600; font-size:14px;
+    padding:11px 14px; cursor:pointer; border-bottom:2px solid transparent; }
+  .tabs button:hover { color:var(--text); }
+  .tabs button.on { color:var(--text); border-bottom-color:var(--accent); }
+
+  h2 { font-size:20px; margin:6px 0 4px; }
+  .sub { color:var(--muted); font-size:13.5px; margin:0 0 14px; max-width:760px; }
+  .tab { display:none; } .tab.on { display:block; animation:fade .25s ease; }
+  @keyframes fade { from{opacity:0; transform:translateY(4px);} to{opacity:1;} }
+
+  .banner { background:linear-gradient(90deg,#241f10,#1c1a14); border:1px solid #463a18; color:#f0dca6;
+    border-radius:11px; padding:11px 14px; margin:16px 0 4px; font-size:13px; }
+
+  /* chips */
+  .chips { display:flex; flex-wrap:wrap; gap:9px; margin:6px 0 16px; }
+  .chip { background:var(--panel2); border:1px solid var(--line); border-radius:999px; padding:6px 13px; font-size:13px; }
+  .chip b { font-variant-numeric:tabular-nums; }
+
+  /* cards grid */
+  .grid { display:grid; gap:16px; }
+  .traders { grid-template-columns:repeat(auto-fill,minmax(330px,1fr)); }
+  .tcard { background:linear-gradient(180deg,var(--panel),var(--bg2)); border:1px solid var(--line);
+    border-radius:15px; padding:16px; transition:transform .12s ease, border-color .12s ease, box-shadow .12s; }
+  .tcard:hover { transform:translateY(-2px); border-color:#33405a; box-shadow:0 10px 30px rgba(0,0,0,.35); }
+  .thead { display:flex; align-items:center; gap:12px; }
+  .rankb { flex:none; width:30px; height:30px; border-radius:9px; display:grid; place-items:center; font-weight:800;
+    font-size:13px; background:var(--panel2); color:var(--muted); border:1px solid var(--line); }
+  .rankb.r1 { background:linear-gradient(135deg,#5a4a12,#3a3008); color:var(--gold); border-color:#6b5616; }
+  .rankb.r2 { color:var(--silver); border-color:#454d5c; }
+  .rankb.r3 { color:var(--bronze); border-color:#5a4326; }
+  .ava { flex:none; position:relative; width:42px; height:42px; border-radius:50%; display:grid; place-items:center;
+    font-weight:700; color:#fff; font-size:17px; overflow:hidden; }
+  .ava img { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
+  .who { min-width:0; flex:1; }
+  .who .nm { font-weight:700; font-size:15.5px; display:flex; align-items:center; gap:6px; }
+  .who .nm a { color:var(--text); }
+  .who .sm { color:var(--dim); font-size:12px; }
+  .vbadge { color:var(--blue); font-size:13px; }
+  .xlink { color:var(--muted); font-size:12px; }
+  .pnlbig { margin:14px 0 2px; font-size:27px; font-weight:800; letter-spacing:-.5px; font-variant-numeric:tabular-nums; }
+  .pnlbig .lab { display:block; font-size:11px; font-weight:600; color:var(--muted); letter-spacing:.04em;
+    text-transform:uppercase; margin-bottom:2px; }
+  .statrow { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin:14px 0 4px; }
+  .stat { background:var(--bg2); border:1px solid var(--line); border-radius:9px; padding:8px 10px; }
+  .stat .k { color:var(--muted); font-size:10.5px; text-transform:uppercase; letter-spacing:.03em; }
+  .stat .v { font-size:15px; font-weight:600; font-variant-numeric:tabular-nums; margin-top:1px; }
+  .pos { color:var(--green); } .neg { color:var(--red); }
+  details.pos-list { margin-top:12px; border-top:1px solid var(--line); padding-top:8px; }
+  details.pos-list summary { cursor:pointer; color:var(--muted); font-size:13px; font-weight:600; list-style:none; }
+  details.pos-list summary::-webkit-details-marker { display:none; }
+  details.pos-list summary:after { content:" ▾"; color:var(--dim); }
+  details.pos-list[open] summary:after { content:" ▴"; }
+  .plist { list-style:none; margin:8px 0 0; padding:0; }
+  .plist li { display:flex; align-items:center; gap:8px; padding:6px 0; border-bottom:1px solid var(--line); font-size:13px; }
+  .plist li:last-child { border-bottom:0; }
+  .oc { flex:none; font-size:11px; font-weight:700; padding:1px 7px; border-radius:5px; background:var(--panel2); color:var(--muted); }
+  .plist .ti { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .plist .pv { flex:none; font-variant-numeric:tabular-nums; color:var(--muted); }
+  .shb { flex:none; font-size:11px; padding:1px 6px; border-radius:999px; background:var(--blue-d); color:var(--blue); }
+  .gobtn { display:inline-block; margin-top:12px; font-size:13px; font-weight:600; color:var(--text);
+    background:var(--panel2); border:1px solid var(--line); border-radius:9px; padding:7px 12px; }
+  .gobtn:hover { border-color:var(--accent); text-decoration:none; }
+
+  /* metric cards (performance) */
+  .grid2 { grid-template-columns:1fr 1fr; }
+  .card { background:linear-gradient(180deg,var(--panel),var(--bg2)); border:1px solid var(--line); border-radius:14px; padding:17px 19px; }
+  .card h3 { margin:0 0 13px; font-size:16px; }
+  .metrics { display:grid; grid-template-columns:repeat(3,1fr); gap:13px 10px; }
+  .metric .k { color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.03em; }
+  .metric .v { font-size:21px; font-weight:700; margin-top:2px; font-variant-numeric:tabular-nums; }
+
+  /* tables */
   table { width:100%; border-collapse:collapse; font-size:13.5px; }
-  .scroll { overflow-x:auto; border:1px solid var(--line); border-radius:10px; margin-top:8px; }
-  th,td { text-align:left; padding:8px 10px; white-space:nowrap; }
-  thead th { background:var(--panel2); color:var(--muted); font-weight:600;
-    position:sticky; top:0; border-bottom:1px solid var(--line); }
-  tbody tr:nth-child(even){ background:rgba(255,255,255,.02); }
-  td.num, th.num { text-align:right; font-variant-numeric: tabular-nums; }
-  .tag { font-size:11px; padding:1px 7px; border-radius:999px; font-weight:600; }
-  .tag.green { background:rgba(46,194,126,.15); color:var(--green); }
-  .tag.blue  { background:rgba(76,141,255,.15); color:var(--blue); }
-  .tag.none  { background:rgba(154,163,178,.12); color:var(--muted); }
-  .tag.overlap { background:rgba(46,194,126,.12); color:#bfe; }
-  .tag.control { background:rgba(154,163,178,.14); color:var(--muted); }
+  .scroll { overflow-x:auto; border:1px solid var(--line); border-radius:11px; margin-top:8px; }
+  th,td { text-align:left; padding:9px 11px; white-space:nowrap; }
+  thead th { background:var(--panel2); color:var(--muted); font-weight:600; border-bottom:1px solid var(--line); }
+  tbody tr:nth-child(even){ background:rgba(255,255,255,.018); }
+  tbody tr:hover { background:rgba(124,92,255,.06); }
+  td.num,th.num { text-align:right; font-variant-numeric:tabular-nums; }
+  .tag { font-size:11px; padding:1px 8px; border-radius:999px; font-weight:600; }
+  .tag.green { background:var(--green-d); color:var(--green); }
+  .tag.blue { background:var(--blue-d); color:var(--blue); }
+  .tag.none { background:rgba(139,148,167,.12); color:var(--muted); }
+  .tag.overlap { background:var(--green-d); color:var(--green); }
+  .tag.control { background:rgba(139,148,167,.14); color:var(--muted); }
+  .agree { font-variant-numeric:tabular-nums; font-weight:700; }
+  .agree.strong { color:var(--green); } .agree.mod { color:var(--blue); }
   .muted { color:var(--muted); }
-  .chips { display:flex; flex-wrap:wrap; gap:8px; margin:12px 0 6px; }
-  .chip { background:var(--panel2); border:1px solid var(--line); border-radius:999px;
-    padding:5px 12px; font-size:13px; }
-  .chip b { font-variant-numeric: tabular-nums; }
-  .agree { font-variant-numeric: tabular-nums; font-weight:700; }
-  .agree.strong { color: var(--green); } .agree.mod { color: var(--blue); }
-  .empty { color:var(--muted); padding:14px; background:var(--panel); border:1px solid var(--line);
-    border-radius:10px; margin-top:8px; font-size:13.5px; }
-  details { margin-top:8px; } summary { cursor:pointer; color:var(--muted); }
-  code { background:var(--panel2); padding:1px 6px; border-radius:5px; }
-  a { color: var(--blue); }
-  @media (max-width:760px){ .grid2{grid-template-columns:1fr;} .metrics{grid-template-columns:repeat(2,1fr);} }
+  .empty { color:var(--muted); padding:16px; background:var(--panel); border:1px dashed var(--line); border-radius:11px; margin-top:8px; font-size:13.5px; }
+  @media (max-width:720px){ .grid2{grid-template-columns:1fr;} .metrics{grid-template-columns:repeat(2,1fr);} .meta{width:100%;margin-left:0;} }
 </style>
 </head>
 <body>
-<div class="wrap">
-  <h1>📊 Polymarket Copy-Signal Tester</h1>
-  <p class="sub">Read-only paper-trading measurement tool — it never places real orders.
-     <span id="freshness"></span></p>
-
-  <div class="banner">
-    <b>⚠️ Measurement tool, not financial advice.</b> Leaderboard performance is backward-looking
-    and survivorship-biased. A strong paper result is a reason to keep testing, not a guarantee of
-    future returns.
+<header class="top">
+  <div class="topin">
+    <div class="brand">📊 Polymarket Copy-Signal Tester <span class="ro">read-only · never trades</span></div>
+    <div class="meta" id="meta"></div>
   </div>
+  <nav class="tabs" id="tabs">
+    <button data-tab="traders" class="on">Top Earners</button>
+    <button data-tab="consensus">Consensus</button>
+    <button data-tab="performance">Performance</button>
+    <button data-tab="signals">All Signals</button>
+  </nav>
+</header>
 
-  <div id="content"><p class="muted">Loading…</p></div>
-
-  <p class="sub" style="margin-top:40px">
-    Data refreshes every ~30 min via a GitHub Action that reads public Polymarket APIs and simulates
-    trades. Source &amp; methodology:
-    <a href="https://github.com/PeeChug/polymarket-copy-signal">github.com/PeeChug/polymarket-copy-signal</a>.
-  </p>
+<div class="wrap">
+  <div class="banner">⚠️ <b>Measurement tool, not financial advice.</b> Leaderboard performance is backward-looking and
+    survivorship-biased — a strong paper result is a reason to keep testing, not a guarantee.</div>
+  <section id="tab-traders" class="tab on"><p class="muted">Loading…</p></section>
+  <section id="tab-consensus" class="tab"></section>
+  <section id="tab-performance" class="tab"></section>
+  <section id="tab-signals" class="tab"></section>
+  <p class="sub" style="margin-top:34px">Auto-updates every ~30 min via a GitHub Action reading public Polymarket APIs.
+    Source: <a href="https://github.com/PeeChug/polymarket-copy-signal">github.com/PeeChug/polymarket-copy-signal</a>.</p>
 </div>
 
 <script>
 const $ = (h) => { const t=document.createElement('template'); t.innerHTML=h.trim(); return t.content.firstChild; };
 const esc = (s) => String(s==null?'':s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-const money = (v) => v==null ? '—' : (v<0?'-':'') + '$' + Math.abs(v).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
-const pct = (v) => v==null ? '—' : (v*100).toFixed(1) + '%';
-const sign = (v) => v==null ? '' : (v>0?'pos':(v<0?'neg':''));
-const round = (v,n=3) => v==null ? '—' : Number(v).toFixed(n);
+const money = (v) => v==null?'—':(v<0?'-':'')+'$'+Math.abs(v).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+const fmtC = (v) => { if(v==null) return '—'; const a=Math.abs(v),s=v<0?'-':'';
+  if(a>=1e6) return s+'$'+(a/1e6).toFixed(a>=1e7?1:2)+'M';
+  if(a>=1e3) return s+'$'+(a/1e3).toFixed(a>=1e4?0:1)+'K'; return s+'$'+a.toFixed(0); };
+const pct = (v) => v==null?'—':(v*100).toFixed(1)+'%';
+const sign = (v) => v==null?'':(v>0?'pos':(v<0?'neg':''));
+const round = (v,n=3) => v==null?'—':Number(v).toFixed(n);
 const tag = (t) => `<span class="tag ${t||'none'}">${esc(t||'none')}</span>`;
+const profUrl = (w) => `https://polymarket.com/profile/${w}`;
+const mktUrl = (s) => s ? `https://polymarket.com/market/${encodeURIComponent(s)}` : null;
+const realName = (t) => (t.username && !/^0x/i.test(t.username)) ? t.username : ((t.wallet||'').slice(0,6)+'…'+(t.wallet||'').slice(-4));
+const PAL = ['#7c5cff','#2f9e7d','#c7873b','#3b82c7','#b85c8a','#5aa0a0','#a35adb','#c25a5a','#5a8fc2','#9a8a3a'];
+const palette = (w) => { let h=0; for(const c of (w||'x')) h=(h*31+c.charCodeAt(0))>>>0; return PAL[h%PAL.length]; };
 
-function metric(k, v, cls='') { return `<div class="metric"><div class="k">${k}</div><div class="v ${cls}">${v}</div></div>`; }
+function metric(k,v,cls=''){ return `<div class="metric"><div class="k">${k}</div><div class="v ${cls}">${v}</div></div>`; }
+function perfCard(title,m){ return `<div class="card"><h3>${title}</h3><div class="metrics">
+  ${metric('Net P&L',money(m.net_pnl),sign(m.net_pnl))}${metric('Realized',money(m.realized_pnl),sign(m.realized_pnl))}
+  ${metric('Unrealized',money(m.unrealized_pnl),sign(m.unrealized_pnl))}${metric('Open',m.open_count)}
+  ${metric('Closed',m.closed_count)}${metric('Win rate',pct(m.win_rate))}
+  ${metric('ROI (realized)',pct(m.roi_realized),sign(m.roi_realized))}${metric('ROI (incl. open)',pct(m.roi_total),sign(m.roi_total))}
+  ${metric('Staked',money(m.staked_all))}</div></div>`; }
+function tableEl(headers,rows){ if(!rows.length) return null;
+  const thead='<tr>'+headers.map(h=>`<th class="${h.num?'num':''}">${esc(h.label)}</th>`).join('')+'</tr>';
+  const body=rows.map(r=>'<tr>'+headers.map(h=>`<td class="${h.num?'num':''}">${r[h.key]==null?'':r[h.key]}</td>`).join('')+'</tr>').join('');
+  return $(`<div class="scroll"><table><thead>${thead}</thead><tbody>${body}</tbody></table></div>`); }
+function holders(o){ const n=(o.holder_usernames||[]).filter(Boolean); if(n.length) return esc(n.join(', '));
+  return `<span class="muted">${(o.holder_wallets||[]).length} wallet(s)</span>`; }
 
-function card(title, m) {
-  return `<div class="card"><h3>${title}</h3><div class="metrics">
-    ${metric('Net P&L', money(m.net_pnl), sign(m.net_pnl))}
-    ${metric('Realized', money(m.realized_pnl), sign(m.realized_pnl))}
-    ${metric('Unrealized', money(m.unrealized_pnl), sign(m.unrealized_pnl))}
-    ${metric('Open', m.open_count)}
-    ${metric('Closed', m.closed_count)}
-    ${metric('Win rate', pct(m.win_rate))}
-    ${metric('ROI (realized)', pct(m.roi_realized), sign(m.roi_realized))}
-    ${metric('ROI (incl. open)', pct(m.roi_total), sign(m.roi_total))}
-    ${metric('Staked', money(m.staked_all))}
-  </div></div>`;
+function traderCard(t, cohort){
+  const nm=realName(t), col=palette(t.wallet), letter=esc((nm[0]||'?').toUpperCase());
+  const img=t.profile_image && /^https?:/i.test(t.profile_image) ? `<img src="${esc(t.profile_image)}" onerror="this.remove()">` : '';
+  const positions=(t.positions||[]).slice(0,8).map(p=>{
+    const u=mktUrl(p.slug), ti=esc((p.title||'').slice(0,52));
+    const shared=(p.overlap||0)>=2?`<span class="shb">🤝 ${p.overlap}/${cohort}</span>`:'';
+    return `<li><span class="oc">${esc(p.outcome)}</span>
+      <span class="ti">${u?`<a href="${u}" target="_blank" rel="noopener">${ti}</a>`:ti}</span>
+      ${shared}<span class="pv">${fmtC(p.current_value)}</span></li>`;
+  }).join('');
+  const more=(t.n_positions||0)>8?`<li class="muted" style="border:0">+${t.n_positions-8} more positions…</li>`:'';
+  return `<div class="tcard">
+    <div class="thead">
+      <div class="rankb r${t.rank}">${t.rank}</div>
+      <div class="ava" style="background:${col}">${letter}${img}</div>
+      <div class="who">
+        <div class="nm"><a href="${profUrl(t.wallet)}" target="_blank" rel="noopener">${esc(nm)}</a>
+          ${t.verified?'<span class="vbadge" title="verified">✓</span>':''}</div>
+        <div class="sm">${t.x_username?`<a class="xlink" href="https://x.com/${esc(t.x_username)}" target="_blank" rel="noopener">@${esc(t.x_username)}</a> · `:''}${esc((t.wallet||'').slice(0,6))}…${esc((t.wallet||'').slice(-4))}</div>
+      </div>
+    </div>
+    <div class="pnlbig ${sign(t.pnl)}"><span class="lab">30-day profit</span>${fmtC(t.pnl)}</div>
+    <div class="statrow">
+      <div class="stat"><div class="k">Volume</div><div class="v">${fmtC(t.volume)}</div></div>
+      <div class="stat"><div class="k">Positions</div><div class="v">${t.n_positions??'—'}</div></div>
+      <div class="stat"><div class="k">On table</div><div class="v">${fmtC(t.total_value)}</div></div>
+    </div>
+    <div class="statrow" style="grid-template-columns:1fr 1fr">
+      <div class="stat"><div class="k">Open P&L (now)</div><div class="v ${sign(t.open_pnl)}">${fmtC(t.open_pnl)}</div></div>
+      <div class="stat"><div class="k">Cohort overlap</div><div class="v">${(t.positions||[]).filter(p=>(p.overlap||0)>=2).length} shared</div></div>
+    </div>
+    ${positions?`<details class="pos-list"><summary>Top positions (${Math.min(8,t.n_positions||0)} of ${t.n_positions||0})</summary><ul class="plist">${positions}${more}</ul></details>`:'<div class="muted" style="margin-top:10px;font-size:13px">No open positions right now.</div>'}
+    <a class="gobtn" href="${profUrl(t.wallet)}" target="_blank" rel="noopener">View on Polymarket ↗</a>
+  </div>`;
 }
 
-function tableEl(headers, rows) {
-  if (!rows.length) return null;
-  const thead = '<tr>' + headers.map(h => `<th class="${h.num?'num':''}">${esc(h.label)}</th>`).join('') + '</tr>';
-  const body = rows.map(r => '<tr>' + headers.map(h => `<td class="${h.num?'num':''}">${r[h.key]==null?'':r[h.key]}</td>`).join('') + '</tr>').join('');
-  const wrap = $(`<div class="scroll"><table><thead>${thead}</thead><tbody>${body}</tbody></table></div>`);
-  return wrap;
+function renderTraders(d){
+  const el=document.getElementById('tab-traders'); el.innerHTML='';
+  const traders=d.traders||[]; const cohort=(d.agreement||{}).cohort_size||traders.length||'?';
+  el.appendChild($(`<h2>Top ${cohort} earners — 30-day profit leaderboard</h2>`));
+  el.appendChild($(`<p class="sub">The cohort we watch. Each card shows their 30-day profit, volume, current open
+    positions and live open P&L, plus how many of their positions overlap with the rest of the group. Click a name or
+    “View on Polymarket” to open their real profile; click a position to open that market.</p>`));
+  if(!traders.length){ el.appendChild($(`<div class="empty">No trader snapshot yet — the next poller cycle will populate this.</div>`)); return; }
+  const combined=traders.reduce((s,t)=>s+(t.pnl||0),0);
+  el.appendChild($(`<div class="chips">
+    <span class="chip">👥 <b>${traders.length}</b> earners</span>
+    <span class="chip">💰 combined 30d profit <b>${fmtC(combined)}</b></span>
+    <span class="chip">📊 <b>${traders.reduce((s,t)=>s+(t.n_positions||0),0)}</b> open positions total</span></div>`));
+  const grid=$(`<div class="grid traders"></div>`);
+  traders.forEach(t=>grid.appendChild($(traderCard(t,cohort))));
+  el.appendChild(grid);
 }
 
-function holders(o) {
-  const names = (o.holder_usernames||[]).filter(Boolean);
-  if (names.length) return esc(names.join(', '));
-  const n = (o.holder_wallets||[]).length;
-  return `<span class="muted">${n} wallet(s)</span>`;
-}
-
-function render(d) {
-  const c = document.getElementById('content');
-  c.innerHTML = '';
-  const lc = d.last_cycle || {};
-  const isEmpty = (d.counts && d.counts.trades === 0);
-
-  // freshness
-  const gen = d.generated_at ? new Date(d.generated_at) : null;
-  document.getElementById('freshness').innerHTML =
-    (gen ? `· updated ${gen.toLocaleString()} ` : '') +
-    (lc.status === 'ok' ? '<span class="pill live">live</span>' : '<span class="pill">—</span>');
-
-  // ★ THE HEADLINE: where the top earners agree (the "correlation" readout) ★
-  const ag = d.agreement || {};
-  const cohort = ag.cohort_size || (d.leaderboard || []).length || '?';
-  const consensus = d.consensus || [];
-  c.appendChild($(`<h2>🤝 Where the top ${cohort} earners agree</h2>`));
-  c.appendChild($(`<p class="sub">Each cycle we pull the top ${cohort} earners on the 30-day profit
-    leaderboard and compare every position they hold against each other. A position held by more of them
-    independently = stronger agreement = a stronger copy signal.
-    <b>🟢 green = ≥5 of ${cohort} agree · 🔵 blue = ≥3 agree.</b></p>`));
-  c.appendChild($(`<div class="chips">
-    <span class="chip">👀 <b>${cohort}</b> earners watched</span>
-    <span class="chip">📊 <b>${ag.positions ?? '—'}</b> distinct positions held</span>
-    <span class="chip">🤝 <b>${ag.ge2 ?? 0}</b> held by ≥2</span>
-    <span class="chip">🔵 <b>${ag.ge3 ?? 0}</b> by ≥3</span>
-    <span class="chip">🟢 <b>${ag.ge5 ?? 0}</b> by ≥5 (strong)</span>
-    <span class="chip">top agreement <b>${ag.max_overlap ?? 0}/${cohort}</b></span>
-  </div>`));
-  const consRows = consensus.map(o => {
-    const n = o.overlap || 0, cls = n >= 5 ? 'strong' : (n >= 3 ? 'mod' : '');
-    return {
-      agree: `<span class="agree ${cls}">${n} / ${cohort}</span>`, tier: tag(o.tier),
-      market: esc((o.title || '').slice(0, 60)), outcome: esc(o.outcome),
-      price: o.price == null ? '—' : round(o.price),
-      liq: o.liquidity == null ? '—' : ('$' + Math.round(o.liquidity).toLocaleString()),
-      earners: holders(o),
-    };
-  });
-  const consTable = tableEl([
-    {key:'agree',label:'Agreement',num:1},{key:'tier',label:'Tier'},{key:'market',label:'Market'},
+function renderConsensus(d){
+  const el=document.getElementById('tab-consensus'); el.innerHTML='';
+  const ag=d.agreement||{}, cohort=ag.cohort_size||(d.leaderboard||[]).length||'?', consensus=d.consensus||[];
+  el.appendChild($(`<h2>🤝 Where the top ${cohort} earners agree</h2>`));
+  el.appendChild($(`<p class="sub">Every position compared against each other. More earners independently holding the
+    same market+outcome = stronger agreement = a stronger copy signal. <b>🟢 green = ≥5 of ${cohort} agree · 🔵 blue = ≥3.</b></p>`));
+  el.appendChild($(`<div class="chips">
+    <span class="chip">👀 <b>${cohort}</b> earners</span><span class="chip">📊 <b>${ag.positions??'—'}</b> distinct positions</span>
+    <span class="chip">🤝 <b>${ag.ge2??0}</b> held by ≥2</span><span class="chip">🔵 <b>${ag.ge3??0}</b> by ≥3</span>
+    <span class="chip">🟢 <b>${ag.ge5??0}</b> by ≥5 (strong)</span><span class="chip">top agreement <b>${ag.max_overlap??0}/${cohort}</b></span></div>`));
+  const rows=consensus.map(o=>{ const n=o.overlap||0, cls=n>=5?'strong':(n>=3?'mod':''), u=mktUrl(o.slug);
+    return { agree:`<span class="agree ${cls}">${n} / ${cohort}</span>`, tier:tag(o.tier),
+      market:u?`<a href="${u}" target="_blank" rel="noopener">${esc((o.title||'').slice(0,56))}</a>`:esc((o.title||'').slice(0,56)),
+      outcome:esc(o.outcome), price:o.price==null?'—':round(o.price),
+      liq:o.liquidity==null?'—':('$'+Math.round(o.liquidity).toLocaleString()), earners:holders(o) }; });
+  el.appendChild(tableEl([{key:'agree',label:'Agreement',num:1},{key:'tier',label:'Tier'},{key:'market',label:'Market'},
     {key:'outcome',label:'Outcome'},{key:'price',label:'Price',num:1},{key:'liq',label:'Liquidity',num:1},
-    {key:'earners',label:'Which earners hold it'},
-  ], consRows);
-  c.appendChild(consTable || $(`<div class="empty">No two of the top ${cohort} earners currently hold the
-    same market+outcome. These are whales with idiosyncratic books, so agreement comes and goes — every
-    position is still logged (see "All observed positions" below), and a signal becomes a paper trade the
-    moment ≥3 of them line up.</div>`));
+    {key:'earners',label:'Which earners hold it'}],rows) ||
+    $(`<div class="empty">No two of the top ${cohort} earners currently hold the same market+outcome — they're whales
+      with idiosyncratic books, so agreement comes and goes. Everything is still logged under “All Signals”.</div>`));
+}
 
-  // strategy vs control
-  c.appendChild($(`<h2>Overlap strategy vs. control benchmark</h2>`));
-  c.appendChild($(`<p class="sub">Control = naively copy the #1-ranked trader. If overlap doesn't beat it, the tiering adds no value.</p>`));
-  c.appendChild($(`<div class="grid2">${card('🟢🔵 Overlap', d.performance.overlap)}${card('1️⃣ Control (#1 copy)', d.performance.control)}</div>`));
-
-  if (isEmpty) {
-    c.appendChild($(`<div class="empty">No paper trades have opened yet. A position only becomes a trade once enough
-      of the top traders independently hold the same market+outcome to cross the tier threshold and pass the guardrails.
-      The cohort and live signals below are already being logged every cycle — watch the "Recent signals" overlap column.</div>`));
-  }
-
-  // 2. tier breakdown
-  c.appendChild($(`<h2>Overlap strategy by tier</h2>`));
-  c.appendChild($(`<p class="sub">Does green (all N agree) actually beat blue (≥ blue threshold)?</p>`));
-  const tierRows = [['🟢 green', d.tiers.green], ['🔵 blue', d.tiers.blue]].map(([label, m]) => ({
-    tier: label, open: m.open_count, closed: m.closed_count, win: pct(m.win_rate),
-    real: `<span class="${sign(m.realized_pnl)}">${money(m.realized_pnl)}</span>`,
-    unreal: `<span class="${sign(m.unrealized_pnl)}">${money(m.unrealized_pnl)}</span>`,
-    net: `<span class="${sign(m.net_pnl)}">${money(m.net_pnl)}</span>`, roi: pct(m.roi_realized),
-  }));
-  c.appendChild(tableEl([
-    {key:'tier',label:'Tier'},{key:'open',label:'Open',num:1},{key:'closed',label:'Closed',num:1},
+function renderPerformance(d){
+  const el=document.getElementById('tab-performance'); el.innerHTML='';
+  el.appendChild($(`<h2>Overlap strategy vs. control benchmark</h2>`));
+  el.appendChild($(`<p class="sub">Paper trades only. Control = naively copy the #1-ranked trader. If the overlap
+    strategy doesn't beat it, the tiering adds no value.</p>`));
+  el.appendChild($(`<div class="grid grid2">${perfCard('🟢🔵 Overlap',d.performance.overlap)}${perfCard('1️⃣ Control (#1 copy)',d.performance.control)}</div>`));
+  el.appendChild($(`<h2 style="margin-top:30px">By tier — does green beat blue?</h2>`));
+  const tr=(lab,m)=>({tier:lab,open:m.open_count,closed:m.closed_count,win:pct(m.win_rate),
+    real:`<span class="${sign(m.realized_pnl)}">${money(m.realized_pnl)}</span>`,
+    unreal:`<span class="${sign(m.unrealized_pnl)}">${money(m.unrealized_pnl)}</span>`,
+    net:`<span class="${sign(m.net_pnl)}">${money(m.net_pnl)}</span>`,roi:pct(m.roi_realized)});
+  el.appendChild(tableEl([{key:'tier',label:'Tier'},{key:'open',label:'Open',num:1},{key:'closed',label:'Closed',num:1},
     {key:'win',label:'Win rate',num:1},{key:'real',label:'Realized',num:1},{key:'unreal',label:'Unrealized',num:1},
-    {key:'net',label:'Net P&L',num:1},{key:'roi',label:'ROI',num:1},
-  ], tierRows));
-
-  // 3. open positions
-  c.appendChild($(`<h2>Open paper positions</h2>`));
-  const op = (d.open_positions||[]).map(t => ({
-    strat: tag(t.strategy), tier: tag(t.tier_at_entry), market: esc((t.title||'').slice(0,56)),
-    outcome: esc(t.outcome), ov: t.overlap_at_entry, entry: round(t.entry_price),
-    mark: t.marked_price==null?'—':round(t.marked_price),
-    shares: t.shares==null?'—':Number(t.shares).toFixed(1),
-    upnl: `<span class="${sign(t.unrealized_pnl)}">${money(t.unrealized_pnl)}</span>`,
-    opened: esc(String(t.entry_at||'').slice(0,16).replace('T',' ')),
-  }));
-  const opTable = tableEl([
-    {key:'strat',label:'Strategy'},{key:'tier',label:'Tier'},{key:'market',label:'Market'},
+    {key:'net',label:'Net P&L',num:1},{key:'roi',label:'ROI',num:1}],
+    [tr('🟢 green',d.tiers.green),tr('🔵 blue',d.tiers.blue)]));
+  el.appendChild($(`<h2 style="margin-top:30px">Open paper positions</h2>`));
+  const op=(d.open_positions||[]).map(t=>({strat:tag(t.strategy),tier:tag(t.tier_at_entry),
+    market:esc((t.title||'').slice(0,52)),outcome:esc(t.outcome),ov:t.overlap_at_entry,
+    entry:round(t.entry_price),mark:t.marked_price==null?'—':round(t.marked_price),
+    upnl:`<span class="${sign(t.unrealized_pnl)}">${money(t.unrealized_pnl)}</span>`,
+    opened:esc(String(t.entry_at||'').slice(0,16).replace('T',' '))}));
+  el.appendChild(tableEl([{key:'strat',label:'Strategy'},{key:'tier',label:'Tier'},{key:'market',label:'Market'},
     {key:'outcome',label:'Outcome'},{key:'ov',label:'Overlap@entry',num:1},{key:'entry',label:'Entry',num:1},
-    {key:'mark',label:'Mark',num:1},{key:'shares',label:'Shares',num:1},{key:'upnl',label:'Unrealized',num:1},
-    {key:'opened',label:'Opened'},
-  ], op);
-  c.appendChild(opTable || $(`<div class="empty">No open paper positions right now.</div>`));
-
-  // all observed positions (the full record, incl. single-holder noise)
-  c.appendChild($(`<h2>All observed positions (this cycle)</h2>`));
-  c.appendChild($(`<p class="sub">Every position the cohort holds — including ones only a single earner holds —
-    logged every cycle so you can measure the real agreement distribution before trusting any cutoff (honesty rule #2).</p>`));
-  const sig = (d.signals||[]).map(o => ({
-    ov: o.overlap, tier: tag(o.tier), market: esc((o.title||'').slice(0,56)), outcome: esc(o.outcome),
-    price: o.price==null?'—':round(o.price), liq: o.liquidity==null?'—':('$'+Math.round(o.liquidity).toLocaleString()),
-    closed: o.market_closed ? 'yes' : 'no', holders: holders(o),
-  }));
-  const sigTable = tableEl([
-    {key:'ov',label:'Overlap',num:1},{key:'tier',label:'Tier'},{key:'market',label:'Market'},
-    {key:'outcome',label:'Outcome'},{key:'price',label:'Price',num:1},{key:'liq',label:'Liquidity',num:1},
-    {key:'closed',label:'Closed'},{key:'holders',label:'Holders'},
-  ], sig);
-  c.appendChild(sigTable || $(`<div class="empty">No observations yet.</div>`));
-
-  // leaderboard
-  const lb = (d.leaderboard||[]).map(e => ({
-    rank: e.rank, trader: esc(e.username || (e.wallet||'').slice(0,10)),
-    pnl: money(e.pnl), vol: money(e.volume),
-    wallet: `<span class="muted">${esc((e.wallet||'').slice(0,14))}…</span>`,
-  }));
-  const lbTable = tableEl([
-    {key:'rank',label:'#',num:1},{key:'trader',label:'Trader'},{key:'pnl',label:'30d P&L',num:1},
-    {key:'vol',label:'Volume',num:1},{key:'wallet',label:'Wallet'},
-  ], lb);
-  if (lbTable) {
-    const det = $(`<details><summary>Current leaderboard cohort (latest snapshot)</summary></details>`);
-    det.appendChild(lbTable); c.appendChild(det);
-  }
-
-  // config
-  c.appendChild($(`<h2>⚙️ Settings (current)</h2>`));
-  c.appendChild($(`<p class="sub">Forward-only: settings live in <code>config.yaml</code> in the repo. Editing &amp; committing it
-    applies to future cycles only and never rewrites past trades.</p>`));
-  const cfg = d.config || {};
-  const keys = ['top_n','leaderboard_window','tier_green_min','tier_blue_min','min_tier_to_trade',
-    'min_liquidity','max_entry_price','stake_usd','price_source','control_respects_guardrails','size_threshold'];
-  const cfgRows = keys.filter(k => k in cfg).map(k => ({ k, v: String(cfg[k]) }));
-  c.appendChild(tableEl([{key:'k',label:'Setting'},{key:'v',label:'Value'}], cfgRows) ||
-    $(`<div class="empty">No config recorded yet.</div>`));
+    {key:'mark',label:'Mark',num:1},{key:'upnl',label:'Unrealized',num:1},{key:'opened',label:'Opened'}],op) ||
+    $(`<div class="empty">No open paper positions right now.</div>`));
 }
 
-fetch('./data.json?t=' + Date.now())
-  .then(r => { if (!r.ok) throw new Error('no data yet'); return r.json(); })
-  .then(render)
-  .catch(() => {
-    document.getElementById('content').innerHTML =
-      `<div class="empty">No data published yet. The first poller run will generate it — check back shortly.</div>`;
-  });
+function renderSignals(d){
+  const el=document.getElementById('tab-signals'); el.innerHTML='';
+  el.appendChild($(`<h2>All observed positions (this cycle)</h2>`));
+  el.appendChild($(`<p class="sub">Every position the cohort holds — including single-holder ones — logged every cycle
+    so you can measure the real agreement distribution before trusting any cutoff (honesty rule #2).</p>`));
+  const sig=(d.signals||[]).map(o=>{ const u=mktUrl(o.slug);
+    return { ov:o.overlap, tier:tag(o.tier),
+      market:u?`<a href="${u}" target="_blank" rel="noopener">${esc((o.title||'').slice(0,56))}</a>`:esc((o.title||'').slice(0,56)),
+      outcome:esc(o.outcome), price:o.price==null?'—':round(o.price),
+      liq:o.liquidity==null?'—':('$'+Math.round(o.liquidity).toLocaleString()),
+      closed:o.market_closed?'yes':'no', holders:holders(o) }; });
+  el.appendChild(tableEl([{key:'ov',label:'Overlap',num:1},{key:'tier',label:'Tier'},{key:'market',label:'Market'},
+    {key:'outcome',label:'Outcome'},{key:'price',label:'Price',num:1},{key:'liq',label:'Liquidity',num:1},
+    {key:'closed',label:'Closed'},{key:'holders',label:'Holders'}],sig) || $(`<div class="empty">No observations yet.</div>`));
+}
+
+function setTab(name){
+  document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('on',b.dataset.tab===name));
+  document.querySelectorAll('.tab').forEach(s=>s.classList.toggle('on',s.id==='tab-'+name));
+}
+document.getElementById('tabs').addEventListener('click',e=>{ if(e.target.dataset.tab) setTab(e.target.dataset.tab); });
+
+function render(d){
+  const lc=d.last_cycle||{}, gen=d.generated_at?new Date(d.generated_at):null;
+  document.getElementById('meta').innerHTML =
+    (gen?`updated ${gen.toLocaleString()} `:'') + (lc.status==='ok'?'<span class="pill live">live</span>':'<span class="pill">—</span>');
+  renderTraders(d); renderConsensus(d); renderPerformance(d); renderSignals(d);
+}
+
+fetch('./data.json?t='+Date.now()).then(r=>{ if(!r.ok) throw new Error('no data'); return r.json(); }).then(render)
+  .catch(()=>{ document.getElementById('tab-traders').innerHTML='<div class="empty">No data published yet — the first poller run will generate it. Check back shortly.</div>'; });
 </script>
 </body>
 </html>

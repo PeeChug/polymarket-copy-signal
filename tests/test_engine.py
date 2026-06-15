@@ -22,14 +22,16 @@ from poller.engine import run_cycle
 # --- fakes ----------------------------------------------------------------- #
 def L(rank, wallet):
     return types.SimpleNamespace(rank=rank, wallet=wallet, username=wallet.upper(),
-                                 pnl=1000.0 * (6 - rank), volume=9999.0)
+                                 pnl=1000.0 * (6 - rank), volume=9999.0,
+                                 profile_image="", x_username="", verified=False)
 
 
 def P(asset, cond, outcome="Yes", idx=0, cur=0.5, title="Market?"):
     return types.SimpleNamespace(asset=asset, condition_id=cond, outcome=outcome,
                                  outcome_index=idx, size=100.0, avg_price=0.3,
                                  cur_price=cur, current_value=50.0, redeemable=False,
-                                 title=title, slug="slug", end_date=None)
+                                 title=title, slug="slug", end_date=None,
+                                 cash_pnl=0.0, percent_pnl=0.0)
 
 
 def M(cond, closed=False, active=True, liquidity=50000.0, resolved=None):
