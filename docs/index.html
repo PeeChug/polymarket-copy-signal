@@ -11,16 +11,26 @@
     --text:#e8eaf0; --muted:#8b94a7; --dim:#5f6878;
     --green:#34d399; --green-d:#0f3d30; --blue:#5b9dff; --blue-d:#15294d;
     --red:#fb6a6a; --amber:#e2b14a; --gold:#f4c44a; --silver:#c4ccd8; --bronze:#cd854a; --accent:#7c5cff;
+    --grad:#16203a; --topbg:rgba(11,14,20,.82); --rowhover:rgba(124,92,255,.06); --rowalt:rgba(255,255,255,.018);
+    color-scheme:dark;
+  }
+  :root[data-theme="light"] {
+    --bg:#eef1f7; --bg2:#ffffff; --panel:#ffffff; --panel2:#f1f4fa; --line:#dde3ee;
+    --text:#131722; --muted:#5b6678; --dim:#8b95a8;
+    --green:#0a9d6e; --green-d:#d4f2e6; --blue:#2f6fe0; --blue-d:#dde9ff;
+    --red:#d6443f; --amber:#9a6c12; --gold:#9a7b12; --silver:#737d8c; --bronze:#9a6a3a; --accent:#6b46e8;
+    --grad:#dde7fb; --topbg:rgba(255,255,255,.85); --rowhover:rgba(107,70,232,.07); --rowalt:rgba(20,30,60,.022);
+    color-scheme:light;
   }
   * { box-sizing:border-box; }
   html,body { margin:0; }
-  body { background:radial-gradient(1200px 600px at 70% -10%, #16203a 0%, var(--bg) 55%) fixed, var(--bg);
+  body { background:radial-gradient(1200px 600px at 70% -10%, var(--grad) 0%, var(--bg) 55%) fixed, var(--bg);
     color:var(--text); font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
-    -webkit-font-smoothing:antialiased; }
+    -webkit-font-smoothing:antialiased; transition:background-color .25s ease, color .25s ease; }
   a { color:var(--blue); text-decoration:none; } a:hover { text-decoration:underline; }
   .wrap { max-width:1180px; margin:0 auto; padding:22px 20px 70px; }
 
-  .top { position:sticky; top:0; z-index:30; backdrop-filter:blur(10px); background:rgba(11,14,20,.82); border-bottom:1px solid var(--line); }
+  .top { position:sticky; top:0; z-index:30; backdrop-filter:blur(10px); background:var(--topbg); border-bottom:1px solid var(--line); }
   .topin { max-width:1180px; margin:0 auto; padding:12px 20px; display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
   .brand { font-size:17px; font-weight:700; }
   .brand .ro { font-size:11px; color:var(--muted); font-weight:500; border:1px solid var(--line); padding:2px 7px; border-radius:999px; margin-left:8px; }
@@ -95,8 +105,8 @@
   thead th { background:var(--panel2); color:var(--muted); font-weight:600; border-bottom:1px solid var(--line); position:sticky; top:0; }
   th.sortable { cursor:pointer; user-select:none; } th.sortable:hover { color:var(--text); }
   th .arr { color:var(--accent); font-size:11px; }
-  tbody tr:nth-child(even){ background:rgba(255,255,255,.018); }
-  tbody tr:hover { background:rgba(124,92,255,.06); }
+  tbody tr:nth-child(even){ background:var(--rowalt); }
+  tbody tr:hover { background:var(--rowhover); }
   td.num,th.num { text-align:right; font-variant-numeric:tabular-nums; }
   .tag { font-size:11px; padding:1px 8px; border-radius:999px; font-weight:600; }
   .tag.green { background:var(--green-d); color:var(--green); } .tag.blue { background:var(--blue-d); color:var(--blue); }
@@ -158,7 +168,28 @@
   .dd { cursor:pointer; color:var(--dim); margin-left:6px; text-decoration:none; font-size:12px; } .dd:hover { color:var(--accent); }
   .pickbtn { cursor:pointer; border:1px solid var(--line); background:var(--panel2); color:var(--muted); border-radius:6px; font-size:14px; line-height:1; padding:2px 7px; }
   .pickbtn.has { border-color:var(--green); color:var(--green); }
+  /* flash-on-change */
+  @keyframes flup { 0%{background:rgba(52,211,153,.32);} 100%{background:transparent;} }
+  @keyframes fldn { 0%{background:rgba(251,106,106,.32);} 100%{background:transparent;} }
+  tr.flash-up td { animation:flup 1.8s ease; } tr.flash-dn td { animation:fldn 1.8s ease; }
+  /* keyboard help */
+  kbd { background:var(--panel2); border:1px solid var(--line); border-bottom-width:2px; border-radius:6px; padding:1px 7px; font:600 12px ui-monospace,SFMono-Regular,Menlo,monospace; color:var(--text); }
+  .help-grid { display:grid; grid-template-columns:auto 1fr; gap:10px 16px; font-size:13.5px; align-items:center; margin-top:10px; }
+  .help-grid .d { color:var(--muted); }
   @media (max-width:720px){ .grid2{grid-template-columns:1fr;} .metrics{grid-template-columns:repeat(2,1fr);} .meta{width:100%;margin-left:0;} .calib{grid-template-columns:1fr;} }
+  /* mobile: tables become cards */
+  @media (max-width:640px){
+    .wrap { padding:14px 12px 60px; }
+    .scroll { border:0; overflow:visible; }
+    .scroll table, .scroll tbody, .scroll tr, .scroll td { display:block; width:100%; }
+    .scroll thead { position:absolute; left:-9999px; }
+    .scroll tr { border:1px solid var(--line); border-radius:12px; margin:10px 0; padding:3px 2px; background:linear-gradient(180deg,var(--panel),var(--bg2)); }
+    .scroll td { display:flex; justify-content:space-between; align-items:center; gap:14px; text-align:right; white-space:normal; padding:8px 14px; border-bottom:1px solid var(--line); }
+    .scroll td:last-child { border-bottom:0; }
+    .scroll td::before { content:attr(data-label); color:var(--muted); font-weight:600; font-size:12px; text-align:left; flex:none; }
+    .scroll td:empty { display:none; }
+    .modal { width:96vw; padding:18px 16px; } .panelx { width:300px; }
+  }
 </style>
 </head>
 <body>
@@ -169,6 +200,8 @@
     <button class="tbtn" id="refresh" title="Re-fetch the latest published data">↻ Refresh</button>
     <a class="tbtn" href="https://github.com/PeeChug/polymarket-copy-signal/actions/workflows/poller.yml" target="_blank" rel="noopener" title="Run the poller now on GitHub to fetch fresh data">⚡ Run poller ↗</a>
     <button class="tbtn" id="autopoll" title="Trigger the poller every 15 min while this tab is open (uses a GitHub token stored only in this browser)">⏱ Auto-poll: off</button>
+    <button class="tbtn" id="themebtn" title="Toggle light / dark theme (t)">☀️</button>
+    <button class="tbtn" id="helpbtn" title="Keyboard shortcuts (?)">⌨️</button>
     <button class="tbtn" id="settingsbtn" title="Settings">⚙️</button>
   </div>
   <nav class="tabs" id="tabs">
@@ -215,6 +248,11 @@
     <div id="setTokenStatus" class="muted" style="font-size:12.5px;margin-bottom:6px"></div>
     <button class="tbtn" id="setTokenBtn">Set / update token</button>
     <button class="tbtn" id="setTokenForget">Forget token</button></div>
+  <h3>Display</h3>
+  <div class="row"><label>Theme</label>
+    <select id="setTheme"><option value="dark">dark</option><option value="light">light</option></select></div>
+  <div class="row"><label class="fl" style="font-size:13px"><input type="checkbox" id="setNotify"> 🔔 Notify on new strong consensus (≥5)</label>
+    <div class="muted" style="font-size:11.5px;margin-top:4px">Desktop notifications while this tab is open. Needs browser permission.</div></div>
   <h3>Charts</h3>
   <div class="row"><label>Timeframe</label>
     <select id="setTF"><option value="1">last 1h</option><option value="6">last 6h</option><option value="24">last 24h</option><option value="72">last 3d</option><option value="168">last 7d</option><option value="0">all</option></select></div>
@@ -339,7 +377,7 @@ function tableEl(headers, rows, sortState, onSort){
     const cls=(hd.num?'num ':'')+(hd.sortKey?'sortable':'');
     const arr=sortState&&sortState.key===hd.sortKey?`<span class="arr">${sortState.dir<0?'▼':'▲'}</span>`:'';
     return `<th class="${cls}" data-ci="${ci}">${esc(hd.label)} ${arr}</th>`;}).join('')+'</tr>';
-  const body=rows.map(r=>'<tr>'+headers.map(hd=>`<td class="${hd.num?'num':''}">${r[hd.key]==null?'':r[hd.key]}</td>`).join('')+'</tr>').join('');
+  const body=rows.map(r=>`<tr class="${r._cls||''}"${r._id!=null?` data-id="${esc(r._id)}"`:''}>`+headers.map(hd=>`<td class="${hd.num?'num':''}" data-label="${esc(hd.label||'')}">${r[hd.key]==null?'':r[hd.key]}</td>`).join('')+'</tr>').join('');
   const wrap=$(`<div class="scroll"><table><thead>${thead}</thead><tbody>${body}</tbody></table></div>`);
   if(onSort) wrap.querySelectorAll('th.sortable').forEach(th=>th.onclick=()=>onSort(headers[+th.dataset.ci].sortKey));
   return wrap;
@@ -366,7 +404,35 @@ const state={ tab:'traders',
   sig:{key:'overlap',dir:-1,q:'',tier:'all',minOv:1,minLiq:0,hideClosed:false},
   perf:{ok:'unrealized_pnl',od:-1,ck:'realized_pnl',cd:-1},
   buy:{key:'score',dir:-1,preset:'score',minLiq:1000,minAgree:3,maxPrice:0.97,due:0},
-  settings:{pollMin:15, refreshMin:2.5, tf:0, area:false, bankroll:1000} };
+  settings:{pollMin:15, refreshMin:2.5, tf:0, area:false, bankroll:1000, notify:false} };
+
+// ---- theme + flash-on-change + strong-consensus notifications ----
+function applyTheme(t){ const r=document.documentElement; if(t==='light') r.setAttribute('data-theme','light'); else r.removeAttribute('data-theme');
+  const b=document.getElementById('themebtn'); if(b) b.textContent=t==='light'?'🌙':'☀️'; }
+function curTheme(){ const s=lsGet('pm_theme',''); if(s) return s; try{ return matchMedia('(prefers-color-scheme: light)').matches?'light':'dark'; }catch(e){ return 'dark'; } }
+function toggleTheme(){ const t=curTheme()==='light'?'dark':'light'; lsSet('pm_theme',t); applyTheme(t); const g=document.getElementById('setTheme'); if(g) g.value=t; }
+let prevSnap=null, flashMap=new Map();
+function computeFlash(d){
+  const cons=d.consensus||[], now={}; cons.forEach(o=>{ now[o.asset]={p:o.price,ov:o.overlap||0}; });
+  flashMap=new Map(); const newStrong=[];
+  if(prevSnap){
+    cons.forEach(o=>{ const pr=prevSnap[o.asset];
+      if(!pr){ if((o.overlap||0)>=5) newStrong.push(o); return; }
+      if(o.price!=null&&pr.p!=null&&Math.abs(o.price-pr.p)>=0.005) flashMap.set(o.asset,o.price>pr.p?'up':'dn');
+      else if((o.overlap||0)!==pr.ov) flashMap.set(o.asset,(o.overlap||0)>pr.ov?'up':'dn');
+      if((o.overlap||0)>=5&&pr.ov<5) newStrong.push(o); });
+    if(flashMap.size) setTimeout(()=>{ flashMap=new Map(); },6000);
+    if(newStrong.length) notifyStrong(newStrong);
+  }
+  prevSnap=now;
+}
+function flashCls(asset){ const f=flashMap.get(asset); return f?('flash-'+f):''; }
+function notifyStrong(list){
+  if(!state.settings.notify||!('Notification'in window)||Notification.permission!=='granted') return;
+  list.sort((a,b)=>(b.overlap||0)-(a.overlap||0)).slice(0,3).forEach(o=>{
+    try{ new Notification('🤝 New consensus · '+o.overlap+' top earners',{ body:(o.title||'').slice(0,90)+' — '+o.outcome+(o.price!=null?(' @ '+round(o.price)):''), tag:'pm-'+o.asset }); }catch(e){} });
+  if(list.length>3) toast('🔔 '+list.length+' new strong-consensus signals');
+}
 
 function metric(k,v,cls='',count){ const cv=(count!=null)?`<div class="v ${cls}" data-target="${Math.abs(count)}" data-neg="${count<0?1:0}" data-fmt="money">${money(0)}</div>`:`<div class="v ${cls}">${v}</div>`; return `<div class="metric"><div class="k">${k}</div>${cv}</div>`; }
 function perfCard(title,m){ return `<div class="card"><h3>${title}</h3><div class="metrics">
@@ -491,7 +557,7 @@ function renderConsensus(){
       return true;
     });
     let rows=filtered.map(o=>{const rd=relDate(o.end_date),e=edgeFor(o,cal);
-      return {overlap:o.overlap||0, mom:o.momentum||0, edge:e==null?-Infinity:e,
+      return {_id:o.asset, _cls:flashCls(o.asset), overlap:o.overlap||0, mom:o.momentum||0, edge:e==null?-Infinity:e,
         _agree:npCell(o,cohort), _mom:momCell(o.momentum), _edge:e==null?'<span class="muted">—</span>':`<span class="${e>=0?'pos':'neg'}">${e>=0?'+':''}${(e*100).toFixed(0)}%</span>`,
         tier:tagEl(o.tier), market:mlinkDD(o), pick:pickBtn(o), outcome:esc(o.outcome),
         price:o.price==null?0:o.price, _price:o.price==null?'—':round(o.price),
@@ -672,7 +738,7 @@ function renderBuy(){
     const mapped=rows.map(o=>{
       const ov=o.overlap||0,p=o.participants||ov||1,price=o.price,e=edgeFor(o,cal),w=winRateFor(o,cal);
       const f=kelly(w,price),stake=Math.round(0.5*f*bank),ev=(w!=null&&price)?stake*(w/price-1):null,rd=relDate(o.end_date),sc=candScore(o,cohort);
-      return {score:sc,_score:`<b>${sc}</b>`, overlap:ov,_agree:npCell(o,cohort), conv:ov/p, edge:e==null?-Infinity:e,
+      return {_id:o.asset, _cls:flashCls(o.asset), score:sc,_score:`<b>${sc}</b>`, overlap:ov,_agree:npCell(o,cohort), conv:ov/p, edge:e==null?-Infinity:e,
         _edge:e==null?'<span class="muted">—</span>':`<span class="${e>=0?'pos':'neg'}">${e>=0?'+':''}${(e*100).toFixed(0)}%</span>`,
         mom:o.momentum||0,_mom:momCell(o.momentum), market:mlinkDD(o), pick:pickBtn(o), outcome:esc(o.outcome),
         price:price==null?0:price,_price:price==null?'—':round(price), liquidity:o.liquidity==null?0:o.liquidity,_liq:o.liquidity==null?'—':('$'+Math.round(o.liquidity).toLocaleString()),
@@ -712,6 +778,27 @@ document.addEventListener('click',e=>{
     if(document.getElementById('modal').classList.contains('open'))openMarket(a);
     if(state.tab==='picks')renderPicks();}
 });
+function showHelp(){ const m=document.getElementById('modal'); m.innerHTML=`<span class="x" id="modalx">×</span><h3>⌨️ Keyboard shortcuts</h3>
+  <div class="help-grid">
+    <div><kbd>1</kbd> … <kbd>6</kbd></div><div class="d">Jump to a tab (Top Earners → All Signals)</div>
+    <div><kbd>/</kbd></div><div class="d">Focus the search box on this tab</div>
+    <div><kbd>r</kbd></div><div class="d">Refresh data now</div>
+    <div><kbd>t</kbd></div><div class="d">Toggle light / dark theme</div>
+    <div><kbd>?</kbd></div><div class="d">Show this help</div>
+    <div><kbd>Esc</kbd></div><div class="d">Close any dialog</div>
+  </div>
+  <p class="sub" style="margin-top:15px">Tip: the <b>＋</b> on any Consensus / Buy row tracks it in <b>📌 My Picks</b>; <b>🔍</b> opens full market details and holders.</p>`;
+  m.classList.add('open'); document.getElementById('scrim').classList.add('open'); document.getElementById('modalx').onclick=closeModal; }
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'){ document.getElementById('modal').classList.remove('open'); const p=document.getElementById('settings'); if(p)p.classList.remove('open'); document.getElementById('scrim').classList.remove('open'); return; }
+  const tag=((e.target&&e.target.tagName)||'').toLowerCase();
+  if(tag==='input'||tag==='select'||tag==='textarea'||e.metaKey||e.ctrlKey||e.altKey) return;
+  if(e.key>='1'&&e.key<='6'){ const t=['traders','consensus','buy','picks','performance','signals'][+e.key-1]; if(t)setTab(t); }
+  else if(e.key==='/'){ const s=document.querySelector('.tab.on input[type=search]'); if(s){ e.preventDefault(); s.focus(); } }
+  else if(e.key==='r'||e.key==='R'){ manualRefresh(); }
+  else if(e.key==='t'||e.key==='T'){ toggleTheme(); }
+  else if(e.key==='?'){ showHelp(); }
+});
 
 let lastGen=null, metaTimer=null;
 function relTime(d){ if(!d)return ''; const s=(Date.now()-d.getTime())/1000;
@@ -727,7 +814,7 @@ function updateMeta(){ const d=DATA&&DATA.generated_at?new Date(DATA.generated_a
 function toast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),3200); }
 function manualRefresh(){ const b=document.getElementById('refresh'); b.classList.add('spin');
   fetch('./data.json?t='+Date.now()).then(r=>{if(!r.ok)throw 0;return r.json();}).then(d=>{
-    const fresh=d.generated_at!==lastGen; DATA=d; lastGen=d.generated_at; render();
+    const fresh=d.generated_at!==lastGen; DATA=d; computeFlash(d); lastGen=d.generated_at; render();
     toast(fresh?'↻ New data loaded':('Up to date · updated '+relTime(new Date(d.generated_at))));
   }).catch(()=>toast('⚠️ Refresh failed')).finally(()=>setTimeout(()=>b.classList.remove('spin'),650));
 }
@@ -739,7 +826,7 @@ function showSkeleton(){ document.getElementById('tab-traders').innerHTML='<div 
 function load(initial){
   return fetch('./data.json?t='+Date.now()).then(r=>{if(!r.ok)throw new Error('no data');return r.json();}).then(d=>{
     const fresh=d.generated_at!==lastGen;
-    DATA=d; if(initial){
+    DATA=d; computeFlash(d); if(initial){
       try{ const saved=JSON.parse(localStorage.getItem('pm_state')||'{}');
         ['trd','cons','sig','perf','buy','settings'].forEach(k=>{ if(saved[k]) Object.assign(state[k],saved[k]); }); }catch(e){}
       const want=(location.hash||'').replace('#','')||(()=>{try{return localStorage.getItem('pm_tab');}catch(e){return null;}})()||'traders';
@@ -787,6 +874,8 @@ function startRefresh(){ clearInterval(refreshTimer); refreshTimer=setInterval((
 function syncSettingsUI(){ const g=(id)=>document.getElementById(id); if(!g('setPoll')) return;
   g('setPoll').value=String(state.settings.pollMin); g('setRefresh').value=String(state.settings.refreshMin);
   g('setTF').value=String(state.settings.tf); g('setStyle').value=state.settings.area?'area':'line';
+  if(g('setTheme')) g('setTheme').value=curTheme();
+  if(g('setNotify')) g('setNotify').checked=!!state.settings.notify;
   g('setTokenStatus').textContent=ghToken()?('Token set ✓ — auto-poll '+(autopollOn()?'on':'off')):'No token set'; }
 function applySettings(){ startRefresh(); if(autopollOn()&&ghToken()) startPoke(); else { clearInterval(pokeTimer); renderAutopoll(); } syncSettingsUI(); }
 function initAutopoll(){
@@ -808,6 +897,11 @@ function initSettings(){
   g('setRefresh').onchange=e=>{ state.settings.refreshMin=+e.target.value; persist(); startRefresh(); };
   g('setTF').onchange=e=>{ state.settings.tf=+e.target.value; persist(); RENDER[state.tab](); };
   g('setStyle').onchange=e=>{ state.settings.area=e.target.value==='area'; persist(); RENDER[state.tab](); };
+  g('setTheme').onchange=e=>{ lsSet('pm_theme',e.target.value); applyTheme(e.target.value); };
+  g('setNotify').onchange=e=>{ const on=e.target.checked;
+    if(on && 'Notification'in window && Notification.permission!=='granted'){
+      Notification.requestPermission().then(p=>{ state.settings.notify=(p==='granted'); persist(); syncSettingsUI(); if(p!=='granted') toast('Notifications blocked in browser settings'); else toast('🔔 Notifications on'); });
+    } else { state.settings.notify=on && ('Notification'in window) && Notification.permission==='granted'; persist(); if(on&&!('Notification'in window)) toast('This browser has no notifications'); } };
   g('setTokenBtn').onclick=()=>{ close(); const p=g('tokenSetup'); p.style.display='block'; g('ghtok').focus(); p.scrollIntoView({behavior:'smooth'}); };
   g('setTokenForget').onclick=()=>{ lsSet('pm_gh_token',''); lsSet('pm_autopoll','0'); stopPoke(); syncSettingsUI(); toast('Token forgotten'); };
   g('setReset').onclick=()=>{ Object.assign(state.trd,{sort:'rank',show:12,q:'',sharedOnly:false,verifiedOnly:false});
@@ -815,6 +909,9 @@ function initSettings(){
     Object.assign(state.sig,{key:'overlap',dir:-1,q:'',tier:'all',minOv:1,minLiq:0,hideClosed:false});
     persist(); RENDER[state.tab](); toast('Filters reset'); };
 }
+applyTheme(curTheme());
+document.getElementById('themebtn').onclick=toggleTheme;
+document.getElementById('helpbtn').onclick=showHelp;
 initAutopoll(); initSettings(); startRefresh();
 showSkeleton(); load(true);
 </script>
