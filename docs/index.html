@@ -164,6 +164,7 @@
   <nav class="tabs" id="tabs">
     <button data-tab="traders" class="on">Top Earners</button>
     <button data-tab="consensus">Consensus</button>
+    <button data-tab="buy">🛒 Buy Candidates</button>
     <button data-tab="performance">Performance</button>
     <button data-tab="signals">All Signals</button>
   </nav>
@@ -186,6 +187,7 @@
   </div>
   <section id="tab-traders" class="tab on"></section>
   <section id="tab-consensus" class="tab"></section>
+  <section id="tab-buy" class="tab"></section>
   <section id="tab-performance" class="tab"></section>
   <section id="tab-signals" class="tab"></section>
   <p class="sub" style="margin-top:34px">Auto-updates every ~30 min via a GitHub Action reading public Polymarket APIs. Source: <a href="https://github.com/PeeChug/polymarket-copy-signal">github.com/PeeChug/polymarket-copy-signal</a>.</p>
@@ -234,6 +236,12 @@ function npCell(o,cohort){const n=o.overlap||0,p=o.participants||n||1,cls=o.tier
 const momCell=(m)=>{m=m||0;return m>0?`<span class="pos">▲${m}</span>`:m<0?`<span class="neg">▼${-m}</span>`:'<span class="muted">–</span>';};
 function edgeFor(o,cal){ if(!cal||o.price==null) return null; const ov=o.overlap||0;
   const b=ov>=5?cal.ge5:ov>=3?cal.ge3:ov>=2?cal.ge2:null; if(!b||b.win_rate==null) return null; return b.win_rate-o.price; }
+function winRateFor(o,cal){ if(!cal) return null; const ov=o.overlap||0; const b=ov>=5?cal.ge5:ov>=3?cal.ge3:ov>=2?cal.ge2:null; return b&&b.win_rate!=null?b.win_rate:null; }
+function kelly(w,p){ return (w!=null&&p!=null&&p>0&&p<1&&w>p)?(w-p)/(1-p):0; }  // fraction of bankroll
+function candScore(o,cohort){ const N=(cohort==='?'?10:cohort), ov=o.overlap||0, p=o.participants||ov||1, mom=o.momentum||0, liq=o.liquidity||0, e=edgeFor(o,DATA.calibration);
+  const sBreadth=Math.min(1,ov/Math.max(5,N*0.2)), sConv=ov/p, sMom=mom>0?Math.min(1,mom/4):0,
+    sLiq=liq>=10000?1:liq>=1000?0.6:0.2, sEdge=e!=null?Math.max(0,Math.min(1,e/0.25)):0.3;
+  return Math.round(100*(0.30*sBreadth+0.30*sConv+0.15*sMom+0.10*sLiq+0.15*sEdge)); }
 function categoryOf(o){ const t=((o.title||'')+' '+(o.slug||'')).toLowerCase();
   if(/\b(fed|rate cut|cpi|inflation|gdp|recession|economy|unemployment|jobs report|interest rate)\b/.test(t)) return 'Economics';
   if(/\b(election|president|senate|governor|mayor|congress|parliament|prime minister|vote|democrat|republican|political|impeach|nominee)\b/.test(t)) return 'Politics';
@@ -343,7 +351,9 @@ const state={ tab:'traders',
   trd:{sort:'rank', show:12, q:'', sharedOnly:false, verifiedOnly:false},
   cons:{key:'overlap',dir:-1,min:2,q:'',minLiq:0,due:0,contest:'any',cat:'any'},
   sig:{key:'overlap',dir:-1,q:'',tier:'all',minOv:1,minLiq:0,hideClosed:false},
-  settings:{pollMin:15, refreshMin:2.5, tf:0, area:false} };
+  perf:{ok:'unrealized_pnl',od:-1,ck:'realized_pnl',cd:-1},
+  buy:{key:'score',dir:-1,preset:'score',minLiq:1000,minAgree:3,maxPrice:0.97,due:0},
+  settings:{pollMin:15, refreshMin:2.5, tf:0, area:false, bankroll:1000} };
 
 function metric(k,v,cls='',count){ const cv=(count!=null)?`<div class="v ${cls}" data-target="${Math.abs(count)}" data-neg="${count<0?1:0}" data-fmt="money">${money(0)}</div>`:`<div class="v ${cls}">${v}</div>`; return `<div class="metric"><div class="k">${k}</div>${cv}</div>`; }
 function perfCard(title,m){ return `<div class="card"><h3>${title}</h3><div class="metrics">
@@ -497,17 +507,46 @@ function renderConsensus(){
 
 function renderPerformance(){
   const d=DATA,el=document.getElementById('tab-performance');el.innerHTML='';
-  el.appendChild($(`<h2>P&L by tier — does 🟢 green beat 🔵 blue?</h2>`));
-  el.appendChild($(`<p class="sub">The overlap strategy's paper P&L split by the tier each trade entered at — so you can see whether stronger agreement actually pays.</p>`));
+  el.appendChild($(`<h2>Overlap strategy — performance</h2>`));
+  el.appendChild($(`<p class="sub">Paper-trade results of buying every position that crosses the tier threshold (fixed stake each), marked to live prices. Realized = closed trades; unrealized = open.</p>`));
+  const overall=$(perfCard('🟢🔵 All tiers',d.performance.overlap)); el.appendChild(overall); runCountups(overall);
+
+  el.appendChild($(`<h2 style="margin-top:26px">By tier — does 🟢 green beat 🔵 blue?</h2>`));
   const tierCards=$(`<div class="grid grid2">${perfCard('🟢 Green tier',d.tiers.green)}${perfCard('🔵 Blue tier',d.tiers.blue)}</div>`);
   el.appendChild(tierCards); runCountups(tierCards);
+
   if((d.history||[]).some(h=>h.green_net!=null||h.blue_net!=null)){
-    el.appendChild($(`<h2 style="margin-top:24px">Green vs. blue net P&L over time</h2>`));
+    el.appendChild($(`<h2 style="margin-top:26px">Green vs. blue net P&L over time</h2>`));
     el.appendChild(chart(d.history,[{key:'green_net',color:'var(--green)',label:'Green',money:true},{key:'blue_net',color:'var(--blue)',label:'Blue',money:true}]));
   }
-  el.appendChild($(`<h2 style="margin-top:30px">Open paper positions</h2>`));
-  const op=(d.open_positions||[]).map(t=>({strat:tagEl(t.strategy),tier:tagEl(t.tier_at_entry),market:mlink(t.slug,t.title,52),outcome:esc(t.outcome),ov:t.overlap_at_entry,entry:round(t.entry_price),mark:t.marked_price==null?'—':round(t.marked_price),upnl:`<span class="${sgn(t.unrealized_pnl)}">${money(t.unrealized_pnl)}</span>`,opened:esc(String(t.entry_at||'').slice(0,16).replace('T',' '))}));
-  el.appendChild(tableEl([{key:'strat',label:'Strategy'},{key:'tier',label:'Tier'},{key:'market',label:'Market'},{key:'outcome',label:'Outcome'},{key:'ov',label:'Overlap@entry',num:1},{key:'entry',label:'Entry',num:1},{key:'mark',label:'Mark',num:1},{key:'upnl',label:'Unrealized',num:1},{key:'opened',label:'Opened'}],op)||$(`<div class="empty">No open paper positions right now.</div>`));
+
+  el.appendChild($(`<h2 style="margin-top:30px">Open paper positions <span class="muted" style="font-size:13px;font-weight:400">(${(d.open_positions||[]).length})</span></h2>`));
+  const opRows=(d.open_positions||[]).map(t=>{const stake=+t.stake_usd||0,up=+t.unrealized_pnl||0,days=t.entry_at?Math.floor((Date.now()-Date.parse(t.entry_at))/86400000):0;
+    return {tier:tagEl(t.tier_at_entry),market:mlink(t.slug,t.title,50),outcome:esc(t.outcome),ov:t.overlap_at_entry||0,
+      entry:+t.entry_price||0,_entry:round(t.entry_price),mark:+t.marked_price||0,_mark:t.marked_price==null?'—':round(t.marked_price),
+      upnl:up,_upnl:`<span class="${sgn(up)}">${money(up)}</span>`,pct:stake?up/stake:0,_pct:stake?`<span class="${sgn(up)}">${(up/stake*100).toFixed(0)}%</span>`:'—',
+      days:days,_days:days<1?'<1d':days+'d',opened:esc(String(t.entry_at||'').slice(0,10))};});
+  const opT=tableEl([{key:'tier',label:'Tier'},{key:'market',label:'Market'},{key:'outcome',label:'Outcome'},{key:'ov',label:'Overlap@entry',sortKey:'ov',num:1},
+    {key:'_entry',label:'Entry',sortKey:'entry',num:1},{key:'_mark',label:'Mark',sortKey:'mark',num:1},{key:'_upnl',label:'Unrealized',sortKey:'upnl',num:1},
+    {key:'_pct',label:'P&L %',sortKey:'pct',num:1},{key:'_days',label:'Held',sortKey:'days',num:1},{key:'opened',label:'Opened'}],
+    sortRows(opRows,state.perf.ok,state.perf.od),{key:state.perf.ok,dir:state.perf.od},
+    k=>{state.perf.od=state.perf.ok===k?-state.perf.od:-1;state.perf.ok=k;persist();renderPerformance();});
+  el.appendChild(opT||$(`<div class="empty">No open paper positions right now.</div>`));
+
+  el.appendChild($(`<h2 style="margin-top:30px">Closed trades — track record <span class="muted" style="font-size:13px;font-weight:400">(${(d.closed_positions||[]).length})</span></h2>`));
+  el.appendChild($(`<p class="sub">Realized results once a position resolved or the cohort dropped it — the strategy's actual scorecard.</p>`));
+  const clRows=(d.closed_positions||[]).map(t=>{const stake=+t.stake_usd||0,rp=+t.realized_pnl||0;
+    return {tier:tagEl(t.tier_at_entry),market:mlink(t.slug,t.title,50),outcome:esc(t.outcome),entry:+t.entry_price||0,_entry:round(t.entry_price),
+      exit:+t.exit_price||0,_exit:t.exit_price==null?'—':round(t.exit_price),rpnl:rp,_rpnl:`<span class="${sgn(rp)}">${money(rp)}</span>`,
+      pct:stake?rp/stake:0,_pct:stake?`<span class="${sgn(rp)}">${(rp/stake*100).toFixed(0)}%</span>`:'—',
+      result:t.resolved_won==null?'<span class="muted">—</span>':(t.resolved_won?'<span class="pos">✓ won</span>':'<span class="neg">✗ lost</span>'),
+      reason:esc((t.close_reason||'').replace(/_/g,' ')),closed:esc(String(t.exit_at||'').slice(0,10))};});
+  const clT=tableEl([{key:'tier',label:'Tier'},{key:'market',label:'Market'},{key:'outcome',label:'Outcome'},{key:'_entry',label:'Entry',sortKey:'entry',num:1},
+    {key:'_exit',label:'Exit',sortKey:'exit',num:1},{key:'_rpnl',label:'Realized',sortKey:'rpnl',num:1},{key:'_pct',label:'P&L %',sortKey:'pct',num:1},
+    {key:'result',label:'Result'},{key:'reason',label:'Why closed'},{key:'closed',label:'Closed'}],
+    sortRows(clRows,state.perf.ck,state.perf.cd),{key:state.perf.ck,dir:state.perf.cd},
+    k=>{state.perf.cd=state.perf.ck===k?-state.perf.cd:-1;state.perf.ck=k;persist();renderPerformance();});
+  el.appendChild(clT||$(`<div class="empty">No closed trades yet — they'll appear as positions resolve or the cohort exits them.</div>`));
 }
 
 function renderSignals(){
@@ -548,7 +587,58 @@ function renderSignals(){
   draw();
 }
 
-const RENDER={traders:renderTraders,consensus:renderConsensus,performance:renderPerformance,signals:renderSignals};
+function renderBuy(){
+  const d=DATA,el=document.getElementById('tab-buy');el.innerHTML='';
+  const cal=d.calibration||{}, cohort=(d.agreement||{}).cohort_size||(d.leaderboard||[]).length||'?';
+  el.appendChild($(`<h2>🛒 Buy Candidates</h2>`));
+  el.appendChild($(`<p class="sub">Consensus positions ranked for a buy decision. <b>Score</b> (0–100) blends agreement, conviction (N/P), momentum, edge and liquidity. <b>Edge</b> = hit-rate − price; <b>½-Kelly $</b> and <b>EV $</b> use your bankroll and fill in once markets resolve. Not financial advice.</p>`));
+  const presets=[['score','⭐ Best overall'],['consensus','Most agreement'],['conviction','Highest conviction'],['edge','Best value'],['momentum','Momentum'],['resolving','Resolving soon']];
+  const pr=$(`<div class="toolbar">${presets.map(p=>`<button class="tbtn pbtn${state.buy.preset===p[0]?' on-acc':''}" data-p="${p[0]}">${p[1]}</button>`).join('')}</div>`);
+  el.appendChild(pr);
+  const tb=$(`<div class="toolbar">
+    ${sel('bMinA','Min agreement',[['2','≥2'],['3','≥3'],['5','≥5'],['10','≥10']],String(state.buy.minAgree))}
+    ${sel('bLiq','Min liquidity',[['0','any'],['1000','$1k'],['10000','$10k'],['100000','$100k']],String(state.buy.minLiq))}
+    ${sel('bMaxP','Max price',[['0.97','≤0.97'],['0.9','≤0.90'],['0.7','≤0.70'],['0.5','≤0.50']],String(state.buy.maxPrice))}
+    ${sel('bDue','Resolves',[['0','any'],['7','≤7d'],['30','≤30d']],String(state.buy.due))}
+    <label class="fl">Bankroll $<input type="number" id="bBank" value="${state.settings.bankroll}" min="0" step="100" style="width:92px"></label>
+    <span class="muted" id="bCount"></span></div>`);
+  el.appendChild(tb);
+  const host=$(`<div></div>`); el.appendChild(host);
+  function draw(){
+    persist();
+    const bank=+state.settings.bankroll||0;
+    let rows=(d.consensus||[]).filter(o=>(o.overlap||0)>=state.buy.minAgree
+      && (o.liquidity==null||o.liquidity>=state.buy.minLiq)
+      && (o.price==null||o.price<=state.buy.maxPrice)
+      && (!state.buy.due||(()=>{const rd=relDate(o.end_date);return rd&&rd.ts>=Date.now()&&rd.ts<=Date.now()+state.buy.due*86400000;})()));
+    const mapped=rows.map(o=>{
+      const ov=o.overlap||0,p=o.participants||ov||1,price=o.price,e=edgeFor(o,cal),w=winRateFor(o,cal);
+      const f=kelly(w,price),stake=Math.round(0.5*f*bank),ev=(w!=null&&price)?stake*(w/price-1):null,rd=relDate(o.end_date),sc=candScore(o,cohort);
+      return {score:sc,_score:`<b>${sc}</b>`, overlap:ov,_agree:npCell(o,cohort), conv:ov/p, edge:e==null?-Infinity:e,
+        _edge:e==null?'<span class="muted">—</span>':`<span class="${e>=0?'pos':'neg'}">${e>=0?'+':''}${(e*100).toFixed(0)}%</span>`,
+        mom:o.momentum||0,_mom:momCell(o.momentum), market:mlink(o.slug,o.title), outcome:esc(o.outcome),
+        price:price==null?0:price,_price:price==null?'—':round(price), liquidity:o.liquidity==null?0:o.liquidity,_liq:o.liquidity==null?'—':('$'+Math.round(o.liquidity).toLocaleString()),
+        rts:rd?rd.ts:Infinity,_res:rd?`<span class="due ${rd.cls}">${rd.txt}</span>`:'—',
+        stake:stake,_stake:(w!=null&&stake>0)?('$'+stake.toLocaleString()):'<span class="muted">—</span>',
+        ev:ev==null?-Infinity:ev,_ev:ev==null?'<span class="muted">—</span>':`<span class="${ev>=0?'pos':'neg'}">${ev>=0?'+':''}$${Math.abs(ev).toFixed(0)}</span>`};});
+    const pk={score:'score',consensus:'overlap',conviction:'conv',edge:'edge',momentum:'mom',resolving:'rts'}[state.buy.preset]||'score';
+    let sorted=sortRows(mapped,pk,state.buy.preset==='resolving'?1:-1);
+    if(state.buy.preset==='resolving') sorted=sorted.filter(r=>r.rts!==Infinity);
+    const t=tableEl([{key:'_score',label:'Score'},{key:'_agree',label:'Agreement'},{key:'_edge',label:'Edge'},{key:'_mom',label:'Mom'},
+      {key:'market',label:'Market'},{key:'outcome',label:'Outcome'},{key:'_price',label:'Price',num:1},{key:'_liq',label:'Liquidity',num:1},
+      {key:'_res',label:'Resolves',num:1},{key:'_stake',label:'½-Kelly $',num:1},{key:'_ev',label:'EV $',num:1}],sorted);
+    host.innerHTML=''; host.appendChild(t||$(`<div class="empty">No candidates match these filters — loosen them, or wait for stronger consensus.</div>`));
+    tb.querySelector('#bCount').textContent=`${sorted.length} candidates`;
+  }
+  pr.querySelectorAll('.pbtn').forEach(b=>b.onclick=()=>{state.buy.preset=b.dataset.p; pr.querySelectorAll('.pbtn').forEach(x=>x.classList.toggle('on-acc',x.dataset.p===state.buy.preset)); draw();});
+  tb.querySelector('#bMinA').onchange=e=>{state.buy.minAgree=+e.target.value;draw();};
+  tb.querySelector('#bLiq').onchange=e=>{state.buy.minLiq=+e.target.value;draw();};
+  tb.querySelector('#bMaxP').onchange=e=>{state.buy.maxPrice=+e.target.value;draw();};
+  tb.querySelector('#bDue').onchange=e=>{state.buy.due=+e.target.value;draw();};
+  tb.querySelector('#bBank').oninput=e=>{state.settings.bankroll=+e.target.value||0;persist();draw();};
+  draw();
+}
+const RENDER={traders:renderTraders,consensus:renderConsensus,buy:renderBuy,performance:renderPerformance,signals:renderSignals};
 function setTab(name){
   state.tab=name; location.hash=name;
   try{localStorage.setItem('pm_tab',name);}catch(e){}
@@ -586,7 +676,7 @@ function load(initial){
     const fresh=d.generated_at!==lastGen;
     DATA=d; if(initial){
       try{ const saved=JSON.parse(localStorage.getItem('pm_state')||'{}');
-        ['trd','cons','sig','settings'].forEach(k=>{ if(saved[k]) Object.assign(state[k],saved[k]); }); }catch(e){}
+        ['trd','cons','sig','perf','buy','settings'].forEach(k=>{ if(saved[k]) Object.assign(state[k],saved[k]); }); }catch(e){}
       const want=(location.hash||'').replace('#','')||(()=>{try{return localStorage.getItem('pm_tab');}catch(e){return null;}})()||'traders';
       state.tab=RENDER[want]?want:'traders';
       document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('on',b.dataset.tab===state.tab));

@@ -84,6 +84,13 @@ def open_positions(trades: list[dict]) -> list[dict]:
     return rows
 
 
+def closed_positions(trades: list[dict], limit: int = 100) -> list[dict]:
+    """Closed trades (the realized track record), newest exit first."""
+    rows = [dict(t) for t in trades if t.get("status") == "CLOSED"]
+    rows.sort(key=lambda r: str(r.get("exit_at") or ""), reverse=True)
+    return rows[:limit]
+
+
 def latest_signal_per_market(observations: list[dict]) -> list[dict]:
     """Keep the most recent observation per asset, sorted by overlap desc."""
     latest: dict[str, dict] = {}
@@ -161,6 +168,7 @@ def dashboard_payload(trades, observations, leaderboard, config_rows, traders=No
         "performance": strategy_performance(trades),
         "tiers": tier_breakdown(trades),
         "open_positions": open_positions(trades),
+        "closed_positions": closed_positions(trades),
         "signals": signals,
         "config": config_rows[0] if config_rows else None,
         "config_history": config_rows,
