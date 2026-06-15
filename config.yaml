@@ -1,0 +1,32 @@
+# ============================================================================
+# Default configuration for the Polymarket copy-signal tester.
+#
+# These are ONLY used to seed the very first `config_history` row the first
+# time the poller runs against an empty database. After that, the database is
+# the source of truth and the dashboard's settings editor writes new
+# (forward-only) config rows. Editing this file does NOT change a running
+# deployment's behaviour unless the config_history table is empty.
+#
+# See README -> "Configuration is forward-only".
+# ============================================================================
+
+# --- cohort / leaderboard ---------------------------------------------------
+top_n: 5                       # watch the top N traders on the profit leaderboard
+leaderboard_window: MONTH      # DAY | WEEK | MONTH | ALL  (MONTH = the 30-day "monthly winners")
+size_threshold: 1              # ignore dust: a wallet must hold at least this position size to count
+
+# --- tiering (overlap -> tier) ----------------------------------------------
+# overlap = how many of the N cohort wallets independently hold the same position.
+tier_green_min: 5              # overlap >= this  => "green"  (default: all N)
+tier_blue_min: 3               # overlap >= this  => "blue"
+
+# --- guardrails before a signal becomes a paper trade -----------------------
+min_liquidity: 1000            # USD; don't simulate filling a market we couldn't actually trade
+max_entry_price: 0.90          # skip positions already near resolution (little upside left)
+min_tier_to_trade: blue        # 'blue' (trade blue+green) or 'green' (trade green only)
+
+# --- paper-trade mechanics --------------------------------------------------
+stake_usd: 100                 # fixed $ stake per simulated trade
+price_source: midpoint         # 'midpoint' (mid of bid/ask) or 'buy' (best ask you'd pay)
+control_respects_guardrails: true   # apply liquidity + max_entry to the #1-copy control too,
+                                    # so the only difference vs overlap is the SELECTION rule

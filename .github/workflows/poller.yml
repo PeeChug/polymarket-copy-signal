@@ -1,0 +1,49 @@
+name: poller
+
+# Runs the read-only Polymarket copy-signal poller on a schedule.
+# - cron: every 30 minutes (well within free Actions minutes on a private repo)
+# - workflow_dispatch: a manual "Run workflow" button so you can poll on demand
+on:
+  schedule:
+    - cron: "*/30 * * * *"   # every 30 min (UTC). GitHub may delay under load.
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (hit Polymarket live, write nothing to the DB)"
+        type: boolean
+        default: false
+
+# Never let two cycles overlap (a slow run + the next tick).
+concurrency:
+  group: poller
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: poller/requirements.txt
+
+      - name: Install poller deps (minimal)
+        run: pip install -r poller/requirements.txt
+
+      - name: Run poller
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: |
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            python -m poller.main --dry-run
+          else
+            python -m poller.main
+          fi

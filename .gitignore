@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Virtual envs
+.venv/
+venv/
+env/
+
+# Secrets — NEVER commit these
+.env
+.env.*
+secrets.toml
+.streamlit/secrets.toml
+
+# Local dry-run / scratch output
+*.log
+dryrun_*.json
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

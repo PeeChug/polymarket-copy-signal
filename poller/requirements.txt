@@ -1,0 +1,5 @@
+# Poller dependencies — deliberately minimal so the GitHub Action installs fast
+# and stays well within free Actions minutes. The poller talks to Supabase over
+# plain HTTP (PostgREST), so no database SDK is needed.
+requests>=2.31
+PyYAML>=6.0
