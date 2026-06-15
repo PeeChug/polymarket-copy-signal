@@ -115,6 +115,31 @@ def agreement_summary(observations, cohort_size=None) -> dict:
     }
 
 
+def calibration(watch) -> dict:
+    """
+    Consensus hit-rate — the hypothesis test. From the watch of every position
+    ever held by >=2 of the cohort, bucketed by the MAX agreement it reached:
+    among the ones that have since resolved, how often did the outcome win, and
+    what's the average return of buying $1 at first sighting and holding to close.
+    """
+    entries = list(watch.values()) if isinstance(watch, dict) else (watch or [])
+    out = {}
+    for k, thresh in (("ge2", 2), ("ge3", 3), ("ge5", 5)):
+        pool = [w for w in entries if (w.get("max_overlap") or 0) >= thresh]
+        resolved = [w for w in pool if w.get("resolved")]
+        wins = sum(1 for w in resolved if w.get("won"))
+        rets = [(w["exit_price"] - w["first_price"]) / w["first_price"]
+                for w in resolved if w.get("first_price") and w.get("exit_price") is not None]
+        out[k] = {
+            "tracking": len(pool),
+            "resolved": len(resolved),
+            "wins": wins,
+            "win_rate": (wins / len(resolved)) if resolved else None,
+            "avg_return": (sum(rets) / len(rets)) if rets else None,
+        }
+    return out
+
+
 def dashboard_payload(trades, observations, leaderboard, config_rows, traders=None, meta=None) -> dict:
     """
     Everything the static GitHub-Pages dashboard needs, precomputed server-side

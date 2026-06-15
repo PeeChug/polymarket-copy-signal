@@ -86,6 +86,29 @@ class TestConsensus(unittest.TestCase):
         self.assertEqual(p["consensus"][0]["overlap"], 6)
 
 
+class TestCalibration(unittest.TestCase):
+    def test_buckets_and_returns(self):
+        watch = {
+            "a": {"max_overlap": 6, "resolved": True, "won": True, "first_price": 0.4, "exit_price": 1.0},
+            "b": {"max_overlap": 3, "resolved": True, "won": False, "first_price": 0.5, "exit_price": 0.0},
+            "c": {"max_overlap": 2, "resolved": False},  # still open, counts as tracking only
+        }
+        cal = analytics.calibration(watch)
+        self.assertEqual(cal["ge2"]["tracking"], 3)
+        self.assertEqual(cal["ge2"]["resolved"], 2)
+        self.assertEqual(cal["ge2"]["wins"], 1)
+        self.assertAlmostEqual(cal["ge2"]["win_rate"], 0.5)
+        self.assertAlmostEqual(cal["ge2"]["avg_return"], (1.5 + -1.0) / 2)  # +150% and -100%
+        self.assertEqual(cal["ge3"]["resolved"], 2)
+        self.assertEqual(cal["ge5"]["resolved"], 1)
+        self.assertAlmostEqual(cal["ge5"]["win_rate"], 1.0)
+
+    def test_empty(self):
+        cal = analytics.calibration({})
+        self.assertIsNone(cal["ge2"]["win_rate"])
+        self.assertEqual(cal["ge2"]["resolved"], 0)
+
+
 class TestSignals(unittest.TestCase):
     def test_latest_per_market_sorted_by_overlap(self):
         obs = [

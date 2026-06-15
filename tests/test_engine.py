@@ -46,8 +46,8 @@ class FakeClient:
     def __init__(self):
         self.lb = []
         self.positions_by_wallet = {}
-        self.markets = {}
-        self.marks = {}
+        self.markets_map = {}
+        self.marks_map = {}
 
     def leaderboard(self, window="MONTH", limit=5, order="PNL"):
         return self.lb[:limit]
@@ -55,11 +55,20 @@ class FakeClient:
     def positions(self, wallet, size_threshold=1.0, only_open=True):
         return list(self.positions_by_wallet.get(wallet, []))
 
+    def positions_many(self, wallets, size_threshold=1.0, only_open=True):
+        return {w: self.positions(w) for w in wallets}
+
     def market(self, condition_id):
-        return self.markets.get(condition_id)
+        return self.markets_map.get(condition_id)
+
+    def markets(self, condition_ids, chunk=40):
+        return {c: self.markets_map[c] for c in condition_ids if c in self.markets_map}
+
+    def marks(self, token_ids, source="midpoint"):
+        return {t: self.marks_map[t] for t in token_ids if t in self.marks_map}
 
     def mark_price(self, token_id, source="midpoint", market=None, outcome_index=0, fallback=None):
-        return self.marks.get(token_id, fallback)
+        return self.marks_map.get(token_id, fallback)
 
 
 CFG = {
@@ -77,7 +86,7 @@ class TestEngineLifecycle(unittest.TestCase):
         self.store.insert_config(dict(CFG))   # so load_config uses our test config
         self.c = FakeClient()
         self.c.lb = [L(1, "w1"), L(2, "w2"), L(3, "w3")]
-        self.c.markets = {"mA": M("mA"), "mB": M("mB")}
+        self.c.markets_map = {"mA": M("mA"), "mB": M("mB")}
 
     def run_quiet(self):
         run_cycle(self.store, self.c, log=lambda *a, **k: None)
@@ -89,7 +98,7 @@ class TestEngineLifecycle(unittest.TestCase):
             "w2": [P("A", "mA", title="Alpha")],
             "w3": [P("A", "mA", title="Alpha")],
         }
-        self.c.marks = {"A": 0.40, "B": 0.20}
+        self.c.marks_map = {"A": 0.40, "B": 0.20}
         self.run_quiet()
 
         obs = self.store.latest_observations()
@@ -113,12 +122,12 @@ class TestEngineLifecycle(unittest.TestCase):
 
     def test_forward_only_entry_then_mark(self):
         self.c.positions_by_wallet = {w: [P("A", "mA")] for w in ("w1", "w2", "w3")}
-        self.c.marks = {"A": 0.40}
+        self.c.marks_map = {"A": 0.40}
         self.run_quiet()
         entry = [t for t in self.store.all_trades() if t["strategy"] == "overlap"][0]["entry_price"]
 
         # next cycle: price moved up; entry must NOT change, unrealized must update
-        self.c.marks = {"A": 0.60}
+        self.c.marks_map = {"A": 0.60}
         self.run_quiet()
         t = [x for x in self.store.all_trades() if x["strategy"] == "overlap"][0]
         self.assertAlmostEqual(t["entry_price"], entry)          # locked forever
@@ -128,12 +137,12 @@ class TestEngineLifecycle(unittest.TestCase):
 
     def test_close_on_cohort_abandonment_then_reentry(self):
         self.c.positions_by_wallet = {w: [P("A", "mA")] for w in ("w1", "w2", "w3")}
-        self.c.marks = {"A": 0.40}
+        self.c.marks_map = {"A": 0.40}
         self.run_quiet()
 
         # cohort fully abandons A; mark drifted to 0.55
         self.c.positions_by_wallet = {"w1": [], "w2": [], "w3": []}
-        self.c.marks = {"A": 0.55}
+        self.c.marks_map = {"A": 0.55}
         self.run_quiet()
         overlap = [t for t in self.store.all_trades() if t["strategy"] == "overlap"]
         self.assertEqual(len(overlap), 1)
@@ -144,7 +153,7 @@ class TestEngineLifecycle(unittest.TestCase):
 
         # re-entry: cohort piles back in -> a NEW open trade is allowed
         self.c.positions_by_wallet = {w: [P("A", "mA")] for w in ("w1", "w2", "w3")}
-        self.c.marks = {"A": 0.50}
+        self.c.marks_map = {"A": 0.50}
         self.run_quiet()
         overlap = [t for t in self.store.all_trades() if t["strategy"] == "overlap"]
         self.assertEqual(len(overlap), 2)
@@ -152,11 +161,11 @@ class TestEngineLifecycle(unittest.TestCase):
 
     def test_close_on_resolution_win(self):
         self.c.positions_by_wallet = {w: [P("A", "mA")] for w in ("w1", "w2", "w3")}
-        self.c.marks = {"A": 0.40}
+        self.c.marks_map = {"A": 0.40}
         self.run_quiet()
 
         # market resolves YES (payout 1.0 for outcome_index 0)
-        self.c.markets["mA"] = M("mA", closed=True, resolved=1.0)
+        self.c.markets_map["mA"] = M("mA", closed=True, resolved=1.0)
         self.run_quiet()
         t = [x for x in self.store.all_trades() if x["strategy"] == "overlap"][0]
         self.assertEqual(t["status"], "CLOSED")
@@ -167,7 +176,7 @@ class TestEngineLifecycle(unittest.TestCase):
 
     def test_single_open_per_strategy_market_outcome(self):
         self.c.positions_by_wallet = {w: [P("A", "mA")] for w in ("w1", "w2", "w3")}
-        self.c.marks = {"A": 0.40}
+        self.c.marks_map = {"A": 0.40}
         self.run_quiet()
         self.run_quiet()  # second cycle, same holdings -> must NOT open a duplicate
         overlap_open = [t for t in self.store.all_trades()

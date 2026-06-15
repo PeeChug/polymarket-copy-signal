@@ -54,6 +54,7 @@ from __future__ import annotations
 
 import json
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -157,6 +158,23 @@ class PolymarketClient:
             if attempt < self.retries - 1:
                 time.sleep(self.backoff * (attempt + 1))
         raise RuntimeError(f"GET {url} failed after {self.retries} attempts: {last_err}")
+
+    def _post(self, url: str, body):
+        last_err = None
+        for attempt in range(self.retries):
+            try:
+                r = self.session.post(url, json=body, timeout=self.timeout)
+                r.raise_for_status()
+                return r.json()
+            except requests.HTTPError as e:
+                if e.response is not None and 400 <= e.response.status_code < 500:
+                    raise
+                last_err = e
+            except requests.RequestException as e:
+                last_err = e
+            if attempt < self.retries - 1:
+                time.sleep(self.backoff * (attempt + 1))
+        raise RuntimeError(f"POST {url} failed after {self.retries} attempts: {last_err}")
 
     @staticmethod
     def _parse_json_array(value, cast=None) -> list:
@@ -280,6 +298,86 @@ class PolymarketClient:
             uma_resolution_statuses=self._parse_json_array(match.get("umaResolutionStatuses")),
             end_date=match.get("endDate"),
         )
+
+    # -- BATCH variants (one call for many) -------------------------------- #
+    def positions_many(self, wallets, size_threshold: float = 1.0, only_open: bool = True) -> dict:
+        """Fetch many wallets' positions concurrently. Returns {wallet: [Position]}."""
+        wallets = list(wallets)
+        if not wallets:
+            return {}
+        out: dict = {}
+        with ThreadPoolExecutor(max_workers=min(10, len(wallets))) as ex:
+            futs = {ex.submit(self.positions, w, size_threshold, only_open): w for w in wallets}
+            for fut, w in futs.items():
+                try:
+                    out[w] = fut.result()
+                except Exception:
+                    out[w] = []
+        return out
+
+    def midpoints(self, token_ids) -> dict:
+        """POST /midpoints once. Returns {token_id: float} (omits tokens with no book)."""
+        token_ids = [t for t in dict.fromkeys(token_ids) if t]
+        if not token_ids:
+            return {}
+        try:
+            data = self._post(f"{CLOB_API}/midpoints", [{"token_id": t} for t in token_ids]) or {}
+        except Exception:
+            return {}
+        out = {}
+        for t, v in (data.items() if isinstance(data, dict) else []):
+            f = self._f(v, default=None) if v not in (None, "") else None
+            if f is not None:
+                out[t] = f
+        return out
+
+    def prices(self, token_ids, side: str = "BUY") -> dict:
+        """POST /prices once. Returns {token_id: float} for the given side."""
+        token_ids = [t for t in dict.fromkeys(token_ids) if t]
+        if not token_ids:
+            return {}
+        try:
+            data = self._post(f"{CLOB_API}/prices", [{"token_id": t, "side": side} for t in token_ids]) or {}
+        except Exception:
+            return {}
+        out = {}
+        for t, v in (data.items() if isinstance(data, dict) else []):
+            px = v.get(side) if isinstance(v, dict) else v
+            f = self._f(px, default=None) if px not in (None, "") else None
+            if f is not None:
+                out[t] = f
+        return out
+
+    def marks(self, token_ids, source: str = "midpoint") -> dict:
+        """Best current price for many tokens in one shot: {token_id: float}."""
+        return self.prices(token_ids, "BUY") if source == "buy" else self.midpoints(token_ids)
+
+    def markets(self, condition_ids, chunk: int = 40) -> dict:
+        """Fetch many markets by condition id (repeated `condition_ids` param,
+        chunked). Returns {condition_id: MarketInfo}."""
+        ids = [c for c in dict.fromkeys(condition_ids) if c]
+        out: dict = {}
+        for i in range(0, len(ids), chunk):
+            group = ids[i:i + chunk]
+            params = [("condition_ids", c) for c in group] + [("limit", "500")]
+            try:
+                rows = self._get(f"{GAMMA_API}/markets", params=params, ok_404=True) or []
+            except Exception:
+                rows = []
+            for m in rows:
+                cid = m.get("conditionId")
+                if not cid or cid in out:
+                    continue
+                out[cid] = MarketInfo(
+                    condition_id=cid, closed=bool(m.get("closed")), active=bool(m.get("active")),
+                    liquidity=self._f(m.get("liquidityNum"), default=self._f(m.get("liquidity"))),
+                    outcomes=self._parse_json_array(m.get("outcomes")),
+                    clob_token_ids=self._parse_json_array(m.get("clobTokenIds")),
+                    outcome_prices=self._parse_json_array(m.get("outcomePrices"), cast=float),
+                    uma_resolution_statuses=self._parse_json_array(m.get("umaResolutionStatuses")),
+                    end_date=m.get("endDate"),
+                )
+        return out
 
     # -- composite: current mark price ------------------------------------- #
     def mark_price(self, token_id: str, source: str = "midpoint",

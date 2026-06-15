@@ -24,6 +24,24 @@ def write_site(store, run_result: dict, docs_dir: str = "docs") -> str:
         meta={"generated_at": datetime.now(timezone.utc).isoformat(),
               "last_cycle": run_result},
     )
+
+    # append a compact time-series snapshot, then attach the series + derived views
+    perf, ag = payload["performance"], payload["agreement"]
+    store.append_history({
+        "ts": payload["generated_at"], "cycle": (run_result or {}).get("cycle_id"),
+        "ov_net": perf["overlap"]["net_pnl"], "ov_real": perf["overlap"]["realized_pnl"],
+        "ov_unreal": perf["overlap"]["unrealized_pnl"],
+        "ct_net": perf["control"]["net_pnl"], "ct_real": perf["control"]["realized_pnl"],
+        "ct_unreal": perf["control"]["unrealized_pnl"],
+        "ge2": ag.get("ge2"), "ge3": ag.get("ge3"), "ge5": ag.get("ge5"),
+        "max_overlap": ag.get("max_overlap"), "positions": ag.get("positions"),
+    })
+    payload["history"] = store.history(limit=1000)
+    payload["calibration"] = analytics.calibration(store.get_consensus_watch())
+    series = store.get_trader_series()
+    for t in payload["traders"]:
+        t["spark"] = series.get(t["wallet"], [])
+
     path = os.path.join(docs_dir, "data.json")
     tmp = path + ".tmp"
     with open(tmp, "w") as fh:

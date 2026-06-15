@@ -235,21 +235,29 @@ thing by inserting a new `config_history` row instead of editing `config.yaml`.)
 
 ## What the dashboard shows
 
-A tabbed single-page app (no build step) — vanilla HTML/CSS/JS rendering the
-precomputed `docs/data.json`:
+A tabbed single-page app (no build step, no JS dependencies) — vanilla
+HTML/CSS/JS rendering the precomputed `docs/data.json`, with count-up numbers,
+sparklines, hand-rolled SVG charts, a live pulse, and auto-refresh every ~2.5 min:
 
-- **Top Earners** *(default)* — a card per cohort trader: 30-day profit, volume,
-  open-position count, current value "on the table", live open P&L, how many of
-  their positions overlap with the rest of the cohort, an expandable list of
-  their top positions (each linking to its Polymarket market), and a **"View on
-  Polymarket"** link to their real profile (`polymarket.com/profile/{wallet}`).
-- **Consensus** — every position held by ≥2 of the top N, ranked by agreement,
-  with which earners hold each, plus the agreement distribution (≥2 / ≥3 / ≥5).
-- **Performance** — overlap strategy vs. #1-copy control (counts, win rate,
-  realized/unrealized P&L, ROI), the green-vs-blue tier breakdown, and open
-  paper positions with live marks.
-- **All Signals** — every observed position this cycle, including single-holder
-  ones (honesty rule #2).
+- **Top Earners** *(default)* — a card per cohort trader: 30-day profit (with a
+  recent-profit **sparkline**), volume, open-position count, value "on the table",
+  live open P&L, cohort overlap, an expandable list of their top positions (each
+  linking to its market), and a **"View on Polymarket"** link to their profile
+  (`polymarket.com/profile/{wallet}`).
+- **Consensus** — the agreement table (ranked, with an interactive **min-agreement
+  slider** and sortable columns), the agreement distribution, an **agreement-over-
+  time** chart, and the **consensus hit-rate** panel — win-rate of consensus
+  positions once they resolve, by agreement bucket (the core hypothesis test).
+- **Performance** — overlap vs. #1-copy control, a **cumulative-P&L-over-time**
+  equity curve, the green-vs-blue tier breakdown, and open paper positions.
+- **All Signals** — every observed position this cycle (honesty rule #2), with
+  **search, tier filter, and sortable columns**.
+
+The poller is fast: it **batches** the CLOB price calls (`POST /midpoints`) and
+Gamma market lookups (repeated `condition_ids`) and fetches the cohort's positions
+concurrently, so a full cycle over ~220 positions runs in ~2 seconds. It also
+accumulates time-series (`data/history.jsonl`) and a consensus-resolution tracker
+to power the charts and hit-rate.
 
 ---
 

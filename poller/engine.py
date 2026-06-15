@@ -82,14 +82,12 @@ def _run(store, client, cfg, cid, summary, log):
     } for e in cohort])
     log(f"cohort: " + ", ".join(f"#{e.rank} {e.username or e.wallet[:8]}" for e in cohort))
 
-    # ---- 3. open positions per cohort wallet -------------------------------
-    cohort_positions = {}
+    # ---- 3. open positions per cohort wallet (fetched concurrently) --------
+    cohort_positions = client.positions_many(cohort_wallets, size_threshold=cfg.size_threshold)
     for e in cohort:
-        positions = client.positions(e.wallet, size_threshold=cfg.size_threshold, only_open=True)
-        for p in positions:           # annotate for overlap labelling
+        for p in cohort_positions.get(e.wallet, []):   # annotate for overlap labelling
             p._username = e.username
             p._rank = e.rank
-        cohort_positions[e.wallet] = positions
     leader_positions = cohort_positions.get(leader.wallet, [])
     leader_assets = {p.asset for p in leader_positions}
 
@@ -102,31 +100,33 @@ def _run(store, client, cfg, cid, summary, log):
     # per-trader snapshot for the dashboard (their positions + agreement enrichment)
     store.set_traders(_build_traders(cohort, cohort_positions, overlaps))
 
-    # ---- caches (fetch each market / mark once per cycle) ------------------
-    market_cache: dict = {}
-    mark_cache: dict = {}
+    # existing open trades — needed below (and to know what to price)
+    open_index = {(t["strategy"], t["condition_id"], t["outcome_index"]): t
+                  for t in store.open_trades()}
+
+    # ---- BATCH-FETCH markets + marks once for everything we touch ----------
+    # include unresolved consensus-watch markets so we can detect their resolution
+    watched_conds = {w["condition_id"] for w in store.get_consensus_watch().values() if not w.get("resolved")}
+    all_conditions = ({ov.condition_id for ov in overlaps.values()}
+                      | {t["condition_id"] for t in open_index.values()} | watched_conds)
+    all_assets = set(overlaps.keys()) | {t["asset"] for t in open_index.values()}
+    market_map = client.markets(all_conditions)
+    mark_map = client.marks(all_assets, source=cfg.price_source)
+    log(f"batched {len(market_map)}/{len(all_conditions)} markets, {len(mark_map)}/{len(all_assets)} live prices")
 
     def get_market(condition_id):
-        if condition_id not in market_cache:
-            try:
-                market_cache[condition_id] = client.market(condition_id)
-            except Exception as ex:
-                log(f"  market({condition_id[:10]}..) failed: {ex}")
-                market_cache[condition_id] = None
-        return market_cache[condition_id]
+        return market_map.get(condition_id)
 
     def get_mark(asset, condition_id, outcome_index, fallback=None):
-        if asset in mark_cache:
-            return mark_cache[asset]
-        m = get_market(condition_id)
-        try:
-            price = client.mark_price(asset, source=cfg.price_source, market=m,
-                                      outcome_index=outcome_index, fallback=fallback)
-        except Exception as ex:
-            log(f"  mark_price({asset[:10]}..) failed: {ex}")
-            price = fallback
-        mark_cache[asset] = price
-        return price
+        p = mark_map.get(asset)
+        if p is not None:
+            return p
+        m = market_map.get(condition_id)  # resolved markets have no live book -> use payout
+        if m is not None:
+            rp = m.resolved_price_for(outcome_index)
+            if rp is not None:
+                return rp
+        return fallback
 
     # ---- 5a. observations: LOG EVERYTHING ----------------------------------
     obs_rows = []
@@ -150,11 +150,6 @@ def _run(store, client, cfg, cid, summary, log):
         })
     store.insert_observations(obs_rows)
     summary["n_observations"] = len(obs_rows)
-
-    # ---- existing open trades (so we don't double-open) --------------------
-    open_index = {}  # (strategy, condition_id, outcome_index) -> trade row
-    for t in store.open_trades():
-        open_index[(t["strategy"], t["condition_id"], t["outcome_index"])] = t
 
     def try_open(strat, asset, ov, tier, price, liquidity, closed):
         g = strategy.passes_guardrails(tier=tier, price=price, liquidity=liquidity,
@@ -230,6 +225,9 @@ def _run(store, client, cfg, cid, summary, log):
                 "marked_price": mark, "marked_at": _now_iso(), "unrealized_pnl": upnl,
             })
 
+    # ---- accumulate trackers for the dashboard (consensus hit-rate + sparklines)
+    _update_trackers(store, cohort, observed, market_map, _now_iso())
+
 
 def _build_traders(cohort, cohort_positions, overlaps, max_positions=25):
     """One row per cohort trader: leaderboard stats + their open positions,
@@ -258,6 +256,47 @@ def _build_traders(cohort, cohort_positions, overlaps, max_positions=25):
             "positions": rows[:max_positions],
         })
     return traders
+
+
+def _update_trackers(store, cohort, observed, market_map, now_iso):
+    """Maintain the accumulating dashboard trackers:
+       - trader_series: a capped per-wallet 30d-profit series for sparklines
+       - consensus_watch: every position ever held by >=2, and its resolution
+         outcome (the consensus hit-rate / calibration data)."""
+    # per-trader profit sparkline (kept only for the current cohort, capped)
+    series = store.get_trader_series()
+    store.set_trader_series({e.wallet: (series.get(e.wallet, []) + [round(e.pnl, 2)])[-60:]
+                             for e in cohort})
+
+    watch = store.get_consensus_watch()
+    for asset, (ov, tier, price, liquidity, closed) in observed.items():
+        if ov.overlap < 2:
+            continue
+        key = f"{ov.condition_id}|{ov.outcome_index}"
+        w = watch.get(key)
+        if w is None:
+            watch[key] = {
+                "condition_id": ov.condition_id, "outcome_index": ov.outcome_index,
+                "title": ov.title, "outcome": ov.outcome, "slug": ov.slug,
+                "first_seen": now_iso, "first_price": price,
+                "first_overlap": ov.overlap, "max_overlap": ov.overlap, "resolved": False,
+            }
+        else:
+            w["max_overlap"] = max(w.get("max_overlap", 0), ov.overlap)
+            if not w.get("first_price") and price:
+                w["first_price"] = price
+    # resolve any watched position whose market has closed
+    for w in watch.values():
+        if w.get("resolved"):
+            continue
+        m = market_map.get(w["condition_id"])
+        if m is not None and m.closed:
+            exit_price = m.resolved_price_for(w["outcome_index"])
+            if exit_price is None:
+                continue
+            w.update(resolved=True, resolved_at=now_iso, exit_price=exit_price,
+                     won=exit_price >= 0.5)
+    store.set_consensus_watch(watch)
 
 
 def _close(store, trade, exit_price, reason, summary, resolved_won):

@@ -20,13 +20,15 @@ from poller.engine import run_cycle
 
 
 def L(rank, wallet, name, pnl):
-    return types.SimpleNamespace(rank=rank, wallet=wallet, username=name, pnl=pnl, volume=pnl * 4)
+    return types.SimpleNamespace(rank=rank, wallet=wallet, username=name, pnl=pnl, volume=pnl * 4,
+                                 profile_image="", x_username="", verified=False)
 
 
 def P(asset, cond, title, outcome="Yes", idx=0, cur=0.5):
     return types.SimpleNamespace(asset=asset, condition_id=cond, outcome=outcome, outcome_index=idx,
                                  size=5000.0, avg_price=0.3, cur_price=cur, current_value=2500.0,
-                                 redeemable=False, title=title, slug=cond, end_date="2026-07-01T00:00:00Z")
+                                 redeemable=False, title=title, slug=cond, end_date="2026-07-01T00:00:00Z",
+                                 cash_pnl=(cur - 0.3) * 5000.0, percent_pnl=(cur - 0.3) / 0.3)
 
 
 def M(cond, closed=False, liquidity=50000.0, resolved=None):
@@ -37,7 +39,7 @@ def M(cond, closed=False, liquidity=50000.0, resolved=None):
 
 class FakeClient:
     def __init__(self):
-        self.lb, self.positions_by_wallet, self.markets, self.marks = [], {}, {}, {}
+        self.lb, self.positions_by_wallet, self.markets_map, self.marks_map = [], {}, {}, {}
 
     def leaderboard(self, window="MONTH", limit=5, order="PNL"):
         return self.lb[:limit]
@@ -45,11 +47,20 @@ class FakeClient:
     def positions(self, wallet, size_threshold=1.0, only_open=True):
         return list(self.positions_by_wallet.get(wallet, []))
 
+    def positions_many(self, wallets, size_threshold=1.0, only_open=True):
+        return {w: self.positions(w) for w in wallets}
+
     def market(self, condition_id):
-        return self.markets.get(condition_id)
+        return self.markets_map.get(condition_id)
+
+    def markets(self, condition_ids, chunk=40):
+        return {c: self.markets_map[c] for c in condition_ids if c in self.markets_map}
+
+    def marks(self, token_ids, source="midpoint"):
+        return {t: self.marks_map[t] for t in token_ids if t in self.marks_map}
 
     def mark_price(self, token_id, source="midpoint", market=None, outcome_index=0, fallback=None):
-        return self.marks.get(token_id, fallback)
+        return self.marks_map.get(token_id, fallback)
 
 
 TITLES = {
@@ -101,25 +112,25 @@ def main():
     c.lb = [L(i + 1, WALLETS[i], names[i], pnls[i]) for i in range(5)]
 
     # cycle 1 — entries
-    c.markets = {k: M(k, liquidity=80000) for k in TITLES}
-    c.marks = {"mGREEN": 0.30, "mBLUE": 0.45, "mBLUE2": 0.60, "mLEADER": 0.50, "mNONE": 0.10}
-    c.positions_by_wallet = positions(c.marks)
+    c.markets_map = {k: M(k, liquidity=80000) for k in TITLES}
+    c.marks_map = {"mGREEN": 0.30, "mBLUE": 0.45, "mBLUE2": 0.60, "mLEADER": 0.50, "mNONE": 0.10}
+    c.positions_by_wallet = positions(c.marks_map)
     run_cycle(store, c, log=lambda *a, **k: None)
 
     # cycle 2 — marks drift
-    c.marks = {"mGREEN": 0.55, "mBLUE": 0.50, "mBLUE2": 0.40, "mLEADER": 0.52, "mNONE": 0.12}
-    c.positions_by_wallet = positions(c.marks)
+    c.marks_map = {"mGREEN": 0.55, "mBLUE": 0.50, "mBLUE2": 0.40, "mLEADER": 0.52, "mNONE": 0.12}
+    c.positions_by_wallet = positions(c.marks_map)
     run_cycle(store, c, log=lambda *a, **k: None)
 
     # cycle 3 — mBLUE2 resolves NO (loss for the Yes holders)
-    c.markets["mBLUE2"] = M("mBLUE2", closed=True, resolved=0.0)
-    c.marks = {"mGREEN": 0.70, "mBLUE": 0.58, "mBLUE2": 0.0, "mLEADER": 0.55, "mNONE": 0.11}
+    c.markets_map["mBLUE2"] = M("mBLUE2", closed=True, resolved=0.0)
+    c.marks_map = {"mGREEN": 0.70, "mBLUE": 0.58, "mBLUE2": 0.0, "mLEADER": 0.55, "mNONE": 0.11}
     c.positions_by_wallet = positions(c.marks, drop=("mBLUE2",))
     run_cycle(store, c, log=lambda *a, **k: None)
 
     # cycle 4 — mGREEN resolves YES (win)
-    c.markets["mGREEN"] = M("mGREEN", closed=True, resolved=1.0)
-    c.marks = {"mGREEN": 1.0, "mBLUE": 0.62, "mLEADER": 0.58, "mNONE": 0.13}
+    c.markets_map["mGREEN"] = M("mGREEN", closed=True, resolved=1.0)
+    c.marks_map = {"mGREEN": 1.0, "mBLUE": 0.62, "mLEADER": 0.58, "mNONE": 0.13}
     c.positions_by_wallet = positions(c.marks, drop=("mBLUE2", "mGREEN"))
     run_cycle(store, c, log=lambda *a, **k: None)
 

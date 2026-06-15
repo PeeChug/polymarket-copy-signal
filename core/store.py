@@ -55,6 +55,14 @@ class Store:
     def set_traders(self, rows: list[dict]) -> None: return None
     def latest_traders(self) -> list[dict]: return []
 
+    # time-series + accumulated trackers (dashboard charts) — optional; default no-op
+    def append_history(self, rec: dict) -> None: return None
+    def history(self, limit: int = 1000) -> list[dict]: return []
+    def get_consensus_watch(self) -> dict: return {}
+    def set_consensus_watch(self, d: dict) -> None: return None
+    def get_trader_series(self) -> dict: return {}
+    def set_trader_series(self, d: dict) -> None: return None
+
 
 # --------------------------------------------------------------------------- #
 # Supabase / PostgREST
@@ -189,6 +197,9 @@ class MemoryStore(Store):
         self._leaderboard: list[dict] = []
         self._observations: list[dict] = []
         self._trades: list[dict] = []
+        self._history: list[dict] = []
+        self._watch: dict = {}
+        self._tseries: dict = {}
         self._seq = {"config": 0, "cycle": 0, "trade": 0}
 
     def _next(self, k):
@@ -273,6 +284,24 @@ class MemoryStore(Store):
     def latest_traders(self):
         return [dict(r) for r in getattr(self, "_traders_snap", [])]
 
+    def append_history(self, rec):
+        self._history.append(rec)
+
+    def history(self, limit=1000):
+        return [dict(r) for r in self._history[-limit:]]
+
+    def get_consensus_watch(self):
+        return dict(self._watch)
+
+    def set_consensus_watch(self, d):
+        self._watch = d
+
+    def get_trader_series(self):
+        return dict(self._tseries)
+
+    def set_trader_series(self, d):
+        self._tseries = d
+
 
 # --------------------------------------------------------------------------- #
 # File-backed (the $0 GitHub-Pages deployment — no database at all)
@@ -294,6 +323,7 @@ class FileStore(Store):
         self.state_path = os.path.join(self.dir, "state.json")
         self.obs_path = os.path.join(self.dir, "observations.jsonl")
         self.lb_path = os.path.join(self.dir, "leaderboard.jsonl")
+        self.hist_path = os.path.join(self.dir, "history.jsonl")
         self._state = self._load()
 
     def _load(self) -> dict:
@@ -304,6 +334,7 @@ class FileStore(Store):
             "seq": {"config": 0, "cycle": 0, "trade": 0},
             "config_history": [], "paper_trades": [], "last_cycle": None,
             "latest_observations": [], "latest_leaderboard": [], "latest_traders": [],
+            "history": [], "consensus_watch": {}, "trader_series": {},
         }
 
     def _save(self):
@@ -407,3 +438,28 @@ class FileStore(Store):
 
     def latest_traders(self):
         return [dict(r) for r in self._state.get("latest_traders", [])]
+
+    def append_history(self, rec):
+        h = self._state.setdefault("history", [])
+        h.append(rec)
+        if len(h) > 1500:
+            del h[:len(h) - 1500]
+        self._append(self.hist_path, [rec])
+        self._save()
+
+    def history(self, limit=1000):
+        return [dict(r) for r in self._state.get("history", [])[-limit:]]
+
+    def get_consensus_watch(self):
+        return dict(self._state.get("consensus_watch", {}))
+
+    def set_consensus_watch(self, d):
+        self._state["consensus_watch"] = d
+        self._save()
+
+    def get_trader_series(self):
+        return dict(self._state.get("trader_series", {}))
+
+    def set_trader_series(self, d):
+        self._state["trader_series"] = d
+        self._save()
