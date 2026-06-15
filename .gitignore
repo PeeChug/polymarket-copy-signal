@@ -21,6 +21,12 @@ secrets.toml
 *.log
 dryrun_*.json
 
+# Append-only audit logs — written every cycle, never read back by the engine
+# or dashboard (state.json + docs/data.json carry everything the system uses).
+# Kept local for offline analysis; not committed, to keep the repo/.git small.
+data/observations.jsonl
+data/leaderboard.jsonl
+
 # OS / editor
 .DS_Store
 .idea/

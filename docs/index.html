@@ -101,6 +101,7 @@
 
   table { width:100%; border-collapse:collapse; font-size:13.5px; }
   .scroll { overflow-x:auto; border:1px solid var(--line); border-radius:11px; margin-top:8px; }
+  .morebar { padding:9px; text-align:center; border-top:1px solid var(--line); background:var(--panel2); }
   th,td { text-align:left; padding:9px 11px; white-space:nowrap; }
   thead th { background:var(--panel2); color:var(--muted); font-weight:600; border-bottom:1px solid var(--line); position:sticky; top:0; }
   th.sortable { cursor:pointer; user-select:none; } th.sortable:hover { color:var(--text); }
@@ -371,15 +372,18 @@ function countUp(el){
 function runCountups(root){ root.querySelectorAll('[data-target]').forEach(countUp); }
 
 // --- table builder with optional sortable headers ---
-function tableEl(headers, rows, sortState, onSort){
+function tableEl(headers, rows, sortState, onSort, cap, onMore){
   if(!rows.length) return null;
+  const total=rows.length, shown=(cap&&cap<total)?cap:total, vis=(shown<total)?rows.slice(0,shown):rows;
   const thead='<tr>'+headers.map((hd,ci)=>{
     const cls=(hd.num?'num ':'')+(hd.sortKey?'sortable':'');
     const arr=sortState&&sortState.key===hd.sortKey?`<span class="arr">${sortState.dir<0?'▼':'▲'}</span>`:'';
     return `<th class="${cls}" data-ci="${ci}">${esc(hd.label)} ${arr}</th>`;}).join('')+'</tr>';
-  const body=rows.map(r=>`<tr class="${r._cls||''}"${r._id!=null?` data-id="${esc(r._id)}"`:''}>`+headers.map(hd=>`<td class="${hd.num?'num':''}" data-label="${esc(hd.label||'')}">${r[hd.key]==null?'':r[hd.key]}</td>`).join('')+'</tr>').join('');
-  const wrap=$(`<div class="scroll"><table><thead>${thead}</thead><tbody>${body}</tbody></table></div>`);
+  const body=vis.map(r=>`<tr class="${r._cls||''}"${r._id!=null?` data-id="${esc(r._id)}"`:''}>`+headers.map(hd=>`<td class="${hd.num?'num':''}" data-label="${esc(hd.label||'')}">${r[hd.key]==null?'':r[hd.key]}</td>`).join('')+'</tr>').join('');
+  const more=(shown<total)?`<div class="morebar"><button class="tbtn morebtn">▾ Show all ${total} rows (${total-shown} more)</button></div>`:'';
+  const wrap=$(`<div class="scroll"><table><thead>${thead}</thead><tbody>${body}</tbody></table>${more}</div>`);
   if(onSort) wrap.querySelectorAll('th.sortable').forEach(th=>th.onclick=()=>onSort(headers[+th.dataset.ci].sortKey));
+  if(onMore){ const mb=wrap.querySelector('.morebtn'); if(mb) mb.onclick=onMore; }
   return wrap;
 }
 function sortRows(rows, key, dir){
@@ -405,6 +409,8 @@ const state={ tab:'traders',
   perf:{ok:'unrealized_pnl',od:-1,ck:'realized_pnl',cd:-1},
   buy:{key:'score',dir:-1,preset:'score',minLiq:1000,minAgree:3,maxPrice:0.97,due:0},
   settings:{pollMin:15, refreshMin:2.5, tf:0, area:false, bankroll:1000, notify:false} };
+// per-session row caps so big tables stay light in the DOM ("Show all" lifts them)
+const viewCap={cons:60, sig:60, buy:80};
 
 // ---- theme + flash-on-change + strong-consensus notifications ----
 function applyTheme(t){ const r=document.documentElement; if(t==='light') r.setAttribute('data-theme','light'); else r.removeAttribute('data-theme');
@@ -567,7 +573,7 @@ function renderConsensus(){
       {key:'_edge',label:'Edge',sortKey:'edge',num:1},{key:'tier',label:'Tier'},{key:'market',label:'Market'},
       {key:'outcome',label:'Outcome'},{key:'_price',label:'Price',sortKey:'price',num:1},
       {key:'_res',label:'Resolves',sortKey:'rts',num:1},{key:'earners',label:'Which earners hold it'}],rows,state.cons,
-      k=>{state.cons.dir=state.cons.key===k?-state.cons.dir:-1;state.cons.key=k;draw();});
+      k=>{state.cons.dir=state.cons.key===k?-state.cons.dir:-1;state.cons.key=k;draw();}, viewCap.cons, ()=>{ viewCap.cons=Infinity; draw(); });
     host.innerHTML=''; host.appendChild(t||$(`<div class="empty">No positions match these filters.</div>`));
     tb.querySelector('#ccount').textContent=`${filtered.length} shown`;
   }
@@ -654,7 +660,7 @@ function renderSignals(){
       rts:rd?rd.ts:Infinity, _res:rd?`<span class="due ${rd.cls}">${rd.txt}</span>`:'—',
       closed:o.market_closed?'yes':'no', holders:holders(o)};});
     const sorted=sortRows(disp,state.sig.key,state.sig.dir);
-    const t=tableEl([{key:'_agree',label:'Agreement',sortKey:'overlap',num:1},{key:'tier',label:'Tier'},{key:'market',label:'Market'},{key:'outcome',label:'Outcome'},{key:'_price',label:'Price',sortKey:'price',num:1},{key:'_liq',label:'Liquidity',sortKey:'liquidity',num:1},{key:'_res',label:'Resolves',sortKey:'rts',num:1},{key:'closed',label:'Closed'},{key:'holders',label:'Holders'}],sorted,state.sig,k=>{state.sig.dir=state.sig.key===k?-state.sig.dir:-1;state.sig.key=k;draw();});
+    const t=tableEl([{key:'_agree',label:'Agreement',sortKey:'overlap',num:1},{key:'tier',label:'Tier'},{key:'market',label:'Market'},{key:'outcome',label:'Outcome'},{key:'_price',label:'Price',sortKey:'price',num:1},{key:'_liq',label:'Liquidity',sortKey:'liquidity',num:1},{key:'_res',label:'Resolves',sortKey:'rts',num:1},{key:'closed',label:'Closed'},{key:'holders',label:'Holders'}],sorted,state.sig,k=>{state.sig.dir=state.sig.key===k?-state.sig.dir:-1;state.sig.key=k;draw();}, viewCap.sig, ()=>{ viewCap.sig=Infinity; draw(); });
     host.innerHTML=''; host.appendChild(t||$(`<div class="empty">No matching positions.</div>`));
     tb.querySelector('#scount').textContent=`${sorted.length} shown`;
   }
@@ -750,7 +756,7 @@ function renderBuy(){
     if(state.buy.preset==='resolving') sorted=sorted.filter(r=>r.rts!==Infinity);
     const t=tableEl([{key:'pick',label:''},{key:'_score',label:'Score'},{key:'_agree',label:'Agreement'},{key:'_edge',label:'Edge'},{key:'_mom',label:'Mom'},
       {key:'market',label:'Market'},{key:'outcome',label:'Outcome'},{key:'_price',label:'Price',num:1},{key:'_liq',label:'Liquidity',num:1},
-      {key:'_res',label:'Resolves',num:1},{key:'_stake',label:'½-Kelly $',num:1},{key:'_ev',label:'EV $',num:1}],sorted);
+      {key:'_res',label:'Resolves',num:1},{key:'_stake',label:'½-Kelly $',num:1},{key:'_ev',label:'EV $',num:1}],sorted,null,null,viewCap.buy,()=>{viewCap.buy=Infinity;draw();});
     host.innerHTML=''; host.appendChild(t||$(`<div class="empty">No candidates match these filters — loosen them, or wait for stronger consensus.</div>`));
     tb.querySelector('#bCount').textContent=`${sorted.length} candidates`;
   }

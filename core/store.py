@@ -352,10 +352,29 @@ class FileStore(Store):
             json.dump(self._state, fh, indent=2, default=str)
         os.replace(tmp, self.state_path)  # atomic
 
-    def _append(self, path, rows):
+    def _append(self, path, rows, max_lines: Optional[int] = None):
         with open(path, "a") as fh:
             for r in rows:
                 fh.write(json.dumps(r, default=str) + "\n")
+        if max_lines:
+            self._rotate(path, max_lines)
+
+    def _rotate(self, path, max_lines, size_gate: int = 3_000_000):
+        """Keep an append-only log bounded: once it's sizeable, trim to the most
+        recent `max_lines`. The size gate keeps the common (small-file) path cheap."""
+        try:
+            if os.path.getsize(path) < size_gate:
+                return
+            with open(path) as fh:
+                lines = fh.readlines()
+            if len(lines) <= max_lines:
+                return
+            tmp = path + ".tmp"
+            with open(tmp, "w") as fh:
+                fh.writelines(lines[-max_lines:])
+            os.replace(tmp, path)
+        except OSError:
+            pass
 
     def _next(self, k):
         self._state["seq"][k] += 1
@@ -392,7 +411,7 @@ class FileStore(Store):
     def insert_leaderboard(self, rows):
         rows = [dict(r) for r in rows]
         self._state["latest_leaderboard"] = rows
-        self._append(self.lb_path, rows)
+        self._append(self.lb_path, rows, max_lines=20000)
         self._save()
 
     def insert_observations(self, rows, snapshot_cap: int = 250):
@@ -401,7 +420,7 @@ class FileStore(Store):
         snap = sorted(rows, key=lambda o: o.get("overlap", 0), reverse=True)[:snapshot_cap]
         self._state["latest_observations"] = snap
         # persistent empirical record: only consensus (>=2) so the file stays bounded at scale
-        self._append(self.obs_path, [r for r in rows if (r.get("overlap") or 0) >= 2])
+        self._append(self.obs_path, [r for r in rows if (r.get("overlap") or 0) >= 2], max_lines=60000)
         self._save()
 
     def latest_observations(self, limit=500):
@@ -456,7 +475,7 @@ class FileStore(Store):
         h.append(rec)
         if len(h) > 1500:
             del h[:len(h) - 1500]
-        self._append(self.hist_path, [rec])
+        self._append(self.hist_path, [rec], max_lines=20000)
         self._save()
 
     def history(self, limit=1000):

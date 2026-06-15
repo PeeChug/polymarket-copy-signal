@@ -48,6 +48,26 @@ class TestFileStore(unittest.TestCase):
             s.update_trade(t["id"], {"status": "CLOSED", "realized_pnl": 150})
             self.assertEqual(FileStore(d).all_trades()[0]["status"], "CLOSED")
 
+    def test_jsonl_rotation_bounds_growth(self):
+        """Append-only logs are trimmed to the most-recent N lines once big."""
+        import json as _json
+        with tempfile.TemporaryDirectory() as d:
+            s = FileStore(d)
+            path = os.path.join(d, "rot.jsonl")
+            s._append(path, [{"i": i} for i in range(100)])
+            # force rotation (size_gate=0) keeping the most recent 10
+            s._rotate(path, max_lines=10, size_gate=0)
+            with open(path) as fh:
+                lines = [ln for ln in fh if ln.strip()]
+            self.assertEqual(len(lines), 10)
+            self.assertEqual(_json.loads(lines[0])["i"], 90)
+            self.assertEqual(_json.loads(lines[-1])["i"], 99)
+            # below the size gate, nothing is trimmed
+            p2 = os.path.join(d, "rot2.jsonl")
+            s._append(p2, [{"i": i} for i in range(5)], max_lines=2)
+            with open(p2) as fh:
+                self.assertEqual(len([ln for ln in fh if ln.strip()]), 5)
+
 
 class TestDashboardPayload(unittest.TestCase):
     def test_shape(self):
