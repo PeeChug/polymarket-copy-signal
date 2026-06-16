@@ -192,6 +192,9 @@ def _run(store, client, cfg, cid, summary, log):
             "title": ov.title, "slug": ov.slug,
             "overlap": ov.overlap, "participants": ov.participants, "tier": tier,
             "holder_wallets": ov.wallets[:20], "holder_usernames": ov.usernames[:20],
+            "holder_sizes": [round(s, 2) for s in ov.sizes[:20]],
+            "holder_avg_prices": [round(a, 4) for a in ov.avg_prices[:20]],
+            "notional": round(ov.notional, 2),
             "price": price, "liquidity": liquidity,
             "market_closed": closed, "market_active": active, "end_date": ov.end_date,
         })

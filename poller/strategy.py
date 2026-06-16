@@ -26,11 +26,19 @@ class Overlap:
     usernames: list = field(default_factory=list)
     ranks: list = field(default_factory=list)
     cur_prices: list = field(default_factory=list)  # holders' reported prices (fallback only)
+    sizes: list = field(default_factory=list)        # holders' share counts on this side
+    values: list = field(default_factory=list)       # holders' current $ value on this side
+    avg_prices: list = field(default_factory=list)   # holders' average entry price
     participants: int = 0   # distinct cohort wallets holding ANY outcome of this market
 
     @property
     def overlap(self) -> int:
         return len(self.wallets)
+
+    @property
+    def notional(self) -> float:
+        """Total $ the cohort holds on this side — dollar conviction, not headcount."""
+        return float(sum(v for v in self.values if v))
 
     @property
     def fallback_price(self):
@@ -68,6 +76,9 @@ def compute_overlaps(cohort_positions: dict[str, list]) -> dict[str, Overlap]:
             ov.usernames.append(getattr(p, "_username", "") or "")
             ov.ranks.append(getattr(p, "_rank", 0) or 0)
             ov.cur_prices.append(p.cur_price)
+            ov.sizes.append(getattr(p, "size", 0.0) or 0.0)
+            ov.values.append(getattr(p, "current_value", 0.0) or 0.0)
+            ov.avg_prices.append(getattr(p, "avg_price", 0.0) or 0.0)
     # participants = distinct cohort wallets with ANY position in the market
     for ov in by_asset.values():
         ov.participants = len(market_holders.get(ov.condition_id, ()))

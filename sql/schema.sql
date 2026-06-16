@@ -110,9 +110,12 @@ create table if not exists observations (
     overlap          int  not null,        -- # of distinct cohort wallets holding this outcome
     participants     int,                  -- # of cohort wallets holding ANY outcome of this market
     tier             text not null,        -- 'green' | 'blue' | 'none'
-    holder_wallets   text[] not null default '{}',
-    holder_usernames text[] not null default '{}',
-    holder_ranks     int[]  not null default '{}',
+    holder_wallets    text[]    not null default '{}',
+    holder_usernames  text[]    not null default '{}',
+    holder_ranks      int[]     not null default '{}',
+    holder_sizes      numeric[] not null default '{}',   -- each holder's share count (conviction)
+    holder_avg_prices numeric[] not null default '{}',   -- each holder's average entry price
+    notional          numeric,                           -- total $ the cohort holds on this side
 
     price            numeric,              -- mark price at this moment (the signal's "now")
     liquidity        numeric,              -- USD liquidity from Gamma

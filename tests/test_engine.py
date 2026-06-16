@@ -118,6 +118,9 @@ class TestEngineLifecycle(unittest.TestCase):
         self.assertIn("B", assets)
         self.assertEqual(assets["A"]["tier"], "green")
         self.assertEqual(assets["B"]["tier"], "none")
+        # conviction capture: per-holder size/avg price + total $ notional
+        self.assertEqual(assets["A"]["notional"], 150.0)            # 3 holders x $50 current value
+        self.assertEqual(assets["A"]["holder_avg_prices"], [0.3, 0.3, 0.3])
 
         trades = self.store.all_trades()
         overlap = [t for t in trades if t["strategy"] == "overlap"]
