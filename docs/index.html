@@ -68,7 +68,7 @@
   .rankb.r2 { color:var(--silver); border-color:#454d5c; } .rankb.r3 { color:var(--bronze); border-color:#5a4326; }
   .ava { flex:none; position:relative; width:42px; height:42px; border-radius:50%; display:grid; place-items:center; font-weight:700; color:#fff; font-size:17px; overflow:hidden; }
   .ava img { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
-  .who { min-width:0; flex:1; } .who .nm { font-weight:700; font-size:15.5px; display:flex; align-items:center; gap:6px; }
+  .who { min-width:0; flex:1; } .who .nm { font-weight:700; font-size:15.5px; display:flex; align-items:center; flex-wrap:wrap; gap:6px; row-gap:4px; }
   .who .nm a { color:var(--text); } .who .sm { color:var(--dim); font-size:12px; }
   .vbadge { color:var(--blue); } .xlink { color:var(--muted); font-size:12px; }
   .pnlrow { display:flex; align-items:flex-end; justify-content:space-between; margin:14px 0 2px; gap:8px; }
@@ -523,7 +523,9 @@ function traderCard(t,cohort){
   const more=np>8?`<li class="muted" style="border:0">+${np-8} more…</li>`:'';
   const sp=t.sharp&&(t.sharp.resolved||0)>=3?`<span class="sharpb ${t.sharp.win_rate>=0.5?'good':''}" title="Won ${Math.round((t.sharp.win_rate||0)*100)}% of ${t.sharp.resolved} resolved consensus picks${t.sharp.avg_return!=null?` · avg ${t.sharp.avg_return>=0?'+':''}${Math.round(t.sharp.avg_return*100)}%`:''}">🎯 ${Math.round((t.sharp.win_rate||0)*100)}%</span>`:'';
   const inactive=np===0?'<span class="inactive" title="No open positions right now — not contributing to live consensus">💤 inactive</span>':'';
-  const inelig=(t.eligible===false&&np>0)?`<span class="inactive" title="Excluded from consensus signals — ${esc(t.ineligible_reason||'ineligible')}" style="background:rgba(239,68,68,.14);color:var(--red)">✗ ${esc(t.ineligible_reason||'ineligible')}</span>`:'';
+  const _why=t.ineligible_reason||'ineligible';
+  const _whyShort=_why.replace(/ on the table/i,'').replace(/,000\b/g,'k').replace(/ in profit.*/i,' win');
+  const inelig=(t.eligible===false&&np>0)?`<span class="inactive" title="Excluded from signals — ${esc(_why)}" style="background:rgba(239,68,68,.14);color:var(--red)">✗ ${esc(_whyShort)}</span>`:'';
   const stat=(k,v,cls='')=>`<div class="stat"><div class="k">${k}</div><div class="v ${cls}">${v}</div></div>`;
   return `<div class="tcard${(np===0||t.eligible===false)?' dim':''}">
     <div class="thead"><div class="rankb r${t.rank}">${t.rank}</div>
