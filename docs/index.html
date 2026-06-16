@@ -198,6 +198,10 @@
   .help-grid .d { color:var(--muted); }
   @media (max-width:720px){ .grid2{grid-template-columns:1fr;} .metrics{grid-template-columns:repeat(2,1fr);} .calib{grid-template-columns:1fr;} }
   @media (max-width:560px){ .brand .ro{display:none;} .meta{font-size:0;gap:0;} .meta .pill{font-size:11px;} }
+  /* Top Earners collapse chevron: hidden on desktop, shown on mobile (declared BEFORE
+     the mobile query so the mobile display override wins on equal specificity). */
+  .tcard .chev { display:none; align-items:center; margin-left:auto; align-self:flex-start; color:var(--muted); font-size:13px; transition:transform .2s; }
+  .tcard.collapsed .chev { transform:rotate(-90deg); }
   /* mobile: tables become cards */
   @media (max-width:640px){
     .wrap { padding:14px 12px 60px; }
@@ -210,6 +214,17 @@
     .scroll td::before { content:attr(data-label); color:var(--muted); font-weight:600; font-size:12px; text-align:left; flex:none; }
     .scroll td:empty { display:none; }
     .modal { width:96vw; padding:18px 16px; } .panelx { width:300px; }
+    /* tab nav: smooth horizontal scroll, no ugly scrollbar, snug buttons */
+    .tabs { overflow-x:auto; scrollbar-width:none; -webkit-overflow-scrolling:touch; }
+    .tabs::-webkit-scrollbar { display:none; }
+    .tabs button { padding:11px 11px; font-size:13.5px; }
+    /* Top Earners: collapse each card to its header on mobile (tap to expand) */
+    .tcard .thead { cursor:pointer; }
+    .tcard.collapsed .tcard-body { display:none; }
+    .tcard.collapsed .pnlrow { margin-bottom:2px; }
+    .tcard .chev { display:inline-flex; }
+    .toolbar { gap:8px 10px; }
+    h2 { font-size:19px; } h3 { font-size:15px; }
   }
   /* ---- timeframe period readout ---- */
   .pstat { display:flex; flex-wrap:wrap; align-items:center; gap:6px 16px; font-size:13px; margin:2px 0 9px; }
@@ -274,11 +289,11 @@
     </div>
   </div>
   <nav class="tabs" id="tabs">
-    <button data-tab="traders" class="on">Top Earners</button>
+    <button data-tab="performance" class="on">📊 Performance</button>
+    <button data-tab="traders">Top Earners</button>
     <button data-tab="consensus">Consensus</button>
     <button data-tab="buy">🛒 Buy Candidates</button>
     <button data-tab="picks">📌 My Picks</button>
-    <button data-tab="performance">Performance</button>
     <button data-tab="backtest">📜 History</button>
     <button data-tab="signals">All Signals</button>
   </nav>
@@ -286,11 +301,11 @@
 
 <div class="wrap">
   <div class="stale" id="stale"></div>
-  <section id="tab-traders" class="tab on"></section>
+  <section id="tab-traders" class="tab"></section>
   <section id="tab-consensus" class="tab"></section>
   <section id="tab-buy" class="tab"></section>
   <section id="tab-picks" class="tab"></section>
-  <section id="tab-performance" class="tab"></section>
+  <section id="tab-performance" class="tab on"></section>
   <section id="tab-backtest" class="tab"></section>
   <section id="tab-signals" class="tab"></section>
   <p class="sub" style="margin-top:34px">Auto-updates on a schedule: a Cloudflare cron triggers the poller, which stores to Supabase and serves the data from there. Source: <a href="https://github.com/PeeChug/polymarket-copy-signal">github.com/PeeChug/polymarket-copy-signal</a>.</p>
@@ -610,12 +625,14 @@ function traderCard(t,cohort){
   const _whyShort=_why.replace(/ on the table/i,'').replace(/,000\b/g,'k').replace(/ in profit.*/i,' win');
   const inelig=(t.eligible===false&&np>0)?`<span class="inactive" title="Excluded from signals — ${esc(_why)}" style="background:rgba(239,68,68,.14);color:var(--red)">✗ ${esc(_whyShort)}</span>`:'';
   const stat=(k,v,cls='')=>`<div class="stat"><div class="k">${k}</div><div class="v ${cls}">${v}</div></div>`;
-  return `<div class="tcard${(np===0||t.eligible===false)?' dim':''}">
+  return `<div class="tcard collapsed${(np===0||t.eligible===false)?' dim':''}">
     <div class="thead"><div class="rankb r${t.rank}">${t.rank}</div>
       <div class="ava" style="background:${col}">${letter}${img}</div>
       <div class="who"><div class="nm"><a href="${profUrl(t.wallet)}" target="_blank" rel="noopener">${esc(nm)}</a>${t.verified?'<span class="vbadge" title="verified">✓</span>':''}${sp}${inactive}${inelig}</div>
-        <div class="sm">${t.x_username?`<a class="xlink" href="https://x.com/${esc(t.x_username)}" target="_blank" rel="noopener">@${esc(t.x_username)}</a> · `:''}${esc((t.wallet||'').slice(0,6))}…${esc((t.wallet||'').slice(-4))}</div></div></div>
+        <div class="sm">${t.x_username?`<a class="xlink" href="https://x.com/${esc(t.x_username)}" target="_blank" rel="noopener">@${esc(t.x_username)}</a> · `:''}${esc((t.wallet||'').slice(0,6))}…${esc((t.wallet||'').slice(-4))}</div></div>
+      <span class="chev" title="Tap to expand">▾</span></div>
     <div class="pnlrow"><div class="pnlbig ${sgn(t.pnl)}"><span class="lab">30-day profit</span><span data-target="${Math.abs(t.pnl||0)}" data-neg="${(t.pnl||0)<0?1:0}">${fmtC(0)}</span></div>${spark(t.spark)}</div>
+    <div class="tcard-body">
     <div class="statgrid">
       ${stat('Volume',fmtC(t.volume))}
       ${stat('Open positions',np||'—')}
@@ -625,7 +642,7 @@ function traderCard(t,cohort){
       ${stat('Overlap',`${shared} shared`)}
     </div>
     ${positions?`<details class="pos-list"><summary>Top positions (${Math.min(8,np)} of ${np})</summary><ul class="plist">${positions}${more}</ul></details>`:'<div class="muted" style="margin-top:10px;font-size:13px">No open positions right now.</div>'}
-    <a class="gobtn" href="${profUrl(t.wallet)}" target="_blank" rel="noopener">View on Polymarket ↗</a></div>`;
+    <a class="gobtn" href="${profUrl(t.wallet)}" target="_blank" rel="noopener">View on Polymarket ↗</a></div></div>`;
 }
 
 const sharedCount=(t)=>(t.positions||[]).filter(p=>(p.overlap||0)>=2).length;
@@ -649,6 +666,9 @@ function renderTraders(){
     </div>`);
   el.appendChild(tb);
   const grid=$(`<div class="grid traders"></div>`); el.appendChild(grid);
+  // mobile: tap a card's header (not a link) to expand/collapse it
+  grid.addEventListener('click',e=>{ if(e.target.closest('a,details,summary,.dd,.gobtn')) return;
+    const head=e.target.closest('.thead'); if(head) head.closest('.tcard').classList.toggle('collapsed'); });
   function draw(){
     const q=state.trd.q.toLowerCase();
     let rows=all.filter(t=>(!q||realName(t).toLowerCase().includes(q))
@@ -1112,6 +1132,7 @@ function setTab(name){
   try{localStorage.setItem('pm_tab',name);}catch(e){}
   document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('on',b.dataset.tab===name));
   document.querySelectorAll('.tab').forEach(s=>s.classList.toggle('on',s.id==='tab-'+name));
+  const ab=document.querySelector('.tabs button.on'); if(ab) ab.scrollIntoView({inline:'center',block:'nearest'});
   RENDER[name] && RENDER[name]();
 }
 document.getElementById('tabs').addEventListener('click',e=>{if(e.target.dataset.tab)setTab(e.target.dataset.tab);});
@@ -1137,7 +1158,7 @@ document.addEventListener('keydown',e=>{
   if(e.key==='Escape'){ document.getElementById('modal').classList.remove('open'); const p=document.getElementById('settings'); if(p)p.classList.remove('open'); document.getElementById('scrim').classList.remove('open'); return; }
   const tag=((e.target&&e.target.tagName)||'').toLowerCase();
   if(tag==='input'||tag==='select'||tag==='textarea'||e.metaKey||e.ctrlKey||e.altKey) return;
-  if(e.key>='1'&&e.key<='7'){ const t=['traders','consensus','buy','picks','performance','backtest','signals'][+e.key-1]; if(t)setTab(t); }
+  if(e.key>='1'&&e.key<='7'){ const t=['performance','traders','consensus','buy','picks','backtest','signals'][+e.key-1]; if(t)setTab(t); }
   else if(e.key==='/'){ const s=document.querySelector('.tab.on input[type=search]'); if(s){ e.preventDefault(); s.focus(); } }
   else if(e.key==='r'||e.key==='R'){ manualRefresh(); }
   else if(e.key==='t'||e.key==='T'){ toggleTheme(); }
@@ -1213,7 +1234,7 @@ function manualRefresh(){ const b=document.getElementById('refresh'); b.classLis
 document.getElementById('refresh').onclick=manualRefresh;
 
 function render(){ updateMeta(); RENDER[state.tab](); clearInterval(metaTimer); metaTimer=setInterval(updateMeta,30000); }
-function showSkeleton(){ document.getElementById('tab-traders').innerHTML='<div class="grid traders">'+Array(6).fill('<div class="skel" style="height:230px"></div>').join('')+'</div>'; }
+function showSkeleton(){ document.getElementById('tab-performance').innerHTML='<div style="margin-top:10px">'+Array(3).fill('<div class="skel" style="height:120px;margin:10px 0"></div>').join('')+'</div>'; }
 
 function load(initial){
   return fetchData().then(d=>{
@@ -1221,8 +1242,8 @@ function load(initial){
     DATA=d; computeFlash(d); if(lastMarks)mergeMarks(lastMarks); if(initial){
       try{ const saved=JSON.parse(localStorage.getItem('pm_state')||'{}');
         ['trd','cons','sig','perf','buy','settings'].forEach(k=>{ if(saved[k]) Object.assign(state[k],saved[k]); }); }catch(e){}
-      const want=(location.hash||'').replace('#','')||(()=>{try{return localStorage.getItem('pm_tab');}catch(e){return null;}})()||'traders';
-      state.tab=RENDER[want]?want:'traders';
+      const want=(location.hash||'').replace('#','')||(()=>{try{return localStorage.getItem('pm_tab');}catch(e){return null;}})()||'performance';
+      state.tab=RENDER[want]?want:'performance';
       document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('on',b.dataset.tab===state.tab));
       document.querySelectorAll('.tab').forEach(s=>s.classList.toggle('on',s.id==='tab-'+state.tab));
       render(); applySettings(); startMarks(); setTimeout(()=>{ introDone=true; }, 1100);
