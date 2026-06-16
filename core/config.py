@@ -20,7 +20,7 @@ _CONFIG_FIELDS = (
     "tier_green_min", "tier_blue_min",
     "min_liquidity", "max_entry_price", "min_tier_to_trade",
     "stake_usd", "price_source", "control_respects_guardrails",
-    "stop_loss_pct", "contested_policy",
+    "stop_loss_pct", "contested_policy", "exit_overlap_frac",
     "min_holder_value", "min_holder_win_ratio",
 )
 
@@ -49,6 +49,9 @@ class Config:
 
     # exit: close a trade if it falls this fraction below entry (0 = off, 0.25 = -25%, the default)
     stop_loss_pct: float = 0.25
+    # signal-decay exit: close a held position when the cohort thins out of it — when
+    # current overlap drops below this fraction of the overlap at entry (0 = off, 0.5 = half left)
+    exit_overlap_frac: float = 0.5
     # when the cohort is split on a market (both sides held): 'both' = trade both
     # sides (default — top traders often run box spreads / hedges, so this is a real
     # signal worth testing; the unique index still blocks identical dupes), 'dominant'

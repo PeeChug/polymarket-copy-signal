@@ -287,6 +287,24 @@ class TestEngineLifecycle(unittest.TestCase):
         self.assertFalse(traders["w1"]["eligible"])
         self.assertTrue(traders["w2"]["eligible"])
 
+    def test_signal_decay_closes_thinned_position(self):
+        # open at overlap 4; cohort thins to 1 holder (< 0.5*4) -> signal_decayed close
+        # even though one holder remains (so it is NOT a full abandonment).
+        self.store = MemoryStore()
+        self.store.insert_config({**CFG, "top_n": 4, "exit_overlap_frac": 0.5,
+                                  "tier_blue_min": 2, "tier_green_min": 3})
+        self.c.lb = [L(1, "w1"), L(2, "w2"), L(3, "w3"), L(4, "w4")]
+        self.c.markets_map = {"mA": M("mA")}
+        self.c.positions_by_wallet = {w: [P("A", "mA")] for w in ("w1", "w2", "w3", "w4")}
+        self.c.marks_map = {"A": 0.40}
+        self.run_quiet()                                   # entry overlap 4
+        self.c.positions_by_wallet = {"w1": [P("A", "mA")], "w2": [], "w3": [], "w4": []}
+        self.c.marks_map = {"A": 0.45}
+        self.run_quiet()                                   # overlap 1 < 0.5*4 -> decay
+        t = [x for x in self.store.all_trades() if x["strategy"] == "overlap"][0]
+        self.assertEqual(t["status"], "CLOSED")
+        self.assertEqual(t["close_reason"], "signal_decayed")
+
     def test_realistic_fills_enter_at_ask_mark_at_bid(self):
         self.store = MemoryStore()
         self.store.insert_config({**CFG, "price_source": "realistic"})

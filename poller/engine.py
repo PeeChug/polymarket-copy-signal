@@ -296,6 +296,17 @@ def _run(store, client, cfg, cid, summary, log):
         else:
             if mark is None:
                 continue
+            # signal decay: the cohort is thinning out of a position we still hold.
+            # (only on a complete cohort snapshot — a partial fetch understates overlap.)
+            frac = getattr(cfg, "exit_overlap_frac", 0.0) or 0.0
+            if frac and cohort_complete and t["strategy"] == "overlap":
+                entry_ov = t.get("overlap_at_entry") or 0
+                cur_ov = overlaps[t["asset"]].overlap if t["asset"] in overlaps else 0
+                if entry_ov and cur_ov < frac * entry_ov:
+                    _close(store, t, mark, "signal_decayed", summary, resolved_won=None)
+                    log(f"  CLOSE [{t['strategy']}] signal_decayed {t['title'][:30]!r} "
+                        f"overlap {entry_ov}->{cur_ov} @ {mark:.3f}")
+                    continue
             entry = t["entry_price"] or 0
             ret = (mark - entry) / entry if entry else 0.0
             if cfg.stop_loss_pct and ret <= -cfg.stop_loss_pct:
