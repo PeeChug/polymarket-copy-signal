@@ -154,7 +154,7 @@
   .due { font-size:12px; padding:1px 7px; border-radius:999px; font-variant-numeric:tabular-nums; }
   .due.soon { background:rgba(226,177,74,.16); color:var(--amber); }
   .due.past { background:rgba(139,148,167,.14); color:var(--muted); }
-  .chartwrap { position:relative; }
+  .chartwrap { position:relative; border:1px solid var(--line); border-radius:12px; padding:12px 10px 6px; margin-top:6px; }
   .charttip { position:absolute; pointer-events:none; background:var(--panel2); border:1px solid var(--line);
     border-radius:8px; padding:6px 9px; font-size:12px; z-index:6; white-space:nowrap; transform:translate(-50%,-115%); box-shadow:0 4px 16px rgba(0,0,0,.4); }
   .charttip .t { color:var(--muted); margin-bottom:3px; }
@@ -369,11 +369,12 @@ function chart(allRows, series, {w=640,h=200,pad=36}={}){
   const z=Y(0), uid=++_cuid;
   let grid=''; for(let g=0;g<=4;g++){ const gy=(pad+(h-2*pad)*g/4).toFixed(1);
     grid+=`<line x1="${pad}" y1="${gy}" x2="${w-pad}" y2="${gy}" stroke="var(--line)" stroke-opacity="0.45"/>`; }
-  const defs=series.map((s,si)=>`<linearGradient id="cg${uid}_${si}" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${s.color}" stop-opacity="0.30"/><stop offset="100%" stop-color="${s.color}" stop-opacity="0.02"/></linearGradient>`).join('');
+  const defs=series.map((s,si)=>`<linearGradient id="cg${uid}_${si}" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${s.color}" stop-opacity="0.13"/><stop offset="72%" stop-color="${s.color}" stop-opacity="0.02"/><stop offset="100%" stop-color="${s.color}" stop-opacity="0"/></linearGradient>`).join('');
   const paths=series.map((s,si)=>{
     const line='M'+rows.map((r,i)=>`${X(i).toFixed(1)} ${Y(+r[s.key]||0).toFixed(1)}`).join(' L');
     const fill=`<path d="${line} L${X(rows.length-1).toFixed(1)} ${Y(min).toFixed(1)} L${X(0).toFixed(1)} ${Y(min).toFixed(1)} Z" fill="url(#cg${uid}_${si})" stroke="none"/>`;
-    return fill+`<path d="${line}" fill="none" stroke="${s.color}" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>`;}).join('');
+    const halo=`<path d="${line}" fill="none" stroke="${s.color}" stroke-width="5.5" stroke-opacity="0.12" stroke-linejoin="round" stroke-linecap="round"/>`;
+    return fill+halo+`<path d="${line}" fill="none" stroke="${s.color}" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>`;}).join('');
   const dots=series.map((s,si)=>`<circle class="cd cd${si}" r="4" fill="${s.color}" stroke="var(--bg2)" stroke-width="2" style="display:none"/>`).join('');
   const legend=series.map(s=>`<span><i style="background:${s.color}"></i>${esc(s.label)}</span>`).join('');
   wrap.innerHTML=`<svg viewBox="0 0 ${w} ${h}" class="chart" preserveAspectRatio="none"><defs>${defs}</defs>
@@ -690,29 +691,17 @@ function renderConsensus(){
 
 function renderPerformance(){
   const d=DATA,el=document.getElementById('tab-performance');el.innerHTML='';
-  const cfg=d.config||{}, tierLabel=(cfg.min_tier_to_trade==='green'?'🟢 green only':'🔵 blue + 🟢 green');
+  const cfg=d.config||{};
   el.appendChild($(`<h2>📊 Paper-trade performance</h2>`));
   el.appendChild($(`<p class="sub">A <b>simulated</b> track record — no real money — of buying every position that crosses the tier threshold at a fixed stake and marking it to live prices. Realized = closed trades; unrealized = still open.</p>`));
   el.appendChild($(`<div class="card" style="border-left:4px solid var(--green);margin:6px 0 4px">
-    <b style="font-size:15px">📋 The strategy, in plain English</b>
+    <b style="font-size:15px">📋 Strategy overview</b>
     <ol style="margin:8px 0 0;padding-left:22px;line-height:1.75">
       <li>👀 Watch the <b>50 best traders</b> (active, funded, currently winning).</li>
       <li>🤝 When <b>≥${cfg.min_tier_to_trade==='green'?(cfg.tier_green_min??10):(cfg.tier_blue_min??5)} of them hold the same bet</b>, buy <b>$${cfg.stake_usd??100}</b> of it at the real market price.</li>
       <li>🛑 Sell if it <b>drops ${Math.round((cfg.stop_loss_pct??0.25)*100)}%</b>, when <b>those traders sell</b>, or when the market <b>resolves</b>.</li>
     </ol>
-    <div class="muted" style="font-size:12px;margin-top:8px">The 🥇 control at the bottom just blindly copies the #1 trader — a yardstick to see if following the <i>crowd</i> beats following one person.</div></div>`));
-  el.appendChild($(`<details class="howto"><summary>ℹ️ How this works — read me</summary>
-    <div class="howbody">
-      <p>Each cycle the poller checks which positions enough top-earners independently hold, then books hypothetical trades so you can see whether copying the crowd would have paid:</p>
-      <ol>
-        <li><b>Entry.</b> When a position's agreement crosses your tier (currently trading <b>${tierLabel}</b> — blue ≥ ${cfg.tier_blue_min??5}, green ≥ ${cfg.tier_green_min??10} earners on the same side) it opens a paper trade at the <b>live price that moment</b> — at the <b>ask</b> you'd actually pay, with exits marked to the <b>bid</b> (real spread, not the optimistic midpoint). Entry is locked and never back-dated.</li>
-        <li><b>Stake.</b> A fixed <b>$${cfg.stake_usd??100}</b> per trade (so strategies compare fairly), and only if the market clears the guardrails: liquidity ≥ $${Number(cfg.min_liquidity??1000).toLocaleString()} and price ≤ ${cfg.max_entry_price??0.9}.</li>
-        <li><b>Mark.</b> Every cycle each open trade is re-priced to the current market — that running gain/loss is <b>unrealized</b> P&L.</li>
-        <li><b>Close.</b> Exits on the <b>−${Math.round((cfg.stop_loss_pct??0.25)*100)}% stop-loss</b>, when <b>agreement falls back below the buy bar</b> (the smart money is leaving), or at <b>resolution</b> — then it books <b>realized</b> P&L. Win rate counts resolved trades that finished in profit.</li>
-        <li><b>Control benchmark.</b> A separate yardstick (shown at the bottom) blindly copies the <b>#1 eligible earner's whole book</b>, so you can tell if watching the whole cohort beats just following the single best trader.</li>
-      </ol>
-      <p class="muted">Stake, tier and guardrails are editable in ⚙️ Settings → Paper trading. Changes are <b>forward-only</b> — they affect future trades and never rewrite past ones.</p>
-    </div></details>`));
+    <div class="muted" style="font-size:12px;margin-top:8px">The 🥇 control benchmark (bottom) copies only the #1 trader — a baseline to test whether following the cohort beats following a single trader. Entries use the real ask price; settings are forward-only (editable in ⚙️ Settings → Paper trading).</div></div>`));
   // ---- helpers: build the open / closed tables for any trade list ----------
   function openTable(trades){
     if(!trades.length) return $(`<div class="empty">None right now.</div>`);
@@ -781,7 +770,7 @@ function renderPerformance(){
   // ============ CONTROL — a benchmark, not a strategy you'd run =============
   const ov=d.performance.overlap||{}, ct=d.performance.control||{};
   const ovR=ov.roi_total, ctR=ct.roi_total, ePts=(ovR!=null&&ctR!=null)?(ovR-ctR)*100:null;
-  el.appendChild($(`<h2 style="margin-top:40px;border-top:1px solid var(--line);padding-top:24px">🥇 Control benchmark <span class="muted" style="font-size:13px;font-weight:400">— the yardstick, not a strategy</span></h2>`));
+  el.appendChild($(`<h2 style="margin-top:40px;border-top:1px solid var(--line);padding-top:24px">🥇 Control benchmark <span class="muted" style="font-size:13px;font-weight:400">— a reference baseline, not a tradeable strategy</span></h2>`));
   el.appendChild($(`<p class="sub">This is <b>not</b> something you'd trade — it's a measuring stick. It blindly copies the <b>#1 eligible trader's entire book</b> (every bet, no agreement needed) to answer one question: <b>does following the crowd beat just copying the single best trader?</b> It deploys far more capital, so the two are compared on <b>% return</b>, not dollars.</p>`));
   el.appendChild($(`<div class="card" style="margin:6px 0"><div class="metrics">
     ${metric('Consensus ROI',pct(ovR),sgn(ovR))}${metric('Control ROI',pct(ctR),sgn(ctR))}${metric('Edge vs control',ePts==null?'—':((ePts>=0?'+':'')+ePts.toFixed(1)+' pts'),sgn(ePts))}</div></div>`));
