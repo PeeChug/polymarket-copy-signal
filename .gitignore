@@ -34,5 +34,8 @@ docs/data.json
 
 # OS / editor
 .DS_Store
+
+# Local dev-preview config (Claude Code launch.json) — environment-specific
+.claude/
 .idea/
 .vscode/

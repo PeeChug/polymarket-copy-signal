@@ -694,6 +694,8 @@ function renderPerformance(){
   const cfg=d.config||{};
   const mkt=state.perf.market||'total';
   const byMkt=t=>mkt!=='us'||t.us_available===true;   // US view keeps only US-tradeable markets
+  // link out to the matched Polymarket US event (gold 🇺🇸 badge) on tradeable rows
+  const usBadge=t=>(t&&t.us_available&&t.us_url)?` <a href="${esc(t.us_url)}" target="_blank" rel="noopener" class="pill" title="Tradeable on Polymarket US — ${esc(t.us_title||'')}" style="border-color:var(--gold);color:var(--gold);text-decoration:none">🇺🇸</a>`:'';
   const _allPos=(d.open_positions||[]).concat(d.closed_positions||[]);
   function metricsOf(strat){   // recompute headline metrics for a strategy within the current market view
     const ts=_allPos.filter(t=>(t.strategy||'overlap')===strat&&byMkt(t));
@@ -712,7 +714,7 @@ function renderPerformance(){
     <div class="seg">${[['total','🌐 Total Market'],['us','🇺🇸 US Only']].map(o=>`<button class="tbtn segb${mkt===o[0]?' on-acc':''}" data-mkt="${o[0]}">${o[1]}</button>`).join('')}</div></div>`);
   _hdr.querySelectorAll('.segb').forEach(b=>b.onclick=()=>{state.perf.market=b.dataset.mkt;persist();renderPerformance();});
   el.appendChild(_hdr);
-  if(mkt==='us') el.appendChild($(`<div class="card" style="border-left:4px solid var(--gold);font-size:13px;margin:2px 0">🇺🇸 <b>US Only</b> — Polymarket US lists U.S. <b>sports, politics, finance (IPOs), macro & culture</b> (public data, no key). The bulk of the cohort's edge — geopolitics & crypto — isn't listed there, but a slice (<b>U.S. elections, the Fed, IPOs</b>) is, just worded differently across venues (our "Republican control of the House" = their "U.S. House Midterm Winner"). Reliably matching those is the open work; until then this view is sparse.</div>`));
+  if(mkt==='us'){const u=d.us||{};el.appendChild($(`<div class="card" style="border-left:4px solid var(--gold);font-size:13px;margin:2px 0">🇺🇸 <b>US Only</b> — only the cohort's markets a US-based trader can actually access on <b>Polymarket US</b>. Each position is matched against the <b>live US catalog</b> (U.S. elections, the Fed, IPOs, macro &amp; culture — sports excluded), bridging the wording gap across venues (our "Republican control of the House" = their "U.S. House Midterm Winner")${u.consensus!=null?` — <b>${u.consensus}</b> consensus signal${u.consensus===1?'':'s'} matched this cycle`:''}. The bulk of the cohort's edge (geopolitics &amp; crypto) isn't listed on US, so this view is intentionally narrow; matched rows carry a 🇺🇸 link.</div>`));}
   el.appendChild($(`<p class="sub">A <b>simulated</b> track record — no real money — of buying every position that crosses the tier threshold at a fixed stake and marking it to live prices. Realized = closed trades; unrealized = still open.</p>`));
   el.appendChild($(`<div class="card" style="border-left:4px solid var(--green);margin:6px 0 4px">
     <b style="font-size:15px">📋 Strategy overview</b>
@@ -730,7 +732,7 @@ function renderPerformance(){
     const both=new Set(Object.keys(_bc).filter(c=>_bc[c].size>1));
     const rows=trades.map(t=>{const stake=+t.stake_usd||0,up=+t.unrealized_pnl||0,days=t.entry_at?Math.floor((Date.now()-Date.parse(t.entry_at))/86400000):0;
       const o=findPos(t.asset),rd=relDate(o&&o.end_date);
-      return {tier:tagEl(t.tier_at_entry),market:mlink(t.slug,t.title,50),outcome:esc(t.outcome)+(both.has(t.condition_id)?' <span class="pill" title="Box spread — we hold BOTH Yes and No on this market" style="border-color:var(--gold);color:var(--gold)">⇄</span>':''),ov:t.overlap_at_entry||0,
+      return {tier:tagEl(t.tier_at_entry),market:mlink(t.slug,t.title,50)+usBadge(t),outcome:esc(t.outcome)+(both.has(t.condition_id)?' <span class="pill" title="Box spread — we hold BOTH Yes and No on this market" style="border-color:var(--gold);color:var(--gold)">⇄</span>':''),ov:t.overlap_at_entry||0,
         entry:+t.entry_price||0,_entry:round(t.entry_price),mark:+t.marked_price||0,_mark:t.marked_price==null?'—':round(t.marked_price),
         upnl:up,_upnl:`<span class="${sgn(up)}">${money(up)}</span>`,pct:stake?up/stake:0,_pct:stake?`<span class="${sgn(up)}">${(up/stake*100).toFixed(0)}%</span>`:'—',
         days:days,_days:days<1?'<1d':days+'d',rts:rd?rd.ts:Infinity,_res:rd?`<span class="due ${rd.cls}">${rd.txt}</span>`:'—',opened:esc(String(t.entry_at||'').slice(0,10))};});
@@ -745,7 +747,7 @@ function renderPerformance(){
     const RL={resolved:'resolved',cohort_abandoned:'cohort exited',leader_abandoned:'leader exited',stop_loss:'stop-loss',signal_decayed:'agreement faded'};
     const RT={resolved:'The market resolved (outcome decided)',cohort_abandoned:'Every top trader exited this position',leader_abandoned:'The #1 trader exited this position',stop_loss:`Price fell past the −${Math.round((cfg.stop_loss_pct??0.25)*100)}% stop-loss`,signal_decayed:'Agreement fell back below the buy bar — enough of the cohort sold that it is no longer a consensus signal'};
     const rows=trades.map(t=>{const stake=+t.stake_usd||0,rp=+t.realized_pnl||0;
-      return {tier:tagEl(t.tier_at_entry),market:mlink(t.slug,t.title,50),outcome:esc(t.outcome),entry:+t.entry_price||0,_entry:round(t.entry_price),
+      return {tier:tagEl(t.tier_at_entry),market:mlink(t.slug,t.title,50)+usBadge(t),outcome:esc(t.outcome),entry:+t.entry_price||0,_entry:round(t.entry_price),
         exit:+t.exit_price||0,_exit:t.exit_price==null?'—':round(t.exit_price),rpnl:rp,_rpnl:`<span class="${sgn(rp)}">${money(rp)}</span>`,
         pct:stake?rp/stake:0,_pct:stake?`<span class="${sgn(rp)}">${(rp/stake*100).toFixed(0)}%</span>`:'—',
         result:t.resolved_won==null?'<span class="muted">—</span>':(t.resolved_won?'<span class="pos">✓ won</span>':'<span class="neg">✗ lost</span>'),
@@ -769,7 +771,7 @@ function renderPerformance(){
   el.appendChild($(`<p class="sub">Buy when <b>≥${cfg.min_tier_to_trade==='green'?(cfg.tier_green_min??10):(cfg.tier_blue_min??5)} top traders agree</b> on the same outcome; sell on the <b>−${Math.round((cfg.stop_loss_pct??0.25)*100)}% stop</b>, when agreement falls back below the buy bar, or at resolution.</p>`));
   const ovCard=$(perfCard('🟢🔵 Consensus — all tiers',ovM)); el.appendChild(ovCard); runCountups(ovCard);
   {const bt=d.backtest||{};if((bt.resolved_total||0)===0) el.appendChild($(`<p class="muted" style="font-size:12.5px;margin:4px 0">⏳ <b>0</b> of ${bt.tracking_total||0} tracked markets have resolved yet — win-rate / realized ROI are still warming up; figures are mark-to-market for now.</p>`));}
-  if(mkt==='us') el.appendChild($(`<p class="muted" style="font-size:12.5px;margin:6px 0">📈 US-only over-time charts + tier breakdown appear once US-tradeable markets are flagged and accrue — the scorecard above and tables below are already US-filtered.</p>`));
+  if(mkt==='us') el.appendChild($(`<p class="muted" style="font-size:12.5px;margin:6px 0">📈 Over-time charts &amp; the tier split are hidden in US view (the history series tracks the full book) — the scorecards and tables here are US-filtered, and matched rows link straight to Polymarket US.</p>`));
   if(mkt!=='us' && (d.history||[]).some(h=>h.ov_net!=null)){
     el.appendChild($(`<h3 style="margin-top:18px">My strategy — net P&L over time <span class="muted" style="font-size:12px;font-weight:400">($${cfg.stake_usd??100}/trade)</span></h3>`));
     el.appendChild(tfBar(renderPerformance));

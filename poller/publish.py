@@ -11,6 +11,32 @@ import os
 from datetime import datetime, timezone
 
 from core import analytics
+from poller import us_market
+
+
+def _tag_us_availability(payload: dict) -> None:
+    """Flag which positions/signals are tradeable on Polymarket US (best-effort).
+
+    Powers the dashboard's "US Only" toggle. Pulls the live keyless US event
+    catalog and tags us_available + a link on each row. Never raises — on any
+    failure the rows simply keep last cycle's tags (or none) and the dashboard
+    falls back gracefully."""
+    try:
+        idx = us_market.build_us_index()
+        if not idx:
+            print("us_market: no US index this cycle — skipping US tagging.")
+            return
+        counts = {
+            "events": len(idx["items"]),
+            "consensus": us_market.tag_rows(payload.get("consensus"), idx),
+            "open": us_market.tag_rows(payload.get("open_positions"), idx),
+            "closed": us_market.tag_rows(payload.get("closed_positions"), idx),
+        }
+        us_market.tag_rows(payload.get("signals"), idx)   # keep signals consistent
+        payload["us"] = {**counts, "event_base": us_market.US_EVENT_URL}
+        print(f"us_market: tagged US-tradeable — {counts}")
+    except Exception as e:                                # never break publish
+        print(f"us_market: tagging skipped ({e})")
 
 
 def write_site(store, run_result: dict, docs_dir: str = "docs") -> str:
@@ -100,6 +126,9 @@ def write_site(store, run_result: dict, docs_dir: str = "docs") -> str:
     changes["new"].sort(key=lambda x: x["overlap"], reverse=True)
     changes["grown"].sort(key=lambda x: x["momentum"], reverse=True)
     payload["changes"] = {k: v[:20] for k, v in changes.items()}
+
+    # flag which markets a US-based user could actually trade (US Only toggle)
+    _tag_us_availability(payload)
 
     path = os.path.join(docs_dir, "data.json")
     tmp = path + ".tmp"
