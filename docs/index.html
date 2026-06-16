@@ -716,9 +716,12 @@ function renderPerformance(){
   // ---- helpers: build the open / closed tables for any trade list ----------
   function openTable(trades){
     if(!trades.length) return $(`<div class="empty">None right now.</div>`);
+    // flag box spreads: markets where we currently hold BOTH sides (Yes and No)
+    const _bc={}; trades.forEach(t=>{(_bc[t.condition_id]=_bc[t.condition_id]||new Set()).add(t.outcome_index);});
+    const both=new Set(Object.keys(_bc).filter(c=>_bc[c].size>1));
     const rows=trades.map(t=>{const stake=+t.stake_usd||0,up=+t.unrealized_pnl||0,days=t.entry_at?Math.floor((Date.now()-Date.parse(t.entry_at))/86400000):0;
       const o=findPos(t.asset),rd=relDate(o&&o.end_date);
-      return {tier:tagEl(t.tier_at_entry),market:mlink(t.slug,t.title,50),outcome:esc(t.outcome),ov:t.overlap_at_entry||0,
+      return {tier:tagEl(t.tier_at_entry),market:mlink(t.slug,t.title,50),outcome:esc(t.outcome)+(both.has(t.condition_id)?' <span class="pill" title="Box spread — we hold BOTH Yes and No on this market" style="border-color:var(--gold);color:var(--gold)">⇄ both</span>':''),ov:t.overlap_at_entry||0,
         entry:+t.entry_price||0,_entry:round(t.entry_price),mark:+t.marked_price||0,_mark:t.marked_price==null?'—':round(t.marked_price),
         upnl:up,_upnl:`<span class="${sgn(up)}">${money(up)}</span>`,pct:stake?up/stake:0,_pct:stake?`<span class="${sgn(up)}">${(up/stake*100).toFixed(0)}%</span>`:'—',
         days:days,_days:days<1?'<1d':days+'d',rts:rd?rd.ts:Infinity,_res:rd?`<span class="due ${rd.cls}">${rd.txt}</span>`:'—',opened:esc(String(t.entry_at||'').slice(0,10))};});
