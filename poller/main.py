@@ -36,7 +36,18 @@ def build_store(dry_run: bool):
     url = os.environ.get("SUPABASE_URL")
     key = os.environ.get("SUPABASE_KEY") or os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
     if url and key:
-        return PostgrestStore(url, key), "supabase"
+        store = PostgrestStore(url, key)
+        try:
+            store.latest_config()                      # cheap probe: auth ok + tables present?
+            return store, "supabase"
+        except RuntimeError as e:
+            # tables not created yet -> stay on the file store until sql/schema.sql is run,
+            # then auto-switch on the next cycle. Real errors (auth/network) still surface.
+            if any(s in str(e) for s in ("PGRST205", "42P01", "does not exist", "schema cache")):
+                print("SUPABASE_URL/KEY set but schema not applied yet "
+                      "(run sql/schema.sql) — using file store for now.")
+            else:
+                raise
     data_dir = os.environ.get("DATA_DIR", "data")
     return FileStore(data_dir), f"file ({data_dir})"
 
