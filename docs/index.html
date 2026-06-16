@@ -712,7 +712,7 @@ function renderPerformance(){
     <div class="seg">${[['total','🌐 Total Market'],['us','🇺🇸 US Only']].map(o=>`<button class="tbtn segb${mkt===o[0]?' on-acc':''}" data-mkt="${o[0]}">${o[1]}</button>`).join('')}</div></div>`);
   _hdr.querySelectorAll('.segb').forEach(b=>b.onclick=()=>{state.perf.market=b.dataset.mkt;persist();renderPerformance();});
   el.appendChild(_hdr);
-  if(mkt==='us') el.appendChild($(`<div class="card" style="border-left:4px solid var(--gold);font-size:13px;margin:2px 0">🇺🇸 <b>US Only</b> — which markets a US user can trade isn't classified yet. Once the Polymarket US API (<code>api.polymarket.us</code>) is connected I'll flag US-tradeable markets and this view fills in; until then it shows 0. (Tier breakdown + over-time charts below stay all-markets.)</div>`));
+  if(mkt==='us') el.appendChild($(`<div class="card" style="border-left:4px solid var(--gold);font-size:13px;margin:2px 0">🇺🇸 <b>US Only</b> — Polymarket US currently lists U.S. <b>sports</b> + U.S. <b>political races</b> (public data, no key needed). The cohort trades mostly <b>geopolitics / crypto / Fed</b>, which aren't listed there yet, so overlap is currently ~zero and this view is near-empty. It fills in automatically if/when the catalogs start to overlap.</div>`));
   el.appendChild($(`<p class="sub">A <b>simulated</b> track record — no real money — of buying every position that crosses the tier threshold at a fixed stake and marking it to live prices. Realized = closed trades; unrealized = still open.</p>`));
   el.appendChild($(`<div class="card" style="border-left:4px solid var(--green);margin:6px 0 4px">
     <b style="font-size:15px">📋 Strategy overview</b>
