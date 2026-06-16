@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -24,6 +25,13 @@ import requests
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _missing_column(msg: str) -> Optional[str]:
+    """PostgREST PGRST204 names a column that doesn't exist; pull it out so the
+    caller can drop that field and retry (tolerates forward-only schema drift)."""
+    m = re.search(r"Could not find the '([^']+)' column", msg or "")
+    return m.group(1) if m else None
 
 
 # --------------------------------------------------------------------------- #
@@ -126,7 +134,21 @@ class PostgrestStore(Store):
         return rows[0] if rows else None
 
     def insert_config(self, payload):
-        out = self._insert("config_history", payload)
+        # Tolerate schema drift: if a column doesn't exist yet (PGRST204), drop it
+        # and retry, so a newly-added config field never 400-crashes the poller
+        # (those fields then fall back to the dataclass default on read).
+        row = dict(payload)
+        for _ in range(8):
+            try:
+                out = self._insert("config_history", row)
+                return out[0] if isinstance(out, list) and out else out
+            except RuntimeError as e:
+                col = _missing_column(str(e))
+                if col and col in row:
+                    row.pop(col)
+                    continue
+                raise
+        out = self._insert("config_history", row)
         return out[0] if isinstance(out, list) and out else out
 
     def config_history(self, limit=50):

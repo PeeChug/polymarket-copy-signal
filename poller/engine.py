@@ -97,17 +97,32 @@ def _run(store, client, cfg, cid, summary, log):
         for p in cohort_positions.get(e.wallet, []):   # annotate for overlap labelling
             p._username = e.username
             p._rank = e.rank
+
+    # ---- cohort QUALITY filter ---------------------------------------------
+    # Only count ACTIVE, WINNING, well-capitalized traders toward consensus: a
+    # #1-by-30d-profit earner with $10 on the table (or a sub-threshold
+    # coin-flipper) is noise. Everyone is still snapshotted for the dashboard,
+    # just flagged eligible / not.
+    eligibility = {e.wallet: strategy.trader_eligibility(cohort_positions.get(e.wallet, []), cfg)
+                   for e in cohort}
+    eligible_cohort = [e for e in cohort if eligibility[e.wallet][0]]
+    eligible_positions = {e.wallet: cohort_positions.get(e.wallet, []) for e in eligible_cohort}
+    log(f"cohort quality: {len(eligible_cohort)}/{len(cohort)} eligible "
+        f"(>=${cfg.min_holder_value:,.0f} open value & "
+        f">={cfg.min_holder_win_ratio:.0%} of open positions in profit)")
+    # the control copies the #1 ELIGIBLE trader (a fair 'best qualified' benchmark)
+    leader = eligible_cohort[0] if eligible_cohort else cohort[0]
     leader_positions = cohort_positions.get(leader.wallet, [])
     leader_assets = {p.asset for p in leader_positions}
 
-    # ---- 4. overlaps -------------------------------------------------------
-    overlaps = strategy.compute_overlaps(cohort_positions)
+    # ---- 4. overlaps (computed over the ELIGIBLE cohort only) --------------
+    overlaps = strategy.compute_overlaps(eligible_positions)
     cohort_assets = set(overlaps.keys())
-    log(f"{sum(len(v) for v in cohort_positions.values())} positions across cohort "
+    log(f"{sum(len(v) for v in eligible_positions.values())} eligible positions "
         f"-> {len(overlaps)} distinct (market,outcome) pairs")
 
-    # per-trader snapshot for the dashboard (their positions + agreement enrichment)
-    store.set_traders(_build_traders(cohort, cohort_positions, overlaps))
+    # per-trader snapshot for the dashboard (ALL traders, flagged by eligibility)
+    store.set_traders(_build_traders(cohort, cohort_positions, overlaps, eligibility))
 
     # accurate full agreement counts (independent of any dashboard cap on observations)
     ovs = [o.overlap for o in overlaps.values()]
@@ -292,12 +307,15 @@ def _run(store, client, cfg, cid, summary, log):
     return {"status": "ok", "publishable": True, "reason": None}
 
 
-def _build_traders(cohort, cohort_positions, overlaps, max_positions=8):
+def _build_traders(cohort, cohort_positions, overlaps, eligibility=None, max_positions=8):
     """One row per cohort trader: leaderboard stats + their open positions,
-    each position annotated with how many of the cohort also hold it."""
+    each position annotated with how many of the cohort also hold it. Each
+    trader is flagged `eligible` (counts toward consensus) with a reason."""
+    eligibility = eligibility or {}
     traders = []
     for e in cohort:
         positions = cohort_positions.get(e.wallet, [])
+        elig = eligibility.get(e.wallet, (True, "", {}))
         rows, total_value, open_pnl = [], 0.0, 0.0
         for p in positions:
             ov = overlaps.get(p.asset)
@@ -318,6 +336,8 @@ def _build_traders(cohort, cohort_positions, overlaps, max_positions=8):
             "x_username": e.x_username, "verified": e.verified,
             "n_positions": len(positions), "total_value": total_value, "open_pnl": open_pnl,
             "n_winning": sum(1 for p in positions if (p.cash_pnl or 0) > 0),  # open positions in profit
+            "eligible": bool(elig[0]),            # counts toward consensus?
+            "ineligible_reason": elig[1] or "",   # why not (for the dashboard)
             "positions": rows[:max_positions],
         })
     return traders

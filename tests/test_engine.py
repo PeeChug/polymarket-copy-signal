@@ -80,6 +80,7 @@ CFG = {
     "tier_green_min": 3, "tier_blue_min": 2,
     "min_liquidity": 1000, "max_entry_price": 0.90, "min_tier_to_trade": "blue",
     "stake_usd": 100, "price_source": "midpoint", "control_respects_guardrails": True,
+    "min_holder_value": 0, "min_holder_win_ratio": 0,   # cohort-quality filter off unless a test sets it
     "source": "test",
 }
 
@@ -257,6 +258,29 @@ class TestEngineLifecycle(unittest.TestCase):
         self.assertEqual(t["close_reason"], "resolved")
         self.assertFalse(t["resolved_won"])
         self.assertAlmostEqual(t["exit_price"], 0.0)
+
+    def test_cohort_quality_filter_excludes_low_value(self):
+        # w1 holds A with only $5 on the table (below min_holder_value); w2,w3 hold
+        # plenty. w1 must NOT count toward overlap -> A drops from 3 holders to 2,
+        # and w1 is flagged ineligible on the dashboard snapshot.
+        def Pv(asset, cond, value):
+            p = P(asset, cond); p.current_value = value; p.cash_pnl = 1.0; return p
+        self.store = MemoryStore()
+        self.store.insert_config({**CFG, "min_holder_value": 1000, "min_holder_win_ratio": 0.0})
+        self.c.lb = [L(1, "w1"), L(2, "w2"), L(3, "w3")]
+        self.c.markets_map = {"mA": M("mA")}
+        self.c.positions_by_wallet = {
+            "w1": [Pv("A", "mA", 5.0)],          # too little on the table -> ineligible
+            "w2": [Pv("A", "mA", 50000.0)],
+            "w3": [Pv("A", "mA", 50000.0)],
+        }
+        self.c.marks_map = {"A": 0.40}
+        self.run_quiet()
+        obs = {o["asset"]: o for o in self.store.latest_observations()}
+        self.assertEqual(obs["A"]["overlap"], 2)             # w1's $5 holding didn't count
+        traders = {t["wallet"]: t for t in self.store.latest_traders()}
+        self.assertFalse(traders["w1"]["eligible"])
+        self.assertTrue(traders["w2"]["eligible"])
 
     def test_contested_both_opens_both_sides(self):
         self.store = MemoryStore()

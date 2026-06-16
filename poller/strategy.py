@@ -75,6 +75,33 @@ def compute_overlaps(cohort_positions: dict[str, list]) -> dict[str, Overlap]:
 
 
 # --------------------------------------------------------------------------- #
+# Cohort quality — which top earners actually count toward a signal
+# --------------------------------------------------------------------------- #
+def trader_eligibility(positions, cfg):
+    """Is a cohort member good enough to COUNT toward consensus?
+
+    Filters the universe to traders with real skin in the game and a winning
+    current book, so a #1-by-30d-profit earner who has cashed out (a few dollars
+    on the table) or a coin-flipper (most open bets red) doesn't move the signal.
+    Returns (ok: bool, reason: str, stats: dict)."""
+    n = len(positions)
+    total_value = sum((getattr(p, "current_value", 0.0) or 0.0) for p in positions)
+    n_winning = sum(1 for p in positions if (getattr(p, "cash_pnl", 0.0) or 0.0) > 0)
+    win_ratio = (n_winning / n) if n else 0.0
+    min_val = getattr(cfg, "min_holder_value", 0.0) or 0.0
+    min_wr = getattr(cfg, "min_holder_win_ratio", 0.0) or 0.0
+    stats = {"n_positions": n, "total_value": total_value,
+             "n_winning": n_winning, "win_ratio": win_ratio}
+    if n == 0:
+        return False, "inactive", stats
+    if total_value < min_val:
+        return False, f"<${min_val:,.0f} on the table", stats
+    if win_ratio < min_wr:
+        return False, f"{win_ratio:.0%} in profit (<{min_wr:.0%})", stats
+    return True, "", stats
+
+
+# --------------------------------------------------------------------------- #
 # Guardrails
 # --------------------------------------------------------------------------- #
 @dataclass

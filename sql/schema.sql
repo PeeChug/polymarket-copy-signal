@@ -45,7 +45,11 @@ create table if not exists config_history (
 
     -- exit + conflict rules
     stop_loss_pct               numeric not null default 0.25,       -- close if down this fraction from entry (0=off, 0.25=-25%)
-    contested_policy            text    not null default 'dominant'  -- 'dominant' | 'both' | 'skip'
+    contested_policy            text    not null default 'both',     -- 'both' | 'dominant' | 'skip'
+
+    -- cohort quality (which top earners count toward a signal)
+    min_holder_value            numeric not null default 10000,      -- min USD in OPEN positions to count toward overlap
+    min_holder_win_ratio        numeric not null default 0.5         -- min fraction of their open positions in profit
 );
 
 -- ----------------------------------------------------------------------------

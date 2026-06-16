@@ -21,6 +21,7 @@ _CONFIG_FIELDS = (
     "min_liquidity", "max_entry_price", "min_tier_to_trade",
     "stake_usd", "price_source", "control_respects_guardrails",
     "stop_loss_pct", "contested_policy",
+    "min_holder_value", "min_holder_win_ratio",
 )
 
 _TIER_RANK = {"none": 0, "blue": 1, "green": 2}
@@ -51,6 +52,12 @@ class Config:
     # signal worth testing; the unique index still blocks identical dupes), 'dominant'
     # = only the stronger side (ties -> holders' 30d P&L), 'skip' = don't trade it.
     contested_policy: str = "both"
+
+    # cohort QUALITY: a top earner must have real skin in the game and a winning
+    # current book to count toward consensus — filters out cashed-out whales (a #1
+    # earner with $10 on the table) and coin-flippers. Active is implied (value>0).
+    min_holder_value: float = 10000.0      # min USD in OPEN positions to count toward overlap
+    min_holder_win_ratio: float = 0.5      # min fraction of their open positions currently in profit
 
     # metadata (set when loaded from the DB; not user-editable)
     id: Optional[int] = None

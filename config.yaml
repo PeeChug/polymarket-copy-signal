@@ -46,3 +46,10 @@ stop_loss_pct: 0.25             # close a trade if it falls this fraction below 
 contested_policy: both          # cohort split on a market (both sides held): 'both' = trade both
                                 # (box spreads / hedges are a real strategy worth testing); 'dominant'
                                 # = only the stronger side (ties -> higher holder 30d P&L); 'skip' = none
+
+# --- cohort quality (which top earners actually count toward a signal) ------
+min_holder_value: 10000         # a cohort member must hold at least this much (USD) in OPEN
+                                # positions to count toward overlap — filters cashed-out whales
+                                # (e.g. a #1 earner with $10 on the table) and inactive traders.
+min_holder_win_ratio: 0.5       # ...and at least this fraction of their open positions must be
+                                # in profit right now (0 = off). Tightens the cohort to active winners.
