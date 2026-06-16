@@ -36,7 +36,8 @@ min_tier_to_trade: blue        # 'blue' (trade blue+green) or 'green' (trade gre
 
 # --- paper-trade mechanics --------------------------------------------------
 stake_usd: 100                 # fixed $ stake per simulated trade
-price_source: midpoint         # 'midpoint' (mid of bid/ask) or 'buy' (best ask you'd pay)
+price_source: realistic        # 'realistic' = enter at the ask, exit at the bid (real spread cost,
+                               # so P&L isn't optimistic); 'midpoint' = mid of bid/ask; 'buy' = ask both ways
 control_respects_guardrails: true   # apply liquidity + max_entry to the #1-copy control too,
                                     # so the only difference vs overlap is the SELECTION rule
 

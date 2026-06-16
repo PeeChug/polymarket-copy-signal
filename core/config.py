@@ -42,7 +42,9 @@ class Config:
     min_tier_to_trade: str = "blue"
 
     stake_usd: float = 100.0
-    price_source: str = "midpoint"
+    # 'realistic' = enter at the ask / exit at the bid (pays the real spread, so the
+    # paper P&L isn't optimistic); 'midpoint' = mid of bid/ask; 'buy' = best ask both ways
+    price_source: str = "realistic"
     control_respects_guardrails: bool = True
 
     # exit: close a trade if it falls this fraction below entry (0 = off, 0.25 = -25%, the default)

@@ -373,8 +373,14 @@ class PolymarketClient:
         return out
 
     def marks(self, token_ids, source: str = "midpoint") -> dict:
-        """Best current price for many tokens in one shot: {token_id: float}."""
-        return self.prices(token_ids, "BUY") if source == "buy" else self.midpoints(token_ids)
+        """Best current price for many tokens in one shot: {token_id: float}.
+        source: 'buy' = best ask (what you'd pay), 'sell' = best bid (what you'd
+        get), anything else = midpoint."""
+        if source == "buy":
+            return self.prices(token_ids, "BUY")
+        if source == "sell":
+            return self.prices(token_ids, "SELL")
+        return self.midpoints(token_ids)
 
     def markets(self, condition_ids, chunk: int = 40) -> dict:
         """Fetch many markets by condition id (repeated `condition_ids` param,

@@ -144,14 +144,22 @@ def _run(store, client, cfg, cid, summary, log):
                       | {t["condition_id"] for t in open_index.values()} | watched_conds)
     all_assets = set(overlaps.keys()) | {t["asset"] for t in open_index.values()}
     market_map = client.markets(all_conditions)
-    mark_map = client.marks(all_assets, source=cfg.price_source)
-    log(f"batched {len(market_map)}/{len(all_conditions)} markets, {len(mark_map)}/{len(all_assets)} live prices")
+    # Realistic fills: you BUY at the ask (entry) and SELL at the bid (mark/exit),
+    # so the paper P&L pays the real spread instead of the optimistic midpoint.
+    realistic = (cfg.price_source == "realistic")
+    if realistic:
+        entry_map = client.marks(all_assets, source="buy")    # ask — what you'd pay to enter
+        mark_map = client.marks(all_assets, source="sell")    # bid — what you'd get to exit
+    else:
+        entry_map = mark_map = client.marks(all_assets, source=cfg.price_source)
+    log(f"batched {len(market_map)}/{len(all_conditions)} markets, "
+        f"{len(mark_map)}/{len(all_assets)} live prices ({'ask/bid' if realistic else cfg.price_source})")
 
     def get_market(condition_id):
         return market_map.get(condition_id)
 
-    def get_mark(asset, condition_id, outcome_index, fallback=None):
-        p = mark_map.get(asset)
+    def _price_from(pmap, asset, condition_id, outcome_index, fallback=None):
+        p = pmap.get(asset)
         if p is not None:
             return p
         m = market_map.get(condition_id)  # resolved markets have no live book -> use payout
@@ -161,12 +169,18 @@ def _run(store, client, cfg, cid, summary, log):
                 return rp
         return fallback
 
+    def get_entry(asset, condition_id, outcome_index, fallback=None):
+        return _price_from(entry_map, asset, condition_id, outcome_index, fallback)
+
+    def get_mark(asset, condition_id, outcome_index, fallback=None):
+        return _price_from(mark_map, asset, condition_id, outcome_index, fallback)
+
     # ---- 5a. observations: LOG EVERYTHING ----------------------------------
     obs_rows = []
     observed = {}  # asset -> (tier, price, liquidity, closed) for the open step
     for asset, ov in overlaps.items():
         m = get_market(ov.condition_id)
-        price = get_mark(asset, ov.condition_id, ov.outcome_index, fallback=ov.fallback_price)
+        price = get_entry(asset, ov.condition_id, ov.outcome_index, fallback=ov.fallback_price)
         liquidity = m.liquidity if m else None
         closed = bool(m.closed) if m else False
         active = bool(m.active) if m else None

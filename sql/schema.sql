@@ -40,7 +40,7 @@ create table if not exists config_history (
 
     -- paper-trade mechanics
     stake_usd                   numeric not null default 100,        -- fixed $ stake per simulated trade
-    price_source                text    not null default 'midpoint', -- 'midpoint' | 'buy'
+    price_source                text    not null default 'realistic', -- 'realistic'(ask in/bid out) | 'midpoint' | 'buy'
     control_respects_guardrails boolean not null default true,       -- apply liquidity+max_entry to the #1-copy control too
 
     -- exit + conflict rules

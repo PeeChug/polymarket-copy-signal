@@ -62,6 +62,10 @@ class FakeClient:
         out = {w: self.positions(w) for w in wallets if w not in fail}
         return out, set(w for w in wallets if w in fail)
 
+    def _src_map(self, source):
+        return {"buy": getattr(self, "ask_map", None),
+                "sell": getattr(self, "bid_map", None)}.get(source) or self.marks_map
+
     def market(self, condition_id):
         return self.markets_map.get(condition_id)
 
@@ -69,7 +73,8 @@ class FakeClient:
         return {c: self.markets_map[c] for c in condition_ids if c in self.markets_map}
 
     def marks(self, token_ids, source="midpoint"):
-        return {t: self.marks_map[t] for t in token_ids if t in self.marks_map}
+        m = self._src_map(source)
+        return {t: m[t] for t in token_ids if t in m}
 
     def mark_price(self, token_id, source="midpoint", market=None, outcome_index=0, fallback=None):
         return self.marks_map.get(token_id, fallback)
@@ -281,6 +286,20 @@ class TestEngineLifecycle(unittest.TestCase):
         traders = {t["wallet"]: t for t in self.store.latest_traders()}
         self.assertFalse(traders["w1"]["eligible"])
         self.assertTrue(traders["w2"]["eligible"])
+
+    def test_realistic_fills_enter_at_ask_mark_at_bid(self):
+        self.store = MemoryStore()
+        self.store.insert_config({**CFG, "price_source": "realistic"})
+        self.c.lb = [L(1, "w1"), L(2, "w2"), L(3, "w3")]
+        self.c.markets_map = {"mA": M("mA")}
+        self.c.positions_by_wallet = {w: [P("A", "mA")] for w in ("w1", "w2", "w3")}
+        self.c.ask_map = {"A": 0.42}   # what you pay to enter
+        self.c.bid_map = {"A": 0.38}   # what you'd get to exit
+        self.run_quiet()
+        t = [x for x in self.store.all_trades() if x["strategy"] == "overlap"][0]
+        self.assertAlmostEqual(t["entry_price"], 0.42)   # entered at the ask
+        self.assertAlmostEqual(t["marked_price"], 0.38)  # marked to the bid
+        self.assertLess(t["unrealized_pnl"], 0)          # the spread is an immediate paper loss
 
     def test_contested_both_opens_both_sides(self):
         self.store = MemoryStore()

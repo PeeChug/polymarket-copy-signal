@@ -689,7 +689,7 @@ function renderPerformance(){
     <div class="howbody">
       <p>Each cycle the poller checks which positions enough top-earners independently hold, then books hypothetical trades so you can see whether copying the crowd would have paid:</p>
       <ol>
-        <li><b>Entry.</b> When a position's agreement crosses your tier (currently trading <b>${tierLabel}</b> — blue ≥ ${cfg.tier_blue_min??5}, green ≥ ${cfg.tier_green_min??10} earners on the same side) it opens a paper trade at the <b>live price that moment</b>. Entry is locked and never back-dated.</li>
+        <li><b>Entry.</b> When a position's agreement crosses your tier (currently trading <b>${tierLabel}</b> — blue ≥ ${cfg.tier_blue_min??5}, green ≥ ${cfg.tier_green_min??10} earners on the same side) it opens a paper trade at the <b>live price that moment</b> — at the <b>ask</b> you'd actually pay, with exits marked to the <b>bid</b> (real spread, not the optimistic midpoint). Entry is locked and never back-dated.</li>
         <li><b>Stake.</b> A fixed <b>$${cfg.stake_usd??100}</b> per trade (so strategies compare fairly), and only if the market clears the guardrails: liquidity ≥ $${Number(cfg.min_liquidity??1000).toLocaleString()} and price ≤ ${cfg.max_entry_price??0.9}.</li>
         <li><b>Mark.</b> Every cycle each open trade is re-priced to the current market — that running gain/loss is <b>unrealized</b> P&L.</li>
         <li><b>Close.</b> When the market <b>resolves</b> (outcome decided) or the cohort abandons it, the trade closes and books <b>realized</b> P&L. Win rate counts resolved trades that finished in profit.</li>
