@@ -712,40 +712,54 @@ function renderPerformance(){
     el.appendChild(chart(d.history,[{key:'green_net',color:'var(--green)',label:'Green',money:true},{key:'blue_net',color:'var(--blue)',label:'Blue',money:true}]));
   }
 
-  el.appendChild($(`<h2 style="margin-top:30px">Open paper positions <span class="muted" style="font-size:13px;font-weight:400">(${(d.open_positions||[]).length})</span></h2>`));
-  const opRows=(d.open_positions||[]).map(t=>{const stake=+t.stake_usd||0,up=+t.unrealized_pnl||0,days=t.entry_at?Math.floor((Date.now()-Date.parse(t.entry_at))/86400000):0;
+  // Strategy filter: the consensus strategy is tier-gated (≥ blue); the #1-copy
+  // control copies the top earner's WHOLE book and is intentionally NOT tier-gated,
+  // so it shows low-overlap trades. Default to consensus so they don't get confused.
+  const sf=state.perf.strat||'overlap';
+  const byStrat=t=>sf==='all'||((t.strategy||'overlap')===sf);
+  const stratBadge=s=>(s==='control')
+    ? '<span class="pill" title="#1-copy control: copies the top earner\'s whole book — NOT tier-gated, so overlap can be low">🥇 control</span>'
+    : '<span class="pill" style="border-color:var(--green);color:var(--green)" title="Consensus strategy: only opens at ≥ your tier">🤝 consensus</span>';
+  const sbar=$(`<div class="toolbar" style="margin:10px 0 2px">${sel('perfstrat','Strategy',[['overlap','🤝 Consensus'],['control','🥇 Control (#1-copy)'],['all','Both']],sf)}
+    <span class="muted" style="font-size:12px">Consensus only opens at ≥ tier (blue ≥${cfg.tier_blue_min??5}, green ≥${cfg.tier_green_min??10}). The #1-copy control copies the top earner's whole book — intentionally not tier-gated, so its trades can show low overlap.</span></div>`);
+  el.appendChild(sbar);
+  sbar.querySelector('#perfstrat').onchange=e=>{state.perf.strat=e.target.value;persist();renderPerformance();};
+  const openF=(d.open_positions||[]).filter(byStrat), closedF=(d.closed_positions||[]).filter(byStrat);
+
+  el.appendChild($(`<h2 style="margin-top:14px">Open paper positions <span class="muted" style="font-size:13px;font-weight:400">(${openF.length})</span></h2>`));
+  const opRows=openF.map(t=>{const stake=+t.stake_usd||0,up=+t.unrealized_pnl||0,days=t.entry_at?Math.floor((Date.now()-Date.parse(t.entry_at))/86400000):0;
     const o=findPos(t.asset),rd=relDate(o&&o.end_date);
-    return {tier:tagEl(t.tier_at_entry),market:mlink(t.slug,t.title,50),outcome:esc(t.outcome),ov:t.overlap_at_entry||0,
+    return {strat:stratBadge(t.strategy),tier:tagEl(t.tier_at_entry),market:mlink(t.slug,t.title,50),outcome:esc(t.outcome),ov:t.overlap_at_entry||0,
       entry:+t.entry_price||0,_entry:round(t.entry_price),mark:+t.marked_price||0,_mark:t.marked_price==null?'—':round(t.marked_price),
       upnl:up,_upnl:`<span class="${sgn(up)}">${money(up)}</span>`,pct:stake?up/stake:0,_pct:stake?`<span class="${sgn(up)}">${(up/stake*100).toFixed(0)}%</span>`:'—',
       days:days,_days:days<1?'<1d':days+'d',rts:rd?rd.ts:Infinity,_res:rd?`<span class="due ${rd.cls}">${rd.txt}</span>`:'—',opened:esc(String(t.entry_at||'').slice(0,10))};});
-  const opT=tableEl([{key:'tier',label:'Tier'},{key:'market',label:'Market'},{key:'outcome',label:'Outcome'},{key:'ov',label:'Overlap@entry',sortKey:'ov',num:1},
+  const opT=tableEl([{key:'strat',label:'Strategy'},{key:'tier',label:'Tier'},{key:'market',label:'Market'},{key:'outcome',label:'Outcome'},{key:'ov',label:'Overlap@entry',sortKey:'ov',num:1},
     {key:'_entry',label:'Entry',sortKey:'entry',num:1},{key:'_mark',label:'Mark',sortKey:'mark',num:1},{key:'_upnl',label:'Unrealized',sortKey:'upnl',num:1},
     {key:'_pct',label:'P&L %',sortKey:'pct',num:1},{key:'_days',label:'Held',sortKey:'days',num:1},{key:'_res',label:'Resolves',sortKey:'rts',num:1},{key:'opened',label:'Opened'}],
     sortRows(opRows,state.perf.ok,state.perf.od),{key:state.perf.ok,dir:state.perf.od},
     k=>{state.perf.od=state.perf.ok===k?-state.perf.od:-1;state.perf.ok=k;persist();renderPerformance();});
-  el.appendChild(opT||$(`<div class="empty">No open paper positions right now.</div>`));
+  el.appendChild(opT||$(`<div class="empty">No open ${sf==='all'?'':esc(sf)+' '}paper positions right now.</div>`));
 
-  el.appendChild($(`<h2 style="margin-top:30px">Closed trades — track record <span class="muted" style="font-size:13px;font-weight:400">(${(d.closed_positions||[]).length})</span></h2>`));
-  el.appendChild($(`<p class="sub">Realized results once a position resolved or the cohort dropped it — the strategy's actual scorecard.</p>`));
-  {const m=d.performance.overlap||{},cp=d.closed_positions||[],rps=cp.map(t=>+t.realized_pnl||0);
+  el.appendChild($(`<h2 style="margin-top:30px">Closed trades — track record <span class="muted" style="font-size:13px;font-weight:400">(${closedF.length})</span></h2>`));
+  el.appendChild($(`<p class="sub">Realized results once a position resolved or the cohort dropped it. The scorecard below is the <b>🤝 consensus</b> strategy's (the control's is in the cohort-vs-control section).</p>`));
+  {const m=d.performance.overlap||{},rps=(d.closed_positions||[]).filter(t=>(t.strategy||'overlap')==='overlap').map(t=>+t.realized_pnl||0);
    const avg=m.closed_count?m.realized_pnl/m.closed_count:null,best=rps.length?Math.max(...rps):null,worst=rps.length?Math.min(...rps):null;
    el.appendChild($(`<div class="card"><div class="metrics">
      ${metric('Realized P&L',money(m.realized_pnl),sgn(m.realized_pnl))}${metric('Closed trades',m.closed_count??0)}${metric('Win rate',pct(m.win_rate))}
      ${metric('Wins',m.wins??0,'pos')}${metric('Losses',m.losses??0,(m.losses?'neg':''))}${metric('ROI (realized)',pct(m.roi_realized),sgn(m.roi_realized))}
      ${metric('Avg / trade',money(avg),sgn(avg))}${metric('Best',money(best),sgn(best))}${metric('Worst',money(worst),sgn(worst))}</div></div>`));}
-  const clRows=(d.closed_positions||[]).map(t=>{const stake=+t.stake_usd||0,rp=+t.realized_pnl||0;
-    return {tier:tagEl(t.tier_at_entry),market:mlink(t.slug,t.title,50),outcome:esc(t.outcome),entry:+t.entry_price||0,_entry:round(t.entry_price),
+  const clRows=closedF.map(t=>{const stake=+t.stake_usd||0,rp=+t.realized_pnl||0;
+    return {strat:stratBadge(t.strategy),tier:tagEl(t.tier_at_entry),market:mlink(t.slug,t.title,50),outcome:esc(t.outcome),entry:+t.entry_price||0,_entry:round(t.entry_price),
       exit:+t.exit_price||0,_exit:t.exit_price==null?'—':round(t.exit_price),rpnl:rp,_rpnl:`<span class="${sgn(rp)}">${money(rp)}</span>`,
       pct:stake?rp/stake:0,_pct:stake?`<span class="${sgn(rp)}">${(rp/stake*100).toFixed(0)}%</span>`:'—',
       result:t.resolved_won==null?'<span class="muted">—</span>':(t.resolved_won?'<span class="pos">✓ won</span>':'<span class="neg">✗ lost</span>'),
       reason:esc((t.close_reason||'').replace(/_/g,' ')),closed:esc(String(t.exit_at||'').slice(0,10))};});
-  const clT=tableEl([{key:'tier',label:'Tier'},{key:'market',label:'Market'},{key:'outcome',label:'Outcome'},{key:'_entry',label:'Entry',sortKey:'entry',num:1},
+  const clT=tableEl([{key:'strat',label:'Strategy'},{key:'tier',label:'Tier'},{key:'market',label:'Market'},{key:'outcome',label:'Outcome'},{key:'_entry',label:'Entry',sortKey:'entry',num:1},
     {key:'_exit',label:'Exit',sortKey:'exit',num:1},{key:'_rpnl',label:'Realized',sortKey:'rpnl',num:1},{key:'_pct',label:'P&L %',sortKey:'pct',num:1},
     {key:'result',label:'Result'},{key:'reason',label:'Why closed'},{key:'closed',label:'Closed'}],
     sortRows(clRows,state.perf.ck,state.perf.cd),{key:state.perf.ck,dir:state.perf.cd},
     k=>{state.perf.cd=state.perf.ck===k?-state.perf.cd:-1;state.perf.ck=k;persist();renderPerformance();});
-  el.appendChild(clT||$(`<div class="empty">No closed trades yet — they'll appear as positions resolve or the cohort exits them.</div>`));
+  el.appendChild(clT||$(`<div class="empty">No closed ${sf==='all'?'':esc(sf)+' '}trades yet — they'll appear as positions resolve or the cohort exits them.</div>`));
 
   // ---- cohort vs. control — the headline comparison, below the trade tables --
   const ov=d.performance.overlap||{}, ct=d.performance.control||{}, bt=d.backtest||{};
