@@ -20,6 +20,7 @@ _CONFIG_FIELDS = (
     "tier_green_min", "tier_blue_min",
     "min_liquidity", "max_entry_price", "min_tier_to_trade",
     "stake_usd", "price_source", "control_respects_guardrails",
+    "stop_loss_pct", "contested_policy",
 )
 
 _TIER_RANK = {"none": 0, "blue": 1, "green": 2}
@@ -42,6 +43,13 @@ class Config:
     stake_usd: float = 100.0
     price_source: str = "midpoint"
     control_respects_guardrails: bool = True
+
+    # exit: close a trade if it falls this fraction below entry (0 = off, 0.5 = -50%)
+    stop_loss_pct: float = 0.0
+    # when the cohort is split on a market (both sides held): 'dominant' = trade only
+    # the side with more earners (ties broken by holders' 30d P&L), 'both' = trade
+    # both sides (old behavior), 'skip' = don't trade a contested market at all.
+    contested_policy: str = "dominant"
 
     # metadata (set when loaded from the DB; not user-editable)
     id: Optional[int] = None

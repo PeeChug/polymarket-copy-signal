@@ -193,11 +193,35 @@ def _run(store, client, cfg, cid, summary, log):
             # phone alert hooks in here. Intentionally a no-op for now.
             notify_trade_opened(row, cfg)
 
-    # ---- 5b. open overlap signals -----------------------------------------
+    # ---- 5b. open overlap signals (one side per market — handle contested) -
+    # When the cohort is split on a market (both Yes and No clear the tier),
+    # opening both is a guaranteed wash. Pick the strongest single side instead.
+    pnl_by_wallet = {e.wallet: e.pnl for e in cohort}
+    candidates = []
     for asset, (ov, tier, price, liquidity, closed) in observed.items():
         if cfg.tier_meets_minimum(tier):
             summary["n_signals"] += 1
-        try_open("overlap", asset, ov, tier, price, liquidity, closed)
+            candidates.append((asset, ov, tier, price, liquidity, closed))
+    by_market = {}
+    for it in candidates:
+        by_market.setdefault(it[1].condition_id, []).append(it)
+    policy = getattr(cfg, "contested_policy", "dominant")
+    for cond, items in by_market.items():
+        if len(items) == 1 or policy == "both":
+            picks = items
+        elif policy == "skip":
+            log(f"  SKIP contested {items[0][1].title[:38]!r} "
+                f"({', '.join(f'{i[1].outcome}={i[1].overlap}' for i in items)})")
+            continue
+        else:  # 'dominant': strongest side by overlap; ties broken by holders' 30d P&L
+            best = max(items, key=lambda it: (it[1].overlap,
+                       sum(pnl_by_wallet.get(w, 0.0) for w in (it[1].wallets or []))))
+            picks = [best]
+            log(f"  CONTESTED {best[1].title[:34]!r}: "
+                f"{', '.join(f'{i[1].outcome}={i[1].overlap}' for i in items)} "
+                f"-> take {best[1].outcome}")
+        for asset, ov, tier, price, liquidity, closed in picks:
+            try_open("overlap", asset, ov, tier, price, liquidity, closed)
 
     # ---- 5c. open control signals (naive copy of the #1 trader) -----------
     for asset in leader_assets:
@@ -229,6 +253,13 @@ def _run(store, client, cfg, cid, summary, log):
             log(f"  CLOSE [{t['strategy']}] {reason} {t['title'][:32]!r} @ {exit_price:.3f}")
         else:
             if mark is None:
+                continue
+            entry = t["entry_price"] or 0
+            ret = (mark - entry) / entry if entry else 0.0
+            if cfg.stop_loss_pct and ret <= -cfg.stop_loss_pct:
+                _close(store, t, mark, "stop_loss", summary, resolved_won=None)
+                log(f"  CLOSE [{t['strategy']}] stop_loss {t['title'][:30]!r} "
+                    f"@ {mark:.3f} ({ret*100:.0f}%)")
                 continue
             upnl = strategy.unrealized_pnl(t["shares"], t["entry_price"], mark)
             store.update_trade(t["id"], {

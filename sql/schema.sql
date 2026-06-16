@@ -41,7 +41,11 @@ create table if not exists config_history (
     -- paper-trade mechanics
     stake_usd                   numeric not null default 100,        -- fixed $ stake per simulated trade
     price_source                text    not null default 'midpoint', -- 'midpoint' | 'buy'
-    control_respects_guardrails boolean not null default true        -- apply liquidity+max_entry to the #1-copy control too
+    control_respects_guardrails boolean not null default true,       -- apply liquidity+max_entry to the #1-copy control too
+
+    -- exit + conflict rules
+    stop_loss_pct               numeric not null default 0,          -- close if down this fraction from entry (0=off)
+    contested_policy            text    not null default 'dominant'  -- 'dominant' | 'both' | 'skip'
 );
 
 -- ----------------------------------------------------------------------------

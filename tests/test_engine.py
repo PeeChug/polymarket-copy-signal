@@ -183,6 +183,38 @@ class TestEngineLifecycle(unittest.TestCase):
                         if t["strategy"] == "overlap" and t["status"] == "OPEN"]
         self.assertEqual(len(overlap_open), 1)
 
+    def test_contested_market_takes_one_side(self):
+        # market mC split 2 (Yes) vs 2 (No): contested -> trade only the stronger side,
+        # ties broken by holders' 30d P&L ({w1,w2}=9000 > {w3,w4}=5000 -> Yes).
+        self.store = MemoryStore()
+        self.store.insert_config({**CFG, "top_n": 4, "contested_policy": "dominant"})
+        self.c.lb = [L(1, "w1"), L(2, "w2"), L(3, "w3"), L(4, "w4")]
+        self.c.markets_map = {"mC": M("mC")}
+        self.c.positions_by_wallet = {
+            "w1": [P("Cy", "mC", "Yes", 0)], "w2": [P("Cy", "mC", "Yes", 0)],
+            "w3": [P("Cn", "mC", "No", 1)],  "w4": [P("Cn", "mC", "No", 1)],
+        }
+        self.c.marks_map = {"Cy": 0.30, "Cn": 0.70}
+        self.run_quiet()
+        overlap = [t for t in self.store.all_trades() if t["strategy"] == "overlap"]
+        self.assertEqual(len(overlap), 1)          # only ONE side, not both (no wash)
+        self.assertEqual(overlap[0]["asset"], "Cy")  # higher holder P&L wins the tie
+
+    def test_stop_loss_closes_loser(self):
+        self.store = MemoryStore()
+        self.store.insert_config({**CFG, "stop_loss_pct": 0.5})
+        self.c.lb = [L(1, "w1"), L(2, "w2"), L(3, "w3")]
+        self.c.markets_map = {"mA": M("mA")}
+        self.c.positions_by_wallet = {w: [P("A", "mA")] for w in ("w1", "w2", "w3")}
+        self.c.marks_map = {"A": 0.40}
+        self.run_quiet()                 # open A @ 0.40
+        self.c.marks_map = {"A": 0.18}   # -55% < -50% stop
+        self.run_quiet()
+        a = [t for t in self.store.all_trades()
+             if t["strategy"] == "overlap" and t["asset"] == "A"][0]
+        self.assertEqual(a["status"], "CLOSED")
+        self.assertEqual(a["close_reason"], "stop_loss")
+
 
 if __name__ == "__main__":
     unittest.main()
