@@ -1108,7 +1108,7 @@ function syncSettingsUI(){ const g=(id)=>document.getElementById(id); if(!g('set
   const cfg=(DATA&&DATA.config)||{};
   if(g('ptTier')){ g('ptTier').value=cfg.min_tier_to_trade||'blue'; g('ptStake').value=cfg.stake_usd??100;
     g('ptGreen').value=cfg.tier_green_min??10; g('ptBlue').value=cfg.tier_blue_min??5; g('ptMaxP').value=cfg.max_entry_price??0.9;
-    g('ptStop').value=Math.round((cfg.stop_loss_pct??0)*100); g('ptContested').value=cfg.contested_policy||'dominant'; }
+    g('ptStop').value=Math.round((cfg.stop_loss_pct??0.25)*100); g('ptContested').value=cfg.contested_policy||'both'; }
   if(g('tgChat')) g('tgChat').value=tgChatId();
   if(g('tgTok')) g('tgTok').placeholder=tgTok()?'saved ✓ (paste to replace)':'123456:ABC-…';
   if(g('tgOn')) g('tgOn').checked=!!state.settings.tgOn;

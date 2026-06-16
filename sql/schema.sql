@@ -44,7 +44,7 @@ create table if not exists config_history (
     control_respects_guardrails boolean not null default true,       -- apply liquidity+max_entry to the #1-copy control too
 
     -- exit + conflict rules
-    stop_loss_pct               numeric not null default 0,          -- close if down this fraction from entry (0=off)
+    stop_loss_pct               numeric not null default 0.25,       -- close if down this fraction from entry (0=off, 0.25=-25%)
     contested_policy            text    not null default 'dominant'  -- 'dominant' | 'both' | 'skip'
 );
 

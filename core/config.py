@@ -44,8 +44,8 @@ class Config:
     price_source: str = "midpoint"
     control_respects_guardrails: bool = True
 
-    # exit: close a trade if it falls this fraction below entry (0 = off, 0.5 = -50%)
-    stop_loss_pct: float = 0.0
+    # exit: close a trade if it falls this fraction below entry (0 = off, 0.25 = -25%, the default)
+    stop_loss_pct: float = 0.25
     # when the cohort is split on a market (both sides held): 'both' = trade both
     # sides (default — top traders often run box spreads / hedges, so this is a real
     # signal worth testing; the unique index still blocks identical dupes), 'dominant'
