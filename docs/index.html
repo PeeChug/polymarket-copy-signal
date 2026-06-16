@@ -977,11 +977,24 @@ function updateMeta(){ const d=DATA&&DATA.generated_at?new Date(DATA.generated_a
   } else st.classList.remove('show');
 }
 function toast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),3200); }
-function manualRefresh(){ const b=document.getElementById('refresh'); b.classList.add('spin');
-  fetch('./data.json?t='+Date.now()).then(r=>{if(!r.ok)throw 0;return r.json();}).then(d=>{
-    const fresh=d.generated_at!==lastGen; DATA=d; computeFlash(d); lastGen=d.generated_at; render();
-    toast(fresh?'↻ New data loaded':('Up to date · updated '+relTime(new Date(d.generated_at))));
-  }).catch(()=>toast('⚠️ Refresh failed')).finally(()=>setTimeout(()=>b.classList.remove('spin'),650));
+const WORKER_BASE='https://polymarket-copy-signal.adgluchow.workers.dev';
+let freshTimer=null;
+function applyData(d){ DATA=d; computeFlash(d); lastGen=d.generated_at; render(); }
+function manualRefresh(){ const b=document.getElementById('refresh'); b.classList.add('spin'); clearInterval(freshTimer);
+  // 1) re-read whatever's already published (instant)
+  fetch('./data.json?t='+Date.now()).then(r=>r.json()).then(applyData).catch(()=>{});
+  // 2) trigger a fresh server-side poll via the Cloudflare worker (the GitHub token lives in the worker, not here)
+  fetch(WORKER_BASE+'/?run',{mode:'no-cors'}).catch(()=>{});
+  toast('⏳ Pulling fresh data… ~1–2 min');
+  // 3) wait for the new cycle and load it the moment it lands (give up after 5 min)
+  const startGen=lastGen, t0=Date.now();
+  const stop=()=>{ clearInterval(freshTimer); b.classList.remove('spin'); };
+  freshTimer=setInterval(()=>{
+    fetch('./data.json?t='+Date.now()).then(r=>r.json()).then(d=>{
+      if(d.generated_at && d.generated_at!==startGen){ applyData(d); toast('✓ Fresh data loaded'); stop(); }
+    }).catch(()=>{});
+    if(Date.now()-t0>300000){ toast('Still working — showing the latest published cycle'); stop(); }
+  },15000);
 }
 document.getElementById('refresh').onclick=manualRefresh;
 
