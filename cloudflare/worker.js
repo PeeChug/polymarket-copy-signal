@@ -21,7 +21,7 @@ const ALLOWED = [
   "top_n", "leaderboard_window", "size_threshold", "poll_interval_minutes",
   "tier_green_min", "tier_blue_min", "min_liquidity", "max_entry_price",
   "min_tier_to_trade", "stake_usd", "price_source", "control_respects_guardrails",
-  "stop_loss_pct", "contested_policy",
+  "stop_loss_pct", "contested_policy", "min_holder_value", "min_holder_win_ratio",
 ];
 
 const CORS = {
@@ -70,20 +70,31 @@ async function saveConfig(request, env) {
   row.source = "dashboard";
   row.note = "saved from dashboard (worker)";
 
-  const r = await fetch(env.SUPABASE_URL + "/rest/v1/config_history", {
-    method: "POST",
-    headers: {
-      "apikey": env.SUPABASE_KEY,
-      "Authorization": "Bearer " + env.SUPABASE_KEY,
-      "Content-Type": "application/json",
-      "Prefer": "return=representation",
-    },
-    body: JSON.stringify(row),
-  });
-  const text = await r.text();
-  if (!r.ok) return json({ error: "Supabase rejected the write.", status: r.status, detail: text }, 502);
-  let saved; try { saved = JSON.parse(text); } catch { saved = text; }
-  return json({ ok: true, saved: Array.isArray(saved) ? saved[0] : saved });
+  // Tolerate schema drift: if a column doesn't exist yet (PGRST204), drop it and
+  // retry, so a newly-added config field never hard-fails the whole save before
+  // its ALTER is run (it just won't persist until then).
+  let text = "";
+  for (let i = 0; i < 8; i++) {
+    const r = await fetch(env.SUPABASE_URL + "/rest/v1/config_history", {
+      method: "POST",
+      headers: {
+        "apikey": env.SUPABASE_KEY,
+        "Authorization": "Bearer " + env.SUPABASE_KEY,
+        "Content-Type": "application/json",
+        "Prefer": "return=representation",
+      },
+      body: JSON.stringify(row),
+    });
+    text = await r.text();
+    if (r.ok) {
+      let saved; try { saved = JSON.parse(text); } catch { saved = text; }
+      return json({ ok: true, saved: Array.isArray(saved) ? saved[0] : saved });
+    }
+    const m = text.match(/Could not find the '([^']+)' column/);
+    if (m && m[1] in row) { delete row[m[1]]; continue; }
+    return json({ error: "Supabase rejected the write.", status: r.status, detail: text }, 502);
+  }
+  return json({ error: "Supabase rejected the write.", detail: text }, 502);
 }
 
 export default {
