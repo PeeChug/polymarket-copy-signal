@@ -978,11 +978,17 @@ function updateMeta(){ const d=DATA&&DATA.generated_at?new Date(DATA.generated_a
 }
 function toast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),3200); }
 const WORKER_BASE='https://polymarket-copy-signal.adgluchow.workers.dev';
+// data is served from Supabase Storage (updates without a git commit); fall back to the committed copy
+const SUPA_DATA='https://bhxdgrttsxqhpvefymjw.supabase.co/storage/v1/object/public/dashboard/data.json';
+function fetchData(){
+  return fetch(SUPA_DATA+'?t='+Date.now()).then(r=>{if(!r.ok)throw 0;return r.json();})
+    .catch(()=>fetch('./data.json?t='+Date.now()).then(r=>{if(!r.ok)throw new Error('no data');return r.json();}));
+}
 let freshTimer=null;
 function applyData(d){ DATA=d; computeFlash(d); lastGen=d.generated_at; render(); }
 function manualRefresh(){ const b=document.getElementById('refresh'); b.classList.add('spin'); clearInterval(freshTimer);
   // 1) re-read whatever's already published (instant)
-  fetch('./data.json?t='+Date.now()).then(r=>r.json()).then(applyData).catch(()=>{});
+  fetchData().then(applyData).catch(()=>{});
   // 2) trigger a fresh server-side poll via the Cloudflare worker (the GitHub token lives in the worker, not here)
   fetch(WORKER_BASE+'/?run',{mode:'no-cors'}).catch(()=>{});
   toast('⏳ Pulling fresh data… ~1–2 min');
@@ -990,7 +996,7 @@ function manualRefresh(){ const b=document.getElementById('refresh'); b.classLis
   const startGen=lastGen, t0=Date.now();
   const stop=()=>{ clearInterval(freshTimer); b.classList.remove('spin'); };
   freshTimer=setInterval(()=>{
-    fetch('./data.json?t='+Date.now()).then(r=>r.json()).then(d=>{
+    fetchData().then(d=>{
       if(d.generated_at && d.generated_at!==startGen){ applyData(d); toast('✓ Fresh data loaded'); stop(); }
     }).catch(()=>{});
     if(Date.now()-t0>300000){ toast('Still working — showing the latest published cycle'); stop(); }
@@ -1002,7 +1008,7 @@ function render(){ updateMeta(); RENDER[state.tab](); clearInterval(metaTimer); 
 function showSkeleton(){ document.getElementById('tab-traders').innerHTML='<div class="grid traders">'+Array(6).fill('<div class="skel" style="height:230px"></div>').join('')+'</div>'; }
 
 function load(initial){
-  return fetch('./data.json?t='+Date.now()).then(r=>{if(!r.ok)throw new Error('no data');return r.json();}).then(d=>{
+  return fetchData().then(d=>{
     const fresh=d.generated_at!==lastGen;
     DATA=d; computeFlash(d); if(initial){
       try{ const saved=JSON.parse(localStorage.getItem('pm_state')||'{}');
