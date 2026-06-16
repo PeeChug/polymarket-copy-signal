@@ -104,6 +104,9 @@ class TestPostgrestTrackers(unittest.TestCase):
                      "resolved": True, "resolved_at": "2026-06-16T00:00:00Z",
                      "exit_price": 1.0, "won": True, "holders": ["w1", "w2"]},
         }
+        # a real cycle always has a cohort snapshot too; write_site now refuses to
+        # publish a hollow payload, so give it one trader to represent that.
+        s.session.kv["latest_traders"] = [{"wallet": "w1", "pnl": 100.0, "positions": []}]
         with tempfile.TemporaryDirectory() as d:
             path = publish.write_site(s, {"cycle_id": 1, "status": "ok"}, docs_dir=d)
             payload = json.load(open(path))

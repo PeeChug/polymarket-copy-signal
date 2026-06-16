@@ -56,7 +56,11 @@ class FakeClient:
         return list(self.positions_by_wallet.get(wallet, []))
 
     def positions_many(self, wallets, size_threshold=1.0, only_open=True):
-        return {w: self.positions(w) for w in wallets}
+        # mirror the real client: return (positions, failed); `fail_wallets`
+        # lets a test simulate a transient per-wallet fetch error.
+        fail = getattr(self, "fail_wallets", set())
+        out = {w: self.positions(w) for w in wallets if w not in fail}
+        return out, set(w for w in wallets if w in fail)
 
     def market(self, condition_id):
         return self.markets_map.get(condition_id)
@@ -214,6 +218,59 @@ class TestEngineLifecycle(unittest.TestCase):
              if t["strategy"] == "overlap" and t["asset"] == "A"][0]
         self.assertEqual(a["status"], "CLOSED")
         self.assertEqual(a["close_reason"], "stop_loss")
+
+    def test_partial_fetch_does_not_falsely_abandon(self):
+        # open A, held by the whole cohort
+        self.c.positions_by_wallet = {w: [P("A", "mA")] for w in ("w1", "w2", "w3")}
+        self.c.marks_map = {"A": 0.40}
+        self.run_quiet()
+        # next cycle: every wallet that holds A FAILS to fetch (transient API error).
+        # A *looks* abandoned, but a failed fetch must NOT close the trade.
+        self.c.fail_wallets = {"w1", "w2", "w3"}
+        self.c.marks_map = {"A": 0.55}
+        self.run_quiet()
+        a = [t for t in self.store.all_trades() if t["strategy"] == "overlap"]
+        self.assertEqual(len(a), 1)
+        self.assertEqual(a[0]["status"], "OPEN")          # survived the degraded cycle
+        self.assertIsNone(a[0].get("close_reason"))
+
+    def test_resolution_without_payout_marks_won_unknown(self):
+        self.c.positions_by_wallet = {w: [P("A", "mA")] for w in ("w1", "w2", "w3")}
+        self.c.marks_map = {"A": 0.40}
+        self.run_quiet()
+        # market closes but Gamma returns no payout vector -> outcome UNKNOWN
+        self.c.markets_map["mA"] = M("mA", closed=True, resolved=None)
+        self.c.marks_map = {"A": 0.62}
+        self.run_quiet()
+        t = [x for x in self.store.all_trades() if x["strategy"] == "overlap"][0]
+        self.assertEqual(t["status"], "CLOSED")
+        self.assertEqual(t["close_reason"], "resolved")
+        self.assertIsNone(t["resolved_won"])              # NOT guessed from price>=0.5
+
+    def test_resolution_loss_sets_won_false(self):
+        self.c.positions_by_wallet = {w: [P("A", "mA")] for w in ("w1", "w2", "w3")}
+        self.c.marks_map = {"A": 0.40}
+        self.run_quiet()
+        self.c.markets_map["mA"] = M("mA", closed=True, resolved=0.0)   # our outcome lost
+        self.run_quiet()
+        t = [x for x in self.store.all_trades() if x["strategy"] == "overlap"][0]
+        self.assertEqual(t["close_reason"], "resolved")
+        self.assertFalse(t["resolved_won"])
+        self.assertAlmostEqual(t["exit_price"], 0.0)
+
+    def test_contested_both_opens_both_sides(self):
+        self.store = MemoryStore()
+        self.store.insert_config({**CFG, "top_n": 4, "contested_policy": "both"})
+        self.c.lb = [L(1, "w1"), L(2, "w2"), L(3, "w3"), L(4, "w4")]
+        self.c.markets_map = {"mC": M("mC")}
+        self.c.positions_by_wallet = {
+            "w1": [P("Cy", "mC", "Yes", 0)], "w2": [P("Cy", "mC", "Yes", 0)],
+            "w3": [P("Cn", "mC", "No", 1)],  "w4": [P("Cn", "mC", "No", 1)],
+        }
+        self.c.marks_map = {"Cy": 0.45, "Cn": 0.55}
+        self.run_quiet()
+        overlap = [t for t in self.store.all_trades() if t["strategy"] == "overlap"]
+        self.assertEqual(sorted(t["asset"] for t in overlap), ["Cn", "Cy"])  # BOTH sides
 
 
 if __name__ == "__main__":

@@ -63,7 +63,7 @@ create table if not exists cycles (
     opened_overlap  int     default 0,
     opened_control  int     default 0,
     closed          int     default 0,
-    status          text    default 'ok',  -- 'ok' | 'error'
+    status          text    default 'ok',  -- 'ok' | 'degraded' | 'error'
     error           text,
     duration_ms     int
 );

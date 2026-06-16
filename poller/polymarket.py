@@ -300,20 +300,27 @@ class PolymarketClient:
         )
 
     # -- BATCH variants (one call for many) -------------------------------- #
-    def positions_many(self, wallets, size_threshold: float = 1.0, only_open: bool = True) -> dict:
-        """Fetch many wallets' positions concurrently. Returns {wallet: [Position]}."""
+    def positions_many(self, wallets, size_threshold: float = 1.0, only_open: bool = True):
+        """Fetch many wallets' positions concurrently.
+
+        Returns (positions, failed): `positions` is {wallet: [Position]} for every
+        wallet that fetched OK; `failed` is the set of wallets whose fetch raised.
+        Callers MUST distinguish these — an empty list means "holds nothing", a
+        failed fetch means "we couldn't look". Treating the latter as the former
+        fabricates phantom cohort-abandonment exits (a real bug this guards)."""
         wallets = list(wallets)
         if not wallets:
-            return {}
+            return {}, set()
         out: dict = {}
+        failed: set = set()
         with ThreadPoolExecutor(max_workers=min(10, len(wallets))) as ex:
             futs = {ex.submit(self.positions, w, size_threshold, only_open): w for w in wallets}
             for fut, w in futs.items():
                 try:
                     out[w] = fut.result()
                 except Exception:
-                    out[w] = []
-        return out
+                    failed.add(w)
+        return out, failed
 
     def midpoints(self, token_ids, chunk: int = 250) -> dict:
         """POST /midpoints (chunked). Returns {token_id: float} (omits tokens with no book)."""

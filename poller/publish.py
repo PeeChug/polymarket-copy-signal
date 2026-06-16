@@ -26,6 +26,13 @@ def write_site(store, run_result: dict, docs_dir: str = "docs") -> str:
               "last_cycle": run_result},
     )
 
+    # Safety: never overwrite a good dashboard payload with a hollow one. If this
+    # cycle produced no cohort/observations (e.g. a Polymarket outage), keep the
+    # last good data.json / Storage object instead of blanking the dashboard.
+    if not payload.get("leaderboard") and not payload.get("traders"):
+        print("write_site: empty payload (no leaderboard/traders) — keeping last good, not publishing.")
+        return None
+
     # append a compact time-series snapshot, then attach the series + derived views
     perf, ag = payload["performance"], payload["agreement"]
     store.append_history({

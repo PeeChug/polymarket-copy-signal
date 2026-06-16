@@ -45,9 +45,12 @@ def run_cycle(store, client, seed_path=None, log=print) -> dict:
 
     summary = {"n_traders": 0, "n_observations": 0, "n_signals": 0,
                "opened_overlap": 0, "opened_control": 0, "closed": 0}
+    publishable = True
     try:
-        _run(store, client, cfg, cid, summary, log)
-        status, err = "ok", None
+        outcome = _run(store, client, cfg, cid, summary, log) or {}
+        status = outcome.get("status", "ok")
+        err = outcome.get("reason")
+        publishable = outcome.get("publishable", True)
     except Exception as e:  # record the failure on the cycle row, then re-raise
         status, err = "error", f"{type(e).__name__}: {e}"
         store.update_cycle(cid, {**summary, "status": status, "error": err,
@@ -57,19 +60,20 @@ def run_cycle(store, client, seed_path=None, log=print) -> dict:
     summary.update({"status": status, "error": err,
                     "duration_ms": int((time.time() - t0) * 1000)})
     store.update_cycle(cid, summary)
-    log(f"cycle #{cid} done in {summary['duration_ms']}ms: "
+    log(f"cycle #{cid} {status} in {summary['duration_ms']}ms: "
         f"{summary['n_observations']} obs, {summary['n_signals']} signals, "
         f"opened overlap={summary['opened_overlap']} control={summary['opened_control']}, "
-        f"closed={summary['closed']}")
-    return {"cycle_id": cid, **summary}
+        f"closed={summary['closed']}" + ("" if publishable else "  [NOT PUBLISHING]"))
+    return {"cycle_id": cid, "publishable": publishable, **summary}
 
 
 def _run(store, client, cfg, cid, summary, log):
     # ---- 1+2. leaderboard --------------------------------------------------
     entries = client.leaderboard(window=cfg.leaderboard_window, limit=cfg.top_n)
     if not entries:
-        log("WARNING: leaderboard returned no entries; nothing to do this cycle.")
-        return
+        log("WARNING: leaderboard returned no entries — DEGRADED cycle, not publishing "
+            "(keeps the last good data.json instead of overwriting it with nothing).")
+        return {"status": "degraded", "publishable": False, "reason": "empty leaderboard"}
     cohort = entries[: cfg.top_n]
     cohort_wallets = [e.wallet for e in cohort]
     leader = cohort[0]
@@ -84,7 +88,11 @@ def _run(store, client, cfg, cid, summary, log):
     log(f"cohort: " + ", ".join(f"#{e.rank} {e.username or e.wallet[:8]}" for e in cohort))
 
     # ---- 3. open positions per cohort wallet (fetched concurrently) --------
-    cohort_positions = client.positions_many(cohort_wallets, size_threshold=cfg.size_threshold)
+    cohort_positions, failed_wallets = client.positions_many(cohort_wallets, size_threshold=cfg.size_threshold)
+    cohort_complete = not failed_wallets
+    if failed_wallets:
+        log(f"WARNING: {len(failed_wallets)}/{len(cohort_wallets)} cohort position fetches failed "
+            f"this cycle -> NOT trusting 'abandoned' (closes suppressed until a clean cycle).")
     for e in cohort:
         for p in cohort_positions.get(e.wallet, []):   # annotate for overlap labelling
             p._username = e.username
@@ -240,13 +248,18 @@ def _run(store, client, cfg, cid, summary, log):
         held = (t["asset"] in cohort_assets) if t["strategy"] == "overlap" else (t["asset"] in leader_assets)
 
         if resolved:
-            exit_price = m.resolved_price_for(t["outcome_index"])
-            if exit_price is None:
-                exit_price = mark if mark is not None else t.get("marked_price") or 0.0
-            _close(store, t, exit_price, "resolved", summary,
-                   resolved_won=(exit_price is not None and exit_price >= 0.5))
-            log(f"  CLOSE [{t['strategy']}] resolved {t['title'][:36]!r} @ {exit_price:.3f}")
-        elif not held:
+            payout = m.resolved_price_for(t["outcome_index"])
+            if payout is not None:
+                exit_price, won = payout, (payout >= 0.5)       # real 0/1 settlement
+            else:
+                # market closed but Gamma gave no payout -> outcome UNKNOWN; close at the
+                # best available price but record won=None (never guess from price>=0.5).
+                exit_price, won = (mark if mark is not None else t.get("marked_price") or 0.0), None
+            _close(store, t, exit_price, "resolved", summary, resolved_won=won)
+            log(f"  CLOSE [{t['strategy']}] resolved {t['title'][:36]!r} @ {exit_price:.3f}"
+                + ("" if won is None else (" WON" if won else " lost")))
+        elif not held and cohort_complete:
+            # only trust 'abandoned' when we actually saw the WHOLE cohort this cycle
             exit_price = mark if mark is not None else (t.get("marked_price") or 0.0)
             reason = "cohort_abandoned" if t["strategy"] == "overlap" else "leader_abandoned"
             _close(store, t, exit_price, reason, summary, resolved_won=None)
@@ -268,6 +281,15 @@ def _run(store, client, cfg, cid, summary, log):
 
     # ---- accumulate trackers for the dashboard (consensus hit-rate + sparklines)
     _update_trackers(store, cohort, observed, market_map, _now_iso())
+
+    # ---- publishability: never overwrite the public data.json with a badly
+    # degraded snapshot. A mostly-failed cohort fetch understates overlap, so
+    # flag the cycle degraded and keep the last good payload.
+    ok_frac = (len(cohort_wallets) - len(failed_wallets)) / len(cohort_wallets) if cohort_wallets else 0.0
+    if ok_frac < 0.5:
+        return {"status": "degraded", "publishable": False,
+                "reason": f"low cohort coverage {ok_frac:.0%} ({len(failed_wallets)} fetch failures)"}
+    return {"status": "ok", "publishable": True, "reason": None}
 
 
 def _build_traders(cohort, cohort_positions, overlaps, max_positions=8):

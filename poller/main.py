@@ -88,12 +88,18 @@ def main(argv=None) -> int:
                 pass
 
     result = run_cycle(store, client)
+    if result.get("status") != "ok":
+        print(f"WARNING: cycle status={result.get('status')}: {result.get('error')}")
 
-    # Publish the precomputed payload the static dashboard reads (hybrid: with
-    # Supabase as the DB, the poller still commits docs/data.json for Pages).
+    # Publish the precomputed payload the static dashboard reads — but ONLY for a
+    # healthy cycle. A degraded cycle keeps the last good data.json (don't blank
+    # the public dashboard on a transient upstream failure).
     if not args.dry_run:
-        site_path = write_site(store, result, os.environ.get("DOCS_DIR", "docs"))
-        print(f"wrote dashboard payload -> {site_path}")
+        if result.get("publishable", True):
+            site_path = write_site(store, result, os.environ.get("DOCS_DIR", "docs"))
+            print(f"wrote dashboard payload -> {site_path}")
+        else:
+            print("skipped publish (degraded cycle) — last good dashboard payload kept.")
 
     if args.dry_run:
         trades = store.all_trades()
