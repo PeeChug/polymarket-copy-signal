@@ -30,7 +30,25 @@ a 15-min cron is 96 runs/day, far under the 100k/day free limit.
 Then turn **off** the dashboard's in-page Auto-poll and close the tab — it stays
 fresh on its own.
 
-## Option B — Wrangler CLI
+## Option B — Connect to Git (auto-deploys on push)
+
+Cloudflare builds and deploys the Worker straight from this repo, and re-deploys
+whenever it changes. The cron schedule comes from `wrangler.toml` automatically,
+so there's no manual cron-trigger step.
+
+1. dash.cloudflare.com → **Workers & Pages** → **Create** → **Workers** tab →
+   **Connect to Git** (authorize Cloudflare's GitHub app the first time, then
+   pick this repo).
+2. In the build config, set **Root directory** to `cloudflare` (this is the
+   critical step — `wrangler.toml` lives there, not at the repo root). Leave the
+   deploy command as the default (`npx wrangler deploy`). **Save and Deploy.**
+3. After the first deploy, open the Worker → **Settings → Variables and
+   Secrets** → add a **Secret** `GH_PAT` = your `github_pat_…` → redeploy.
+4. Test with `…workers.dev/?run` as above.
+
+Future edits to `cloudflare/worker.js` deploy themselves on push.
+
+## Option C — Wrangler CLI
 
 ```bash
 npm i -g wrangler

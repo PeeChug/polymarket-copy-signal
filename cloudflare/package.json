@@ -1,0 +1,10 @@
+{
+  "name": "polymarket-poller-cron",
+  "private": true,
+  "scripts": {
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^3"
+  }
+}
