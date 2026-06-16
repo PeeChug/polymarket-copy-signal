@@ -211,6 +211,12 @@
     .scroll td:empty { display:none; }
     .modal { width:96vw; padding:18px 16px; } .panelx { width:300px; }
   }
+  /* ---- timeframe period readout ---- */
+  .pstat { display:flex; flex-wrap:wrap; align-items:center; gap:6px 16px; font-size:13px; margin:2px 0 9px; }
+  .pstat-lab { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--muted);
+    border:1px solid var(--line); border-radius:999px; padding:2px 10px; }
+  .pstat-i { display:inline-flex; align-items:center; gap:6px; }
+  .pstat-i i { width:10px; height:10px; border-radius:3px; display:inline-block; }
   /* ---- access gate (soft client-side lock) ---- */
   body.locked { overflow:hidden; }
   .gate { position:fixed; inset:0; z-index:200; display:grid; place-items:center; padding:20px;
@@ -462,6 +468,28 @@ function tfBar(rerender){
   const bar=$(`<div class="toolbar" style="margin:6px 0 2px">Timeline ${TF_OPTS.map(o=>`<button class="tbtn tfb${+state.settings.tf===+o[0]?' on-acc':''}" data-tf="${o[0]}">${o[1]}</button>`).join('')}</div>`);
   bar.querySelectorAll('.tfb').forEach(b=>b.onclick=()=>{ state.settings.tf=+b.dataset.tf; persist(); rerender(); });
   return bar;
+}
+// period summary tied to the active Timeline window: the CHANGE in a cumulative
+// series across the selected window — i.e. the P&L/return earned IN that period
+// (what the chart line rises/falls by). Pairs the timeframe with a headline number.
+function tfLabel(){ const o=TF_OPTS.find(o=>+o[0]===+(state.settings.tf||0)); return o?(+o[0]?('Past '+o[1]):'All-time'):'Window'; }
+function periodDelta(series, keys){
+  const all=(series||[]).filter(r=>keys.some(k=>r[k]!=null));
+  if(!all.length) return null;
+  const hrs=+(state.settings.tf||0); let b0=0;            // baseline = last sample at/before the window opened
+  if(hrs){ const cut=Date.now()-hrs*3600000;
+    for(let i=0;i<all.length;i++){ const t=Date.parse(all[i].ts); if(!isNaN(t)&&t<cut) b0=i; else break; } }
+  const a=all[b0], z=all[all.length-1], o={points:all.length-b0, from:a.ts, to:z.ts};
+  keys.forEach(k=>o[k]=(+z[k]||0)-(+a[k]||0));
+  return o;
+}
+function periodStat(series, items){    // items:[{key,label,color,pct?}]
+  const d=periodDelta(series, items.map(i=>i.key));
+  if(!d) return $('<span></span>');
+  const cell=i=>{ const v=d[i.key]||0, t=i.pct?((v>=0?'+':'')+v.toFixed(1)+'%'):((v>=0?'+':'')+money(v));
+    return `<span class="pstat-i"><i style="background:${i.color}"></i>${esc(i.label)} <b class="${sgn(v)}">${t}</b></span>`; };
+  const warn=d.points<2?' <span class="muted" style="font-weight:400">· needs more cycles in this window</span>':'';
+  return $(`<div class="pstat"><span class="pstat-lab">${tfLabel()}</span>${items.map(cell).join('')}${warn}</div>`);
 }
 // count-up animation
 let introDone=false;  // animate count-ups only on the first load; snap to value on refresh / tab switch
@@ -823,6 +851,7 @@ function renderPerformance(){
   if(mkt!=='us' && (d.history||[]).some(h=>h.ov_net!=null)){
     el.appendChild($(`<h3 style="margin-top:18px">My strategy — net P&L over time <span class="muted" style="font-size:12px;font-weight:400">($${cfg.stake_usd??100}/trade)</span></h3>`));
     el.appendChild(tfBar(renderPerformance));
+    el.appendChild(periodStat(d.history,[{key:'ov_net',label:'Net P&L',color:'var(--green)'},{key:'ov_real',label:'Realized',color:'var(--blue)'}]));
     el.appendChild(chart(d.history,[{key:'ov_net',color:'var(--green)',label:'Consensus net P&L',money:true}]));
   }
   if(mkt!=='us'){
@@ -831,6 +860,7 @@ function renderPerformance(){
   el.appendChild(tierCards); runCountups(tierCards);
   if((d.history||[]).some(h=>h.green_net!=null||h.blue_net!=null)){
     el.appendChild($(`<h3 style="margin-top:16px">🟢 Green vs. 🔵 blue — net P&L over time</h3>`));
+    el.appendChild(periodStat(d.history,[{key:'green_net',label:'Green',color:'var(--green)'},{key:'blue_net',label:'Blue',color:'var(--blue)'}]));
     el.appendChild(chart(d.history,[{key:'green_net',color:'var(--green)',label:'Green',money:true},{key:'blue_net',color:'var(--blue)',label:'Blue',money:true}]));
   }
   }
@@ -853,6 +883,7 @@ function renderPerformance(){
   if(mkt!=='us' && (d.history||[]).some(h=>h.ov_roi!=null||h.ct_roi!=null)){
     el.appendChild($(`<h3 style="margin-top:18px">Consensus vs. control return <span class="muted" style="font-size:12px;font-weight:400">(% ROI — fair, capital-neutral)</span></h3>`));
     el.appendChild(tfBar(renderPerformance));
+    el.appendChild(periodStat(roiSeries(d.history),[{key:'ov_roi',label:'Consensus',color:'var(--green)',pct:true},{key:'ct_roi',label:'Control',color:'var(--gold)',pct:true}]));
     el.appendChild(chart(roiSeries(d.history),[{key:'ov_roi',color:'var(--green)',label:'Consensus',pct:true},{key:'ct_roi',color:'var(--gold)',label:'Control',pct:true}]));
   }
   const ctOpen=(d.open_positions||[]).filter(t=>t.strategy==='control'&&byMkt(t));
