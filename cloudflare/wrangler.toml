@@ -1,4 +1,4 @@
-name = "polymarket-poller-cron"
+name = "polymarket-copy-signal"
 main = "worker.js"
 compatibility_date = "2024-11-01"
 
