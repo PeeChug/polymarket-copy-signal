@@ -41,6 +41,10 @@ def write_site(store, run_result: dict, docs_dir: str = "docs") -> str:
         "ov_unreal": perf["overlap"]["unrealized_pnl"],
         "ct_net": perf["control"]["net_pnl"], "ct_real": perf["control"]["realized_pnl"],
         "ct_unreal": perf["control"]["unrealized_pnl"],
+        # ROI% (net / dollars staked) so consensus vs control compares fairly even
+        # though the control deploys far more capital (it copies the whole #1 book)
+        "ov_roi": perf["overlap"].get("roi_total") or 0,
+        "ct_roi": perf["control"].get("roi_total") or 0,
         "green_net": payload["tiers"]["green"]["net_pnl"], "blue_net": payload["tiers"]["blue"]["net_pnl"],
         "ge2": ag.get("ge2"), "ge3": ag.get("ge3"), "ge5": ag.get("ge5"),
         "max_overlap": ag.get("max_overlap"), "positions": ag.get("positions"),
