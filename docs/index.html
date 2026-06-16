@@ -698,29 +698,7 @@ function renderPerformance(){
       </ol>
       <p class="muted">Stake, tier and guardrails are editable in ⚙️ Settings → Paper trading. Changes are <b>forward-only</b> — they affect future trades and never rewrite past ones.</p>
     </div></details>`));
-  // ---- headline verdict: is copying the cohort beating the #1-copy control? --
-  const ov=d.performance.overlap||{}, ct=d.performance.control||{}, bt=d.backtest||{};
-  const delta=(+ov.net_pnl||0)-(+ct.net_pnl||0), good=delta>=0;
-  const resolvedN=bt.resolved_total||0, trackingN=bt.tracking_total||0;
-  el.appendChild($(`<div style="border:1px solid var(--line);border-left:4px solid ${good?'var(--green)':'var(--red)'};border-radius:12px;padding:14px 16px;margin:6px 0 4px;background:var(--bg2)">
-    <div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--dim)">Cohort vs. control</div>
-    <div style="font-size:30px;font-weight:800;line-height:1.1;margin:2px 0" class="${good?'pos':'neg'}">${good?'+':''}${money(delta)}</div>
-    <div class="muted" style="font-size:13px">cohort copy <b>${money(ov.net_pnl)}</b> (${pct(ov.roi_total)} ROI) vs #1-copy control <b>${money(ct.net_pnl)}</b> — cohort is <b>${good?'ahead':'behind'}</b> by ${money(Math.abs(delta))}</div>
-    <div class="muted" style="font-size:12.5px;margin-top:6px">${resolvedN===0?`⏳ <b>0</b> of ${trackingN} tracked markets have resolved yet — win-rate / ROI(realized) / edge are still warming up; figures below are mark-to-market.`:`${resolvedN} of ${trackingN} tracked markets resolved.`}</div></div>`));
-  const cards=$(`<div class="grid grid2">${perfCard('🟢🔵 Cohort (all tiers)',ov)}${perfCard('🥇 Control · #1 eligible',ct)}</div>`);
-  el.appendChild(cards); runCountups(cards);
-
-  // ---- equity curve: cohort vs control net P&L over time (+ drawdown) --------
-  if((d.history||[]).length>=2){
-    el.appendChild($(`<h2 style="margin-top:26px">Equity: cohort vs. control over time</h2>`));
-    el.appendChild(tfBar(renderPerformance));
-    el.appendChild(chart(d.history,[{key:'ov_net',color:'var(--green)',label:'Cohort',money:true},{key:'ct_net',color:'var(--gold)',label:'Control',money:true}]));
-    let peak=-Infinity; const dd=(d.history||[]).map(h=>{const v=+h.ov_net||0; peak=Math.max(peak,v); return {ts:h.ts, ov_dd:v-peak};});
-    if(dd.some(x=>x.ov_dd<0)){
-      el.appendChild($(`<h3 class="muted" style="margin:14px 0 0;font-size:14px">Cohort drawdown (peak → now)</h3>`));
-      el.appendChild(chart(dd,[{key:'ov_dd',color:'var(--red)',label:'Drawdown',money:true}]));
-    }
-  }
+  // (cohort vs. control summary + charts moved below the trade tables)
 
   el.appendChild($(`<h2 style="margin-top:26px">By tier — does 🟢 green beat 🔵 blue?</h2>`));
   const tierCards=$(`<div class="grid grid2">${perfCard('🟢 Green tier',d.tiers.green)}${perfCard('🔵 Blue tier',d.tiers.blue)}</div>`);
@@ -766,6 +744,29 @@ function renderPerformance(){
     sortRows(clRows,state.perf.ck,state.perf.cd),{key:state.perf.ck,dir:state.perf.cd},
     k=>{state.perf.cd=state.perf.ck===k?-state.perf.cd:-1;state.perf.ck=k;persist();renderPerformance();});
   el.appendChild(clT||$(`<div class="empty">No closed trades yet — they'll appear as positions resolve or the cohort exits them.</div>`));
+
+  // ---- cohort vs. control — the headline comparison, below the trade tables --
+  const ov=d.performance.overlap||{}, ct=d.performance.control||{}, bt=d.backtest||{};
+  const delta=(+ov.net_pnl||0)-(+ct.net_pnl||0), good=delta>=0;
+  const resolvedN=bt.resolved_total||0, trackingN=bt.tracking_total||0;
+  el.appendChild($(`<h2 style="margin-top:34px">🥇 Cohort vs. control — is copying the crowd worth it?</h2>`));
+  el.appendChild($(`<div style="border:1px solid var(--line);border-left:4px solid ${good?'var(--green)':'var(--red)'};border-radius:12px;padding:14px 16px;margin:6px 0 4px;background:var(--bg2)">
+    <div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--dim)">Cohort vs. control</div>
+    <div style="font-size:30px;font-weight:800;line-height:1.1;margin:2px 0" class="${good?'pos':'neg'}">${good?'+':''}${money(delta)}</div>
+    <div class="muted" style="font-size:13px">cohort copy <b>${money(ov.net_pnl)}</b> (${pct(ov.roi_total)} ROI) vs #1-copy control <b>${money(ct.net_pnl)}</b> — cohort is <b>${good?'ahead':'behind'}</b> by ${money(Math.abs(delta))}</div>
+    <div class="muted" style="font-size:12.5px;margin-top:6px">${resolvedN===0?`⏳ <b>0</b> of ${trackingN} tracked markets have resolved yet — win-rate / ROI(realized) / edge are still warming up; figures below are mark-to-market.`:`${resolvedN} of ${trackingN} tracked markets resolved.`}</div></div>`));
+  const ccCards=$(`<div class="grid grid2">${perfCard('🟢🔵 Cohort (all tiers)',ov)}${perfCard('🥇 Control · #1 eligible',ct)}</div>`);
+  el.appendChild(ccCards); runCountups(ccCards);
+  if((d.history||[]).length>=2){
+    el.appendChild(tfBar(renderPerformance));
+    let peak=-Infinity; const dd=(d.history||[]).map(h=>{const v=+h.ov_net||0; peak=Math.max(peak,v); return {ts:h.ts, ov_dd:v-peak};});
+    const eqw=$(`<div><h3 class="muted" style="margin:0 0 4px;font-size:13px">Equity: cohort vs. control</h3></div>`);
+    eqw.appendChild(chart(d.history,[{key:'ov_net',color:'var(--green)',label:'Cohort',money:true},{key:'ct_net',color:'var(--gold)',label:'Control',money:true}],{h:170}));
+    const ddw=$(`<div><h3 class="muted" style="margin:0 0 4px;font-size:13px">Cohort drawdown (peak → now)</h3></div>`);
+    ddw.appendChild(dd.some(x=>x.ov_dd<0)?chart(dd,[{key:'ov_dd',color:'var(--red)',label:'Drawdown',money:true}],{h:170}):$(`<div class="empty">No drawdown yet.</div>`));
+    const ccRow=$(`<div class="grid grid2"></div>`); ccRow.appendChild(eqw); ccRow.appendChild(ddw);
+    el.appendChild(ccRow);
+  }
 }
 
 function renderSignals(){
