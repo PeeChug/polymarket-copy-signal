@@ -153,24 +153,25 @@ class TestEngineLifecycle(unittest.TestCase):
         self.c.marks_map = {"A": 0.40}
         self.run_quiet()
 
-        # cohort fully abandons A; mark drifted to 0.55
-        self.c.positions_by_wallet = {"w1": [], "w2": [], "w3": []}
-        self.c.marks_map = {"A": 0.55}
+        # cohort stays active (rotates into market Z) but fully EXITS A -> A abandoned
+        self.c.markets_map["mZ"] = M("mZ")
+        self.c.positions_by_wallet = {w: [P("Z", "mZ")] for w in ("w1", "w2", "w3")}
+        self.c.marks_map = {"A": 0.55, "Z": 0.50}
         self.run_quiet()
-        overlap = [t for t in self.store.all_trades() if t["strategy"] == "overlap"]
-        self.assertEqual(len(overlap), 1)
-        self.assertEqual(overlap[0]["status"], "CLOSED")
-        self.assertEqual(overlap[0]["close_reason"], "cohort_abandoned")
-        self.assertAlmostEqual(overlap[0]["exit_price"], 0.55)
-        self.assertAlmostEqual(overlap[0]["realized_pnl"], 250.0 * (0.55 - 0.40))
+        a = [t for t in self.store.all_trades() if t["strategy"] == "overlap" and t["asset"] == "A"]
+        self.assertEqual(len(a), 1)
+        self.assertEqual(a[0]["status"], "CLOSED")
+        self.assertEqual(a[0]["close_reason"], "cohort_abandoned")
+        self.assertAlmostEqual(a[0]["exit_price"], 0.55)
+        self.assertAlmostEqual(a[0]["realized_pnl"], 250.0 * (0.55 - 0.40))
 
-        # re-entry: cohort piles back in -> a NEW open trade is allowed
+        # re-entry: cohort piles back into A -> a NEW open A trade is allowed
         self.c.positions_by_wallet = {w: [P("A", "mA")] for w in ("w1", "w2", "w3")}
         self.c.marks_map = {"A": 0.50}
         self.run_quiet()
-        overlap = [t for t in self.store.all_trades() if t["strategy"] == "overlap"]
-        self.assertEqual(len(overlap), 2)
-        self.assertEqual(sum(1 for t in overlap if t["status"] == "OPEN"), 1)
+        a = [t for t in self.store.all_trades() if t["strategy"] == "overlap" and t["asset"] == "A"]
+        self.assertEqual(len(a), 2)
+        self.assertEqual(sum(1 for t in a if t["status"] == "OPEN"), 1)
 
     def test_close_on_resolution_win(self):
         self.c.positions_by_wallet = {w: [P("A", "mA")] for w in ("w1", "w2", "w3")}
@@ -287,7 +288,8 @@ class TestEngineLifecycle(unittest.TestCase):
         obs = {o["asset"]: o for o in self.store.latest_observations()}
         self.assertEqual(obs["A"]["overlap"], 2)             # w1's $5 holding didn't count
         traders = {t["wallet"]: t for t in self.store.latest_traders()}
-        self.assertFalse(traders["w1"]["eligible"])
+        self.assertNotIn("w1", traders)        # screened out of the cohort entirely
+        self.assertIn("w2", traders)
         self.assertTrue(traders["w2"]["eligible"])
 
     def test_signal_decay_closes_thinned_position(self):

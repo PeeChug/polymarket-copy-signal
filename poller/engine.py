@@ -68,60 +68,76 @@ def run_cycle(store, client, seed_path=None, log=print) -> dict:
 
 
 def _run(store, client, cfg, cid, summary, log):
-    # ---- 1+2. leaderboard --------------------------------------------------
-    entries = client.leaderboard(window=cfg.leaderboard_window, limit=cfg.top_n)
-    if not entries:
-        log("WARNING: leaderboard returned no entries — DEGRADED cycle, not publishing "
+    # ---- 1+2. build a cohort of top_n ELIGIBLE earners ---------------------
+    # Screen a WIDER candidate pool (several leaderboard slices) down to top_n
+    # traders that PASS the quality filter — so the cohort is N active, funded,
+    # winning wallets, not "top N by profit of which only some qualify."
+    seen, pool = set(), []
+    for win, order in (("MONTH", "PNL"), ("ALL", "PNL"), ("WEEK", "PNL"), ("MONTH", "VOL"), ("ALL", "VOL")):
+        for e in client.leaderboard(window=win, limit=50, order=order):
+            if e.wallet and e.wallet not in seen:
+                seen.add(e.wallet)
+                pool.append(e)
+    if not pool:
+        log("WARNING: leaderboards returned no entries — DEGRADED cycle, not publishing "
             "(keeps the last good data.json instead of overwriting it with nothing).")
         return {"status": "degraded", "publishable": False, "reason": "empty leaderboard"}
-    cohort = entries[: cfg.top_n]
+    pool.sort(key=lambda e: e.pnl, reverse=True)
+    pool = pool[: getattr(cfg, "candidate_pool", 150) or 150]
+    pool_wallets = [e.wallet for e in pool]
+
+    # ---- 3. positions for the candidate pool (fetched concurrently) --------
+    all_positions, failed_wallets = client.positions_many(pool_wallets, size_threshold=cfg.size_threshold)
+    # Any failed fetch could have dropped an otherwise-eligible trader, so don't
+    # trust 'abandoned' this cycle (preserves the no-phantom-exit guarantee).
+    cohort_complete = not failed_wallets
+    if failed_wallets:
+        log(f"WARNING: {len(failed_wallets)}/{len(pool_wallets)} position fetches failed "
+            f"this cycle -> NOT trusting 'abandoned' (closes suppressed until a clean cycle).")
+
+    # ---- cohort QUALITY filter: keep the top_n ELIGIBLE earners ------------
+    # Active, funded (>= min_holder_value on the table) and winning (>= min_holder_win_ratio
+    # of open positions in profit). A #1-by-profit earner who has cashed out is noise.
+    eligibility = {e.wallet: strategy.trader_eligibility(all_positions.get(e.wallet, []), cfg) for e in pool}
+    eligible = [e for e in pool if eligibility[e.wallet][0]]   # pool is already pnl-sorted
+    cohort = eligible[: cfg.top_n]
+    for i, e in enumerate(cohort, 1):   # re-rank 1..N by profit for clean display
+        e.rank = i
     cohort_wallets = [e.wallet for e in cohort]
-    leader = cohort[0]
     by_wallet = {e.wallet: e for e in cohort}
     summary["n_traders"] = len(cohort)
+    cohort_positions = {w: all_positions.get(w, []) for w in cohort_wallets}
+    for e in cohort:
+        for p in cohort_positions.get(e.wallet, []):   # annotate for overlap labelling
+            p._username = e.username
+            p._rank = e.rank
+    log(f"cohort: screened {len(pool)} earners -> {len(cohort)}/{cfg.top_n} eligible "
+        f"(>=${cfg.min_holder_value:,.0f} on the table & "
+        f">={cfg.min_holder_win_ratio:.0%} of open positions in profit)")
+    if len(cohort) < cfg.top_n:
+        log(f"NOTE: only {len(cohort)} eligible in a {len(pool)}-earner pool (wanted {cfg.top_n}) "
+            f"— raise candidate_pool or relax the thresholds.")
+    if not cohort:
+        return {"status": "degraded", "publishable": False, "reason": "no eligible traders in pool"}
 
     store.insert_leaderboard([{
         "cycle_id": cid, "window": cfg.leaderboard_window, "rank": e.rank,
         "wallet": e.wallet, "username": e.username, "pnl": e.pnl, "volume": e.volume,
         "in_cohort": True,
     } for e in cohort])
-    log(f"cohort: " + ", ".join(f"#{e.rank} {e.username or e.wallet[:8]}" for e in cohort))
 
-    # ---- 3. open positions per cohort wallet (fetched concurrently) --------
-    cohort_positions, failed_wallets = client.positions_many(cohort_wallets, size_threshold=cfg.size_threshold)
-    cohort_complete = not failed_wallets
-    if failed_wallets:
-        log(f"WARNING: {len(failed_wallets)}/{len(cohort_wallets)} cohort position fetches failed "
-            f"this cycle -> NOT trusting 'abandoned' (closes suppressed until a clean cycle).")
-    for e in cohort:
-        for p in cohort_positions.get(e.wallet, []):   # annotate for overlap labelling
-            p._username = e.username
-            p._rank = e.rank
-
-    # ---- cohort QUALITY filter ---------------------------------------------
-    # Only count ACTIVE, WINNING, well-capitalized traders toward consensus: a
-    # #1-by-30d-profit earner with $10 on the table (or a sub-threshold
-    # coin-flipper) is noise. Everyone is still snapshotted for the dashboard,
-    # just flagged eligible / not.
-    eligibility = {e.wallet: strategy.trader_eligibility(cohort_positions.get(e.wallet, []), cfg)
-                   for e in cohort}
-    eligible_cohort = [e for e in cohort if eligibility[e.wallet][0]]
-    eligible_positions = {e.wallet: cohort_positions.get(e.wallet, []) for e in eligible_cohort}
-    log(f"cohort quality: {len(eligible_cohort)}/{len(cohort)} eligible "
-        f"(>=${cfg.min_holder_value:,.0f} open value & "
-        f">={cfg.min_holder_win_ratio:.0%} of open positions in profit)")
-    # the control copies the #1 ELIGIBLE trader (a fair 'best qualified' benchmark)
-    leader = eligible_cohort[0] if eligible_cohort else cohort[0]
+    # the control copies the #1 eligible trader (a fair 'best qualified' benchmark)
+    leader = cohort[0]
     leader_positions = cohort_positions.get(leader.wallet, [])
     leader_assets = {p.asset for p in leader_positions}
 
-    # ---- 4. overlaps (computed over the ELIGIBLE cohort only) --------------
-    overlaps = strategy.compute_overlaps(eligible_positions)
+    # ---- 4. overlaps (over the eligible cohort) ----------------------------
+    overlaps = strategy.compute_overlaps(cohort_positions)
     cohort_assets = set(overlaps.keys())
-    log(f"{sum(len(v) for v in eligible_positions.values())} eligible positions "
+    log(f"{sum(len(v) for v in cohort_positions.values())} cohort positions "
         f"-> {len(overlaps)} distinct (market,outcome) pairs")
 
-    # per-trader snapshot for the dashboard (ALL traders, flagged by eligibility)
+    # per-trader snapshot for the dashboard (the eligible cohort)
     store.set_traders(_build_traders(cohort, cohort_positions, overlaps, eligibility))
 
     # accurate full agreement counts (independent of any dashboard cap on observations)
@@ -328,10 +344,10 @@ def _run(store, client, cfg, cid, summary, log):
     # ---- publishability: never overwrite the public data.json with a badly
     # degraded snapshot. A mostly-failed cohort fetch understates overlap, so
     # flag the cycle degraded and keep the last good payload.
-    ok_frac = (len(cohort_wallets) - len(failed_wallets)) / len(cohort_wallets) if cohort_wallets else 0.0
+    ok_frac = (len(pool_wallets) - len(failed_wallets)) / len(pool_wallets) if pool_wallets else 0.0
     if ok_frac < 0.5:
         return {"status": "degraded", "publishable": False,
-                "reason": f"low cohort coverage {ok_frac:.0%} ({len(failed_wallets)} fetch failures)"}
+                "reason": f"low fetch coverage {ok_frac:.0%} ({len(failed_wallets)} fetch failures)"}
     return {"status": "ok", "publishable": True, "reason": None}
 
 

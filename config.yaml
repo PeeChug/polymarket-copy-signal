@@ -11,7 +11,9 @@
 # ============================================================================
 
 # --- cohort / leaderboard ---------------------------------------------------
-top_n: 50                      # watch the top N earners on the profit leaderboard (API max 50)
+top_n: 50                      # the cohort size: this many ELIGIBLE earners drive the signals
+candidate_pool: 200            # screen up to this many top earners (across MONTH/ALL/WEEK × PNL/VOL
+                               # leaderboard slices) down to top_n that pass the cohort-quality filter
 leaderboard_window: MONTH      # DAY | WEEK | MONTH | ALL  (MONTH = the 30-day "monthly winners")
 size_threshold: 1              # ignore dust: a wallet must hold at least this position size to count
 
