@@ -72,6 +72,9 @@ class Store:
     def set_trader_series(self, d: dict) -> None: return None
     def set_agreement(self, d: dict) -> None: return None
     def get_agreement(self) -> dict: return {}
+    # health heartbeat (sustained-failure detection) — optional; default no-op
+    def get_health(self) -> dict: return {}
+    def set_health(self, d: dict) -> None: return None
 
 
 # --------------------------------------------------------------------------- #
@@ -258,6 +261,12 @@ class PostgrestStore(Store):
 
     def get_agreement(self):
         return self._kv_get("agreement", {})
+
+    def get_health(self):
+        return self._kv_get("health", {})
+
+    def set_health(self, d):
+        self._kv_set("health", d)
 
 
 # --------------------------------------------------------------------------- #
@@ -575,3 +584,10 @@ class FileStore(Store):
 
     def get_agreement(self):
         return dict(self._state.get("agreement", {}))
+
+    def get_health(self):
+        return dict(self._state.get("health", {}))
+
+    def set_health(self, d):
+        self._state["health"] = d
+        self._save()

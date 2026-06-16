@@ -101,6 +101,27 @@ def main(argv=None) -> int:
         else:
             print("skipped publish (degraded cycle) — last good dashboard payload kept.")
 
+    # ---- health heartbeat: a dead-man's switch on SUSTAINED failure ---------
+    # Hard errors already fail the run (run_cycle re-raises). Degraded cycles
+    # return cleanly, so track consecutive non-ok cycles and, after a few in a
+    # row, fail the Action so GitHub's built-in failure email fires — the poller
+    # is no longer silently dead. A single ok cycle resets the counter.
+    exit_code = 0
+    if not args.dry_run:
+        health = store.get_health() or {}
+        now = datetime.now(timezone.utc).isoformat()
+        if result.get("status") == "ok":
+            if health.get("consecutive_bad"):
+                store.set_health({"consecutive_bad": 0, "last_ok": now})
+        else:
+            n = (health.get("consecutive_bad") or 0) + 1
+            store.set_health({"consecutive_bad": n, "last_bad": now,
+                              "last_error": result.get("error"), "last_ok": health.get("last_ok")})
+            print(f"WARNING: {n} consecutive non-ok cycle(s) (status={result.get('status')}).")
+            if n >= 3:
+                print(f"::error::Poller degraded for {n} cycles: {result.get('error')}")
+                exit_code = 1
+
     if args.dry_run:
         trades = store.all_trades()
         print("\n-- dry-run paper trades --")
@@ -122,7 +143,7 @@ def main(argv=None) -> int:
                 }, fh, indent=2, default=str)
             print(f"\nwrote dry-run dump -> {args.dump}")
 
-    return 0
+    return exit_code
 
 
 if __name__ == "__main__":

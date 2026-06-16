@@ -53,6 +53,7 @@ Hosts (all no-auth for the reads below):
 from __future__ import annotations
 
 import json
+import random
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -138,6 +139,23 @@ class PolymarketClient:
         )
 
     # -- low-level HTTP ----------------------------------------------------- #
+    # A 4xx won't fix itself and fails fast — EXCEPT rate-limit (429) and request
+    # timeout (408), which are transient and get retried with jittered backoff.
+    _RETRYABLE_4XX = (408, 429)
+
+    def _backoff_sleep(self, attempt, last_err):
+        """Sleep before a retry: honor Retry-After on a 429, else jittered
+        exponential backoff. Jitter avoids a synchronized re-burst across the
+        50-wallet thread pool that would just trip the limit again."""
+        ra = None
+        try:
+            resp = getattr(last_err, "response", None)
+            if resp is not None:
+                ra = float(resp.headers.get("Retry-After") or 0) or None
+        except (ValueError, TypeError):
+            ra = None
+        time.sleep(ra if ra else self.backoff * (2 ** attempt) * (1 + random.random() * 0.3))
+
     def _get(self, url: str, params: dict | None = None, ok_404: bool = False):
         """GET with retries. Returns parsed JSON, or None on a tolerated 404."""
         last_err = None
@@ -149,14 +167,14 @@ class PolymarketClient:
                 r.raise_for_status()
                 return r.json()
             except requests.HTTPError as e:
-                # 4xx (other than tolerated 404) won't fix themselves — fail fast.
-                if e.response is not None and 400 <= e.response.status_code < 500:
+                code = e.response.status_code if e.response is not None else None
+                if code is not None and 400 <= code < 500 and code not in self._RETRYABLE_4XX:
                     raise
                 last_err = e
             except requests.RequestException as e:
                 last_err = e
             if attempt < self.retries - 1:
-                time.sleep(self.backoff * (attempt + 1))
+                self._backoff_sleep(attempt, last_err)
         raise RuntimeError(f"GET {url} failed after {self.retries} attempts: {last_err}")
 
     def _post(self, url: str, body):
@@ -167,13 +185,14 @@ class PolymarketClient:
                 r.raise_for_status()
                 return r.json()
             except requests.HTTPError as e:
-                if e.response is not None and 400 <= e.response.status_code < 500:
+                code = e.response.status_code if e.response is not None else None
+                if code is not None and 400 <= code < 500 and code not in self._RETRYABLE_4XX:
                     raise
                 last_err = e
             except requests.RequestException as e:
                 last_err = e
             if attempt < self.retries - 1:
-                time.sleep(self.backoff * (attempt + 1))
+                self._backoff_sleep(attempt, last_err)
         raise RuntimeError(f"POST {url} failed after {self.retries} attempts: {last_err}")
 
     @staticmethod
