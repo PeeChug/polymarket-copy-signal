@@ -14,27 +14,55 @@ from core import analytics
 from poller import us_market
 
 
-def _tag_us_availability(payload: dict) -> None:
+def _tag_us_availability(payload: dict, store=None) -> None:
     """Flag which positions/signals are tradeable on Polymarket US (best-effort).
 
     Powers the dashboard's "US Only" toggle. Pulls the live keyless US event
-    catalog and tags us_available + a link on each row. Never raises — on any
-    failure the rows simply keep last cycle's tags (or none) and the dashboard
-    falls back gracefully."""
+    catalog (with retries), caches it as the last-good catalog, and tags
+    us_available + a link on each row. If the live fetch fails this cycle we tag
+    from the cached catalog (marked `stale`) instead of blanking the US view —
+    that resilience is what makes the US signals consistent. Never raises."""
     try:
-        idx = us_market.build_us_index()
-        if not idx:
-            print("us_market: no US index this cycle — skipping US tagging.")
-            return
+        idx, events = us_market.build_us_index()
+        stale, fetched_at = False, None
+        if idx and events:
+            fetched_at = datetime.now(timezone.utc).isoformat()
+            if store:
+                try:
+                    store.set_us_catalog({"events": events, "fetched_at": fetched_at})
+                except Exception as e:
+                    print(f"us_market: catalog cache write failed: {e}")
+        else:
+            # live fetch failed → fall back to the last-good cached catalog
+            cached = (store.get_us_catalog() if store else {}) or {}
+            events = cached.get("events") or []
+            fetched_at = cached.get("fetched_at")
+            idx = us_market.build_index_from_events(events) if events else None
+            if not idx:
+                print("us_market: no live catalog and no cache — skipping US tagging.")
+                return
+            stale = True
+            print(f"us_market: live fetch failed; tagging from cached catalog ({fetched_at}).")
+
         counts = {
-            "events": len(idx["items"]),
             "consensus": us_market.tag_rows(payload.get("consensus"), idx),
             "open": us_market.tag_rows(payload.get("open_positions"), idx),
             "closed": us_market.tag_rows(payload.get("closed_positions"), idx),
         }
         us_market.tag_rows(payload.get("signals"), idx)   # keep signals consistent
-        payload["us"] = {**counts, "event_base": us_market.US_EVENT_URL}
-        print(f"us_market: tagged US-tradeable — {counts}")
+
+        by_rule: dict = {}                                # per-rule breakdown (tuning/observability)
+        for r in (payload.get("consensus") or []):
+            if r.get("us_available"):
+                k = r.get("us_match", "?")
+                by_rule[k] = by_rule.get(k, 0) + 1
+
+        payload["us"] = {
+            **counts, "events": len(idx["items"]), "by_rule": by_rule,
+            "ok": not stale, "stale": stale, "fetched_at": fetched_at,
+            "event_base": us_market.US_EVENT_URL,
+        }
+        print(f"us_market: tagged US-tradeable — {payload['us']}")
     except Exception as e:                                # never break publish
         print(f"us_market: tagging skipped ({e})")
 
@@ -128,7 +156,7 @@ def write_site(store, run_result: dict, docs_dir: str = "docs") -> str:
     payload["changes"] = {k: v[:20] for k, v in changes.items()}
 
     # flag which markets a US-based user could actually trade (US Only toggle)
-    _tag_us_availability(payload)
+    _tag_us_availability(payload, store)
 
     path = os.path.join(docs_dir, "data.json")
     tmp = path + ".tmp"

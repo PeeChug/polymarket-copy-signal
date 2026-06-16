@@ -19,10 +19,18 @@ EVENTS = [
     {"title": "U.S Senate Midterm Winner", "slug": "usse-midterms-2026-11-03",
      "category": "politics", "active": True, "closed": False, "endDate": "2026-11-03"},
     {"title": "Georgia Senate Election Winner", "slug": "usse-ga-2026-11-03",
-     "category": "politics", "active": True, "closed": False, "endDate": "2026-11-03"},
+     "category": "politics", "active": True, "closed": False, "endDate": "2026-11-03",
+     "markets": [{"title": "Republican Party", "ep3Status": "OPEN", "closed": False}]},
+    # a competing Georgia Senate PRIMARY (same state+office) to test instance routing
+    {"title": "Georgia Senate Republican Primary Winner", "slug": "ussep-ga-2026-08-04-rep",
+     "category": "politics", "active": True, "closed": False, "endDate": "2026-08-04"},
     {"title": "South Carolina Governor Republican Primary Winner",
      "slug": "usgubp-sc-2026-06-09-rep", "category": "politics",
      "active": True, "closed": False, "endDate": "2026-06-09"},
+    # active event but every market is closed/expired -> NOT tradeable, must be dropped
+    {"title": "Old Resolved Macro Print", "slug": "old-resolved", "category": "macro",
+     "active": True, "closed": False, "endDate": "2026-01-01",
+     "markets": [{"title": "Yes", "ep3Status": "EXPIRED", "closed": True}]},
     {"title": "Fed Decision in June", "slug": "usfed-fomc-2026-06-17",
      "category": "macro", "active": True, "closed": False, "endDate": "2026-06-17"},
     {"title": "Which Companies Will Confirm an IPO in 2026?", "slug": "2026ipos",
@@ -77,6 +85,46 @@ def test_state_race_rules():
     assert g and g["us_slug"] == "usgubp-sc-2026-06-09-rep" and g["us_match"] == "rule:state-governor"
     se = um.match_title("Will the Republicans win the Georgia Senate race in 2026?", i)
     assert se and se["us_slug"] == "usse-ga-2026-11-03" and se["us_match"] == "rule:state-senate"
+
+
+def test_general_vs_primary_routing():
+    """A general-election market must NOT route to a same-state Primary sub-event,
+    even though both contain the state+office and the party word is in the title."""
+    i = idx()
+    gen = um.match_title("Will the Republicans win the Georgia Senate race in 2026?", i)
+    assert gen["us_slug"] == "usse-ga-2026-11-03"            # the general, not the R primary
+    prim = um.match_title("Will Jon Ossoff be the Republican nominee for Senate in Georgia?", i)
+    assert prim["us_slug"] == "ussep-ga-2026-08-04-rep"      # routed to the R primary
+
+
+def test_untradeable_events_excluded():
+    """Active event whose markets are all closed/expired is not in the index."""
+    i = idx()
+    slugs = {e["slug"] for e in i["items"]}
+    assert "old-resolved" not in slugs
+    assert um.match_title("Old Resolved Macro Print", i) is None
+
+
+def test_market_open_helper():
+    assert um._market_open({"ep3Status": "OPEN", "closed": False})
+    assert um._market_open({"closed": False})                # absent status -> assume ok
+    assert not um._market_open({"ep3Status": "EXPIRED", "closed": True})
+    assert not um._market_open({"closed": True})
+    assert not um._market_open({"archived": True})
+
+
+def test_slim_event_keeps_matchable_fields():
+    raw = {"title": "Fed Decision in June", "slug": "x", "category": "macro",
+           "active": True, "closed": False, "endDate": "z", "description": "huge text",
+           "image": "u", "markets": [{"title": "Maintains", "ep3Status": "OPEN",
+                                       "outcomePrices": "[...]", "closed": False}]}
+    s = um.slim_event(raw)
+    assert "description" not in s and "image" not in s
+    assert s["title"] == "Fed Decision in June" and s["slug"] == "x"
+    assert s["markets"][0]["ep3Status"] == "OPEN" and "outcomePrices" not in s["markets"][0]
+    # a slimmed event still builds a working index + matches
+    i = um.build_index_from_events([s])
+    assert um.match_title("no change in Fed interest rates after the June meeting?", i)
 
 
 def test_ipo_company_match():

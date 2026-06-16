@@ -75,6 +75,10 @@ class Store:
     # health heartbeat (sustained-failure detection) — optional; default no-op
     def get_health(self) -> dict: return {}
     def set_health(self, d: dict) -> None: return None
+    # last-good Polymarket-US catalog (so US tagging survives a transient fetch
+    # failure instead of blanking the view) — optional; default no-op
+    def get_us_catalog(self) -> dict: return {}
+    def set_us_catalog(self, d: dict) -> None: return None
 
 
 # --------------------------------------------------------------------------- #
@@ -267,6 +271,12 @@ class PostgrestStore(Store):
 
     def set_health(self, d):
         self._kv_set("health", d)
+
+    def get_us_catalog(self):
+        return self._kv_get("us_catalog", {})
+
+    def set_us_catalog(self, d):
+        self._kv_set("us_catalog", d)
 
 
 # --------------------------------------------------------------------------- #
@@ -590,4 +600,11 @@ class FileStore(Store):
 
     def set_health(self, d):
         self._state["health"] = d
+        self._save()
+
+    def get_us_catalog(self):
+        return dict(self._state.get("us_catalog", {}))
+
+    def set_us_catalog(self, d):
+        self._state["us_catalog"] = d
         self._save()

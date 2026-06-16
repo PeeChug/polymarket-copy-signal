@@ -51,8 +51,10 @@ _STOP = {
     "who", "which", "what", "vs", "market", "markets", "official", "officially",
     "confirm", "confirms", "confirmed", "officially", "us", "u", "s", "usa",
     "2024", "2025", "2026", "2027", "2028", "year", "yoy", "over", "exist", "exists",
-    "party", "control", "controls", "controlled", "primary", "general", "race",
+    "party", "control", "controls", "controlled", "race",
 }
+# kept OUT of _STOP so they can disambiguate primary vs general and party:
+#   primary, general, republican(s), democrat(ic|s), nominee
 
 
 _MONTHS = {"january", "february", "march", "april", "may", "june", "july",
@@ -83,13 +85,34 @@ _STATES = [
 ]
 
 
+def _market_open(m: dict) -> bool:
+    """A US sub-market is genuinely tradeable right now."""
+    if not isinstance(m, dict):
+        return False
+    if m.get("closed") or m.get("archived") or m.get("hidden"):
+        return False
+    st = m.get("ep3Status")
+    return st in (None, "", "OPEN")          # OPEN = order book live; absent = assume ok
+
+
+def _event_tradeable(e: dict) -> bool:
+    """Event is live AND has at least one genuinely-open market (so we never
+    link to an event whose markets have all expired/resolved)."""
+    if not e.get("active") or e.get("closed") or e.get("archived") or e.get("hidden"):
+        return False
+    mk = e.get("markets")
+    if not mk:                                # no market detail in payload — trust event flags
+        return True
+    return any(_market_open(m) for m in mk)
+
+
 def build_index_from_events(events: list) -> dict:
     """Build the lookup index from a list of US /v1/events dicts (pure).
 
-    Keeps only *tradeable* events (active and not closed) in the non-sports
-    categories. For each we store its normalized title, significant token set,
-    slug, category and a sort key (soonest end first). Also a company->event
-    map (finance) so "Stripe IPO" matches the multi-company IPO event.
+    Keeps only *genuinely tradeable* events (live, with an open market) in the
+    non-sports categories. For each we store its normalized title, significant
+    token set, slug, category and a sort key (soonest end first). Also a
+    company->event map (finance) so "Stripe IPO" matches the multi-company event.
     """
     by_norm: dict[str, dict] = {}
     items: list[dict] = []
@@ -98,7 +121,7 @@ def build_index_from_events(events: list) -> dict:
     for e in events or []:
         if (e.get("category") or "").lower() == "sports":
             continue
-        if not e.get("active") or e.get("closed"):
+        if not _event_tradeable(e):
             continue
         title = e.get("title") or ""
         slug = e.get("slug") or ""
@@ -130,13 +153,22 @@ def build_index_from_events(events: list) -> dict:
     return {"items": items, "by_norm": by_norm, "company": company}
 
 
-def _find(index: dict, *need: str):
-    """Soonest tradeable event whose token set contains all of `need`."""
-    need_set = set(need)
-    for ev in index["items"]:
+def _find(index: dict, *need: str, prefer=(), avoid=()):
+    """Best tradeable event whose token set contains all of `need`.
+
+    Among candidates, rank by (matched `prefer` tokens − matched `avoid` tokens)
+    so a state race links to the right party / primary-vs-general instance — e.g.
+    a GENERAL-election market avoids "…Primary Winner" sub-events. Ties keep the
+    soonest-resolving (items are pre-sorted soonest-first; strict > is stable).
+    """
+    need_set, prefer_set, avoid_set = set(need), set(prefer), set(avoid)
+    best, best_score = None, -10 ** 9
+    for ev in index["items"]:                 # items are soonest-end first
         if need_set <= ev["tokens"]:
-            return ev
-    return None
+            score = len(prefer_set & ev["tokens"]) - len(avoid_set & ev["tokens"])
+            if score > best_score:            # strict > keeps the soonest on ties
+                best, best_score = ev, score
+    return best
 
 
 def _state_in(norm_title: str):
@@ -204,13 +236,24 @@ def match_title(title: str, index: dict):
             if ev:
                 return _hit(ev, "rule:ipo")
 
-    # State governor / senate races (non-national).
+    # State governor / senate races (non-national). Prefer the matching party +
+    # primary/general instance so the link lands on the right sub-event.
     if {"governor", "gubernatorial", "senate"} & toks:
         st = _state_in(nt)
         if st:
             kind = "governor" if ({"governor", "gubernatorial"} & toks) else "senate"
+            is_primary = bool({"primary", "nominee", "runoff"} & toks)
+            prefer, avoid = set(), set()
+            if is_primary:
+                prefer.add("primary")         # primary events are titled "… Primary Winner"
+                if {"republican", "republicans", "gop"} & toks:
+                    prefer.add("republican")  # route to the right party's primary
+                if {"democratic", "democrat", "democrats"} & toks:
+                    prefer.add("democratic")
+            else:
+                avoid.add("primary")          # a general-election market is NOT a primary sub-event
             need = st.split() + [kind]
-            if (ev := _find(index, *need)):
+            if (ev := _find(index, *need, prefer=prefer, avoid=avoid)):
                 return _hit(ev, f"rule:state-{kind}")
 
     return None
@@ -240,6 +283,22 @@ def tag_rows(rows: list, index: dict, title_key: str = "title") -> int:
     return n
 
 
+# --- slimming (keep caches small + only the fields the index needs) -----------
+
+_EV_KEEP = ("title", "slug", "category", "active", "closed", "archived", "hidden", "endDate")
+_MK_KEEP = ("title", "titleShort", "ep3Status", "closed", "archived", "hidden")
+
+
+def slim_event(e: dict) -> dict:
+    """Reduce a raw US event to just what the matcher needs (drops descriptions,
+    images, prices, etc.) so the last-good catalog cache stays small + JSON-safe."""
+    out = {k: e.get(k) for k in _EV_KEEP if k in e}
+    mk = e.get("markets")
+    if mk:
+        out["markets"] = [{k: m.get(k) for k in _MK_KEEP if k in m} for m in mk]
+    return out
+
+
 # --- network wrappers (not exercised by unit tests) ---------------------------
 
 def _fetch_json(url: str, timeout: int = 25) -> dict:
@@ -248,22 +307,79 @@ def _fetch_json(url: str, timeout: int = 25) -> dict:
         return json.loads(resp.read().decode("utf-8"))
 
 
-def fetch_us_events(categories=US_CATEGORIES, fetch_json=_fetch_json) -> list:
-    """Fetch tradeable-ish US events across the non-sports categories."""
+def fetch_us_events(categories=US_CATEGORIES, fetch_json=_fetch_json, attempts=3) -> list:
+    """Fetch tradeable US events across the non-sports categories, slimmed.
+
+    Each category is retried with backoff (the gateway can 429/timeout); a
+    category that fails ALL attempts is skipped rather than failing the whole
+    fetch. Returns [] only if every category failed (caller then uses cache)."""
+    import time
     out: list = []
     for cat in categories:
-        try:
-            data = fetch_json(f"{US_BASE}/v1/events?categories={cat}&limit=500")
-            out.extend(data.get("events") or [])
-        except Exception as e:               # best-effort per category
-            print(f"us_market: fetch {cat} failed: {e}")
+        for a in range(attempts):
+            try:
+                data = fetch_json(f"{US_BASE}/v1/events?categories={cat}&limit=500")
+                out.extend(slim_event(e) for e in (data.get("events") or []))
+                break
+            except Exception as e:
+                if a == attempts - 1:
+                    print(f"us_market: fetch {cat} failed after {attempts} tries: {e}")
+                else:
+                    time.sleep(0.6 * (a + 1))   # 0.6s, 1.2s backoff
     return out
 
 
 def build_us_index(fetch_json=_fetch_json):
-    """Fetch + build the live US index. Returns None on total failure."""
+    """Fetch + build the live US index. Returns (index, events) or (None, [])
+    so the caller can cache `events` as the last-good catalog."""
     events = fetch_us_events(fetch_json=fetch_json)
     if not events:
-        return None
+        return None, []
     idx = build_index_from_events(events)
-    return idx if idx.get("items") else None
+    return (idx if idx.get("items") else None), events
+
+
+def _selftest() -> int:
+    """Hit the LIVE gateway and assert the catalog shape + that the recurring
+    families still resolve — catches Polymarket-US API drift early.
+        python -m poller.us_market --selftest
+    """
+    print("us_market selftest — fetching live Polymarket US catalog…")
+    idx, events = build_us_index()
+    if not idx:
+        print("  FAIL: no events fetched / no tradeable events built.")
+        return 1
+    print(f"  fetched {len(events)} events; {len(idx['items'])} tradeable non-sports.")
+    cats = sorted({e.get("category") for e in events})
+    print(f"  categories present: {cats}")
+    # shape: every indexed event has the fields the matcher + dashboard need
+    bad = [e for e in idx["items"] if not (e.get("slug") and e.get("title") and e.get("url"))]
+    if bad:
+        print(f"  FAIL: {len(bad)} indexed events missing slug/title/url.")
+        return 1
+    # behaviour: the canonical families we expect on US should match SOMETHING
+    probes = {
+        "house-midterm": "Will the Republican Party control the House after the 2026 Midterm elections?",
+        "senate-midterm": "Will the Democratic Party control the Senate after the 2026 Midterms?",
+    }
+    ok = True
+    for name, title in probes.items():
+        hit = match_title(title, idx)
+        print(f"  probe {name:14s}: {'OK -> ' + hit['us_slug'] if hit else 'NO MATCH'}")
+        if not hit:
+            ok = False
+    # a couple of guards against false positives
+    for title in ["Will Haiti win the 2026 FIFA World Cup?", "US x Iran permanent peace deal by June 30, 2026?"]:
+        if match_title(title, idx):
+            print(f"  FAIL: false positive on {title!r}")
+            ok = False
+    print("  RESULT:", "PASS" if ok else "FAIL")
+    return 0 if ok else 1
+
+
+if __name__ == "__main__":
+    import sys
+    if "--selftest" in sys.argv:
+        raise SystemExit(_selftest())
+    idx, events = build_us_index()
+    print(f"{len(events)} events, {len(idx['items']) if idx else 0} tradeable non-sports.")
