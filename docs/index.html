@@ -742,12 +742,14 @@ function renderPerformance(){
   }
   function closedTable(trades){
     if(!trades.length) return $(`<div class="empty">No closed trades yet — they'll appear as positions resolve or the cohort exits them.</div>`);
+    const RL={resolved:'resolved',cohort_abandoned:'cohort exited',leader_abandoned:'leader exited',stop_loss:'stop-loss',signal_decayed:'agreement faded'};
+    const RT={resolved:'The market resolved (outcome decided)',cohort_abandoned:'Every top trader exited this position',leader_abandoned:'The #1 trader exited this position',stop_loss:`Price fell past the −${Math.round((cfg.stop_loss_pct??0.25)*100)}% stop-loss`,signal_decayed:'Agreement fell back below the buy bar — enough of the cohort sold that it is no longer a consensus signal'};
     const rows=trades.map(t=>{const stake=+t.stake_usd||0,rp=+t.realized_pnl||0;
       return {tier:tagEl(t.tier_at_entry),market:mlink(t.slug,t.title,50),outcome:esc(t.outcome),entry:+t.entry_price||0,_entry:round(t.entry_price),
         exit:+t.exit_price||0,_exit:t.exit_price==null?'—':round(t.exit_price),rpnl:rp,_rpnl:`<span class="${sgn(rp)}">${money(rp)}</span>`,
         pct:stake?rp/stake:0,_pct:stake?`<span class="${sgn(rp)}">${(rp/stake*100).toFixed(0)}%</span>`:'—',
         result:t.resolved_won==null?'<span class="muted">—</span>':(t.resolved_won?'<span class="pos">✓ won</span>':'<span class="neg">✗ lost</span>'),
-        reason:esc((t.close_reason||'').replace(/_/g,' ')),closed:esc(String(t.exit_at||'').slice(0,10))};});
+        reason:`<span title="${esc(RT[t.close_reason]||'')}">${esc(RL[t.close_reason]||(t.close_reason||'').replace(/_/g,' '))}</span>`,closed:esc(String(t.exit_at||'').slice(0,10))};});
     return tableEl([{key:'tier',label:'Tier'},{key:'market',label:'Market'},{key:'outcome',label:'Outcome'},{key:'_entry',label:'Entry',sortKey:'entry',num:1},
       {key:'_exit',label:'Exit',sortKey:'exit',num:1},{key:'_rpnl',label:'Realized',sortKey:'rpnl',num:1},{key:'_pct',label:'P&L %',sortKey:'pct',num:1},
       {key:'result',label:'Result'},{key:'reason',label:'Why closed'},{key:'closed',label:'Closed'}],
