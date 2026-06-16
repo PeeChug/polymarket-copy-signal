@@ -46,10 +46,11 @@ class Config:
 
     # exit: close a trade if it falls this fraction below entry (0 = off, 0.5 = -50%)
     stop_loss_pct: float = 0.0
-    # when the cohort is split on a market (both sides held): 'dominant' = trade only
-    # the side with more earners (ties broken by holders' 30d P&L), 'both' = trade
-    # both sides (old behavior), 'skip' = don't trade a contested market at all.
-    contested_policy: str = "dominant"
+    # when the cohort is split on a market (both sides held): 'both' = trade both
+    # sides (default — top traders often run box spreads / hedges, so this is a real
+    # signal worth testing; the unique index still blocks identical dupes), 'dominant'
+    # = only the stronger side (ties -> holders' 30d P&L), 'skip' = don't trade it.
+    contested_policy: str = "both"
 
     # metadata (set when loaded from the DB; not user-editable)
     id: Optional[int] = None

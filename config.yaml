@@ -43,6 +43,6 @@ control_respects_guardrails: true   # apply liquidity + max_entry to the #1-copy
 # --- exit + conflict rules --------------------------------------------------
 stop_loss_pct: 0                # close a trade if it falls this fraction below entry. 0 = off,
                                 # 0.5 = exit at -50%. (Prices are 0..1, so a "stop" is a % of entry.)
-contested_policy: dominant      # cohort split on a market (both sides held): 'dominant' = trade
-                                # only the side with more earners (ties -> higher holder 30d P&L);
-                                # 'both' = trade both (old, a wash); 'skip' = don't trade it at all
+contested_policy: both          # cohort split on a market (both sides held): 'both' = trade both
+                                # (box spreads / hedges are a real strategy worth testing); 'dominant'
+                                # = only the stronger side (ties -> higher holder 30d P&L); 'skip' = none

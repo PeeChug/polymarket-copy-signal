@@ -219,9 +219,7 @@
     <div class="brand">📊 Polymarket Copy-Signal <span class="ro">read-only</span></div>
     <div class="meta" id="meta"></div>
     <div class="hdr-actions">
-      <button class="tbtn ic" id="refresh" title="Refresh — re-fetch the latest published data">↻</button>
-      <a class="tbtn ic" href="https://github.com/PeeChug/polymarket-copy-signal/actions/workflows/poller.yml" target="_blank" rel="noopener" title="Run the poller now on GitHub ↗">⚡</a>
-      <button class="tbtn ic" id="autopoll" title="Auto-poll: trigger the poller while this tab is open">⏱</button>
+      <button class="tbtn ic" id="refresh" title="Refresh — pull a fresh cycle now">↻</button>
       <button class="tbtn ic" id="themebtn" title="Toggle light / dark theme (t)">☀️</button>
       <button class="tbtn ic" id="helpbtn" title="Keyboard shortcuts (?)">⌨️</button>
       <button class="tbtn ic" id="settingsbtn" title="Settings">⚙️</button>
@@ -241,13 +239,14 @@
 <div class="wrap">
   <div class="stale" id="stale"></div>
   <div id="tokenSetup" class="card" style="display:none;margin-top:14px">
-    <b>Enable auto-poll</b> — while this tab is open, the page will trigger the cloud poller every 15&nbsp;min.
-    It needs a GitHub token, <b>stored only in this browser</b> (localStorage) and never uploaded to the public site.
-    Create a <b>fine-grained</b> token with <b>Actions: Read and write</b> scoped to this one repo:
+    <b>GitHub token</b> — only used to <b>save paper-trade config changes</b> from this page (it commits
+    <code>config.yaml</code>). Stored <b>only in this browser</b> (localStorage), never uploaded. Optional —
+    skip it unless you want to edit the config here. Create a <b>fine-grained</b> token with
+    <b>Contents: Read and write</b> scoped to this one repo:
     <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">create token ↗</a>
     <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
       <input type="password" id="ghtok" placeholder="github_pat_…" style="flex:1;min-width:240px">
-      <button class="tbtn" id="ghtoksave">Save &amp; enable</button>
+      <button class="tbtn" id="ghtoksave">Save</button>
       <button class="tbtn" id="ghtokcancel">Cancel</button>
       <button class="tbtn" id="ghtokforget" style="margin-left:auto">Forget token</button>
     </div>
@@ -259,16 +258,14 @@
   <section id="tab-performance" class="tab"></section>
   <section id="tab-backtest" class="tab"></section>
   <section id="tab-signals" class="tab"></section>
-  <p class="sub" style="margin-top:34px">Auto-updates every ~30 min via a GitHub Action reading public Polymarket APIs. Source: <a href="https://github.com/PeeChug/polymarket-copy-signal">github.com/PeeChug/polymarket-copy-signal</a>.</p>
+  <p class="sub" style="margin-top:34px">Auto-updates every ~5 min: a Cloudflare cron triggers the poller, which stores to Supabase and serves the data from there. Source: <a href="https://github.com/PeeChug/polymarket-copy-signal">github.com/PeeChug/polymarket-copy-signal</a>.</p>
 </div>
 <div class="scrim" id="scrim"></div>
 <div class="panelx" id="settings">
   <h3>⚙️ Settings</h3>
-  <div class="row"><label>Auto-poll frequency (while tab open)</label>
-    <select id="setPoll"><option value="5">every 5 min</option><option value="10">every 10 min</option><option value="15">every 15 min</option><option value="30">every 30 min</option></select></div>
   <div class="row"><label>View refresh (re-read data)</label>
     <select id="setRefresh"><option value="1">every 1 min</option><option value="2.5">every 2.5 min</option><option value="5">every 5 min</option></select></div>
-  <div class="row"><label>Auto-poll token</label>
+  <div class="row"><label>GitHub token <span class="muted" style="font-size:11px;font-weight:400">— only to save config changes below</span></label>
     <div id="setTokenStatus" class="muted" style="font-size:12.5px;margin-bottom:6px"></div>
     <button class="tbtn" id="setTokenBtn">Set / update token</button>
     <button class="tbtn" id="setTokenForget">Forget token</button></div>
@@ -477,7 +474,7 @@ const state={ tab:'traders',
   sig:{key:'overlap',dir:-1,q:'',tier:'all',minOv:1,minLiq:0,hideClosed:false},
   perf:{ok:'unrealized_pnl',od:-1,ck:'realized_pnl',cd:-1},
   buy:{key:'score',dir:-1,preset:'score',minLiq:1000,minAgree:3,maxPrice:0.97,due:0},
-  settings:{pollMin:15, refreshMin:2.5, tf:0, area:false, bankroll:1000, notify:false, tgOn:false} };
+  settings:{refreshMin:2.5, tf:0, area:false, bankroll:1000, notify:false, tgOn:false} };
 // per-session row caps so big tables stay light in the DOM ("Show all" lifts them)
 const viewCap={cons:60, sig:60, buy:80};
 const histCap={resolved:50};
@@ -711,6 +708,10 @@ function renderPerformance(){
 
   if((d.history||[]).some(h=>h.green_net!=null||h.blue_net!=null)){
     el.appendChild($(`<h2 style="margin-top:26px">Green vs. blue net P&L over time</h2>`));
+    const tfs=[['1','1H'],['24','1D'],['168','1W'],['720','1M'],['8760','1Y'],['0','All']];
+    const bar=$(`<div class="toolbar" style="margin:6px 0 2px">Timeline ${tfs.map(o=>`<button class="tbtn tfb${+state.settings.tf===+o[0]?' on-acc':''}" data-tf="${o[0]}">${o[1]}</button>`).join('')}</div>`);
+    bar.querySelectorAll('.tfb').forEach(b=>b.onclick=()=>{ state.settings.tf=+b.dataset.tf; persist(); renderPerformance(); });
+    el.appendChild(bar);
     el.appendChild(chart(d.history,[{key:'green_net',color:'var(--green)',label:'Green',money:true},{key:'blue_net',color:'var(--blue)',label:'Blue',money:true}]));
   }
 
@@ -730,6 +731,12 @@ function renderPerformance(){
 
   el.appendChild($(`<h2 style="margin-top:30px">Closed trades — track record <span class="muted" style="font-size:13px;font-weight:400">(${(d.closed_positions||[]).length})</span></h2>`));
   el.appendChild($(`<p class="sub">Realized results once a position resolved or the cohort dropped it — the strategy's actual scorecard.</p>`));
+  {const m=d.performance.overlap||{},cp=d.closed_positions||[],rps=cp.map(t=>+t.realized_pnl||0);
+   const avg=m.closed_count?m.realized_pnl/m.closed_count:null,best=rps.length?Math.max(...rps):null,worst=rps.length?Math.min(...rps):null;
+   el.appendChild($(`<div class="card"><div class="metrics">
+     ${metric('Realized P&L',money(m.realized_pnl),sgn(m.realized_pnl))}${metric('Closed trades',m.closed_count??0)}${metric('Win rate',pct(m.win_rate))}
+     ${metric('Wins',m.wins??0,'pos')}${metric('Losses',m.losses??0,(m.losses?'neg':''))}${metric('ROI (realized)',pct(m.roi_realized),sgn(m.roi_realized))}
+     ${metric('Avg / trade',money(avg),sgn(avg))}${metric('Best',money(best),sgn(best))}${metric('Worst',money(worst),sgn(worst))}</div></div>`));}
   const clRows=(d.closed_positions||[]).map(t=>{const stake=+t.stake_usd||0,rp=+t.realized_pnl||0;
     return {tier:tagEl(t.tier_at_entry),market:mlink(t.slug,t.title,50),outcome:esc(t.outcome),entry:+t.entry_price||0,_entry:round(t.entry_price),
       exit:+t.exit_price||0,_exit:t.exit_price==null?'—':round(t.exit_price),rpnl:rp,_rpnl:`<span class="${sgn(rp)}">${money(rp)}</span>`,
@@ -995,8 +1002,8 @@ function relTime(d){ if(!d)return ''; const s=(Date.now()-d.getTime())/1000;
 function updateMeta(){ const d=DATA&&DATA.generated_at?new Date(DATA.generated_at):null; const ok=DATA&&(DATA.last_cycle||{}).status==='ok';
   document.getElementById('meta').innerHTML=(d?`updated ${relTime(d)} `:'')+(ok?'<span class="pill live"><span class="dot"></span>live</span>':'<span class="pill">—</span>');
   const st=document.getElementById('stale');
-  if(d && (Date.now()-d.getTime())>90*60*1000){
-    st.innerHTML=`⏳ This data is from <b>${relTime(d)}</b> — the scheduled poller may not have run. Hit <b>↻ Refresh</b> for the latest published data, or <b>⚡ Run poller</b> to fetch fresh data now.`;
+  if(d && (Date.now()-d.getTime())>40*60*1000){
+    st.innerHTML=`⏳ This data is from <b>${relTime(d)}</b> — fresher than expected for the 5-min cadence. Hit <b>↻ Refresh</b> to pull a new cycle now.`;
     st.classList.add('show');
   } else st.classList.remove('show');
 }
@@ -1048,36 +1055,10 @@ function load(initial){
 }
 // ---- in-page auto-poll + settings ----
 // Token stored ONLY in this browser (localStorage); the public site never contains it.
-const GH_DISPATCH='https://api.github.com/repos/PeeChug/polymarket-copy-signal/actions/workflows/poller.yml/dispatches';
-let pokeTimer=null, refreshTimer=null;
+let refreshTimer=null;
 const lsGet=(k,d='')=>{try{return localStorage.getItem(k)??d;}catch(e){return d;}};
 const lsSet=(k,v)=>{try{localStorage.setItem(k,v);}catch(e){}};
-const ghToken=()=>lsGet('pm_gh_token','');
-const autopollOn=()=>lsGet('pm_autopoll','0')==='1';
-const pollMs=()=>(state.settings.pollMin||15)*60000;
-async function pokePoller(){
-  const tok=ghToken(); if(!tok) return false;
-  try{
-    const r=await fetch(GH_DISPATCH,{method:'POST',headers:{'Authorization':'Bearer '+tok,'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'},body:JSON.stringify({ref:'main'})});
-    if(r.status===204){ lsSet('pm_lastpoke',String(Date.now())); renderAutopoll(); toast('⏱ Poller triggered — fresh data in ~1–2 min'); return true; }
-    toast(r.status===401||r.status===403?'Auto-poll: token rejected ('+r.status+') — needs Actions: write':'Auto-poll: trigger failed ('+r.status+')');
-  }catch(e){ toast('Auto-poll: network error'); }
-  return false;
-}
-function renderAutopoll(){ const b=document.getElementById('autopoll'); if(!b) return;
-  const on=autopollOn()&&!!ghToken(); b.classList.toggle('on-acc',on);
-  let status='Auto-poll: '+(on?'on':'off');
-  if(on){ const last=+lsGet('pm_lastpoke','0'); if(last) status+=' · next ~'+Math.max(0,(state.settings.pollMin||15)-Math.floor((Date.now()-last)/60000))+'m'; }
-  b.textContent='⏱'; b.title=status+' — trigger the poller while this tab is open';
-}
-function startPoke(){ clearInterval(pokeTimer); pokeTimer=setInterval(pokePoller,pollMs());
-  if(Date.now()-(+lsGet('pm_lastpoke','0'))>pollMs()) pokePoller(); renderAutopoll(); }
-function stopPoke(){ clearInterval(pokeTimer); pokeTimer=null; renderAutopoll(); }
-function toggleAutopoll(){
-  if(autopollOn()){ lsSet('pm_autopoll','0'); stopPoke(); toast('Auto-poll off'); return; }
-  if(!ghToken()){ const p=document.getElementById('tokenSetup'); p.style.display='block'; document.getElementById('ghtok').focus(); return; }
-  lsSet('pm_autopoll','1'); startPoke(); toast('⏱ Auto-poll on — triggers every '+(state.settings.pollMin||15)+' min while this tab is open');
-}
+const ghToken=()=>lsGet('pm_gh_token','');   // optional, only for the in-page config editor
 function startRefresh(){ clearInterval(refreshTimer); refreshTimer=setInterval(()=>load(false),(state.settings.refreshMin||2.5)*60000); }
 // ---- Telegram alerts (browser-side; token+chat stored only in this browser) ----
 const tgTok=()=>lsGet('pm_tg_token','');
@@ -1120,8 +1101,8 @@ async function saveConfig(){
     else st.innerHTML='<span class="neg">Save failed ('+put.status+').</span>';
   }catch(e){ st.innerHTML='<span class="neg">Network error.</span>'; }
 }
-function syncSettingsUI(){ const g=(id)=>document.getElementById(id); if(!g('setPoll')) return;
-  g('setPoll').value=String(state.settings.pollMin); g('setRefresh').value=String(state.settings.refreshMin);
+function syncSettingsUI(){ const g=(id)=>document.getElementById(id); if(!g('setRefresh')) return;
+  g('setRefresh').value=String(state.settings.refreshMin);
   g('setTF').value=String(state.settings.tf); g('setStyle').value=state.settings.area?'area':'line';
   if(g('setTheme')) g('setTheme').value=curTheme();
   if(g('setNotify')) g('setNotify').checked=!!state.settings.notify;
@@ -1132,16 +1113,14 @@ function syncSettingsUI(){ const g=(id)=>document.getElementById(id); if(!g('set
   if(g('tgChat')) g('tgChat').value=tgChatId();
   if(g('tgTok')) g('tgTok').placeholder=tgTok()?'saved ✓ (paste to replace)':'123456:ABC-…';
   if(g('tgOn')) g('tgOn').checked=!!state.settings.tgOn;
-  g('setTokenStatus').textContent=ghToken()?('Token set ✓ — auto-poll '+(autopollOn()?'on':'off')):'No token set'; }
-function applySettings(){ startRefresh(); if(autopollOn()&&ghToken()) startPoke(); else { clearInterval(pokeTimer); renderAutopoll(); } syncSettingsUI(); }
-function initAutopoll(){
-  const b=document.getElementById('autopoll'); if(b) b.onclick=toggleAutopoll;
+  g('setTokenStatus').textContent=ghToken()?'Token set ✓ (used only to save config)':'No token set'; }
+function applySettings(){ startRefresh(); syncSettingsUI(); }
+function initTokenSetup(){
   const panel=document.getElementById('tokenSetup'), inp=document.getElementById('ghtok');
   const save=document.getElementById('ghtoksave'), cancel=document.getElementById('ghtokcancel'), forget=document.getElementById('ghtokforget');
-  if(save) save.onclick=()=>{ const v=(inp.value||'').trim(); if(!v){toast('Paste a token first');return;} lsSet('pm_gh_token',v); inp.value=''; panel.style.display='none'; lsSet('pm_autopoll','1'); startPoke(); syncSettingsUI(); toast('Token saved (this browser only) · auto-poll on'); };
+  if(save) save.onclick=()=>{ const v=(inp.value||'').trim(); if(!v){toast('Paste a token first');return;} lsSet('pm_gh_token',v); inp.value=''; panel.style.display='none'; syncSettingsUI(); toast('Token saved (this browser only)'); };
   if(cancel) cancel.onclick=()=>{ panel.style.display='none'; };
-  if(forget) forget.onclick=()=>{ lsSet('pm_gh_token',''); lsSet('pm_autopoll','0'); stopPoke(); if(inp)inp.value=''; panel.style.display='none'; syncSettingsUI(); toast('Token forgotten'); };
-  renderAutopoll(); setInterval(renderAutopoll,60000);
+  if(forget) forget.onclick=()=>{ lsSet('pm_gh_token',''); if(inp)inp.value=''; panel.style.display='none'; syncSettingsUI(); toast('Token forgotten'); };
 }
 function initSettings(){
   const g=(id)=>document.getElementById(id), panel=g('settings'), scrim=g('scrim');
@@ -1149,7 +1128,6 @@ function initSettings(){
   const close=()=>{ panel.classList.remove('open'); scrim.classList.remove('open'); };
   g('settingsbtn').onclick=open; g('setClose').onclick=close;
   scrim.onclick=()=>{ panel.classList.remove('open'); g('modal').classList.remove('open'); scrim.classList.remove('open'); };
-  g('setPoll').onchange=e=>{ state.settings.pollMin=+e.target.value; persist(); if(autopollOn()&&ghToken()) startPoke(); renderAutopoll(); toast('Auto-poll set to every '+state.settings.pollMin+' min'); };
   g('setRefresh').onchange=e=>{ state.settings.refreshMin=+e.target.value; persist(); startRefresh(); };
   g('setTF').onchange=e=>{ state.settings.tf=+e.target.value; persist(); RENDER[state.tab](); };
   g('setStyle').onchange=e=>{ state.settings.area=e.target.value==='area'; persist(); RENDER[state.tab](); };
@@ -1165,7 +1143,7 @@ function initSettings(){
   if(g('tgTest')) g('tgTest').onclick=async()=>{ if(!tgTok()||!tgChatId()){ g('tgStatus').innerHTML='<span class="neg">Need a saved token + chat ID first.</span>'; return; } g('tgStatus').textContent='Sending…'; const ok=await tgSend('✅ Test from your Polymarket Copy-Signal dashboard — alerts are working.'); g('tgStatus').innerHTML=ok?'<span class="pos">✓ Sent — check Telegram.</span>':'<span class="neg">Failed. Re-check the token, and that you messaged the bot + ran Find my chat ID.</span>'; };
   if(g('tgOn')) g('tgOn').onchange=e=>{ if(e.target.checked&&(!tgTok()||!tgChatId())){ e.target.checked=false; g('tgStatus').innerHTML='<span class="neg">Set token + chat ID first.</span>'; return; } state.settings.tgOn=e.target.checked; persist(); g('tgStatus').innerHTML=e.target.checked?'<span class="pos">Telegram alerts on.</span>':'Telegram alerts off.'; };
   g('setTokenBtn').onclick=()=>{ close(); const p=g('tokenSetup'); p.style.display='block'; g('ghtok').focus(); p.scrollIntoView({behavior:'smooth'}); };
-  g('setTokenForget').onclick=()=>{ lsSet('pm_gh_token',''); lsSet('pm_autopoll','0'); stopPoke(); syncSettingsUI(); toast('Token forgotten'); };
+  g('setTokenForget').onclick=()=>{ lsSet('pm_gh_token',''); syncSettingsUI(); toast('Token forgotten'); };
   g('setReset').onclick=()=>{ Object.assign(state.trd,{sort:'rank',show:12,q:'',sharedOnly:false,verifiedOnly:false});
     Object.assign(state.cons,{key:'overlap',dir:-1,min:2,q:'',minLiq:0,due:0,contest:'any',cat:'any',hideResolved:true});
     Object.assign(state.sig,{key:'overlap',dir:-1,q:'',tier:'all',minOv:1,minLiq:0,hideClosed:false});
@@ -1174,7 +1152,7 @@ function initSettings(){
 applyTheme(curTheme());
 document.getElementById('themebtn').onclick=toggleTheme;
 document.getElementById('helpbtn').onclick=showHelp;
-initAutopoll(); initSettings(); startRefresh();
+initTokenSetup(); initSettings(); startRefresh();
 showSkeleton(); load(true);
 </script>
 </body>
