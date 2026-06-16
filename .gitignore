@@ -27,6 +27,11 @@ dryrun_*.json
 data/observations.jsonl
 data/leaderboard.jsonl
 
+# Dashboard payload now served from Supabase Storage, not committed per cycle.
+# The last committed copy stays as a fallback; the poller writes a fresh local
+# copy each run (gitignored) and uploads it to Supabase.
+docs/data.json
+
 # OS / editor
 .DS_Store
 .idea/
