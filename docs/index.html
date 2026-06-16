@@ -620,7 +620,7 @@ function renderConsensus(){
       <input type="range" id="cslider" min="2" max="${Math.min(maxc,10)}" step="1" value="${Math.min(state.cons.min,Math.min(maxc,10))}" style="width:96px">
       <span class="qp">${[2,3,5,10].map(v=>`<button class="tbtn cqp${state.cons.min===v?' on-acc':''}" data-v="${v}">≥${v}</button>`).join('')}</span></span>
     <input type="search" id="cq" placeholder="Search market…" value="${esc(state.cons.q)}">
-    ${sortBar('csort',[['overlap','Agreement'],['mom','Momentum'],['edge','Edge'],['price','Price'],['rts','Resolves']],state.cons)}
+    ${sortBar('csort',[['overlap','Agreement'],['mom','Momentum'],['edge','Edge'],['notional','Conviction'],['price','Price'],['rts','Resolves']],state.cons)}
     ${sel('cliq','Min liq',[['0','any'],['1000','$1k'],['10000','$10k'],['100000','$100k']],String(state.cons.minLiq))}
     ${sel('cdue','Resolves',[['0','any'],['7','≤7d'],['30','≤30d']],String(state.cons.due))}
     ${sel('ccontest','Conviction',[['any','any'],['unanimous','unanimous'],['contested','contested']],state.cons.contest)}
@@ -647,14 +647,15 @@ function renderConsensus(){
       return true;
     });
     let rows=filtered.map(o=>{const rd=relDate(o.end_date),e=edgeFor(o,cal);
-      return {_id:o.asset, _cls:flashCls(o.asset), overlap:o.overlap||0, mom:o.momentum||0, edge:e==null?-Infinity:e,
+      return {_id:o.asset, _cls:flashCls(o.asset), overlap:o.overlap||0, mom:o.momentum||0, edge:e==null?-Infinity:e, notional:+o.notional||0,
         _agree:npCell(o,cohort), _mom:momCell(o.momentum), _edge:e==null?'<span class="muted">—</span>':`<span class="${e>=0?'pos':'neg'}">${e>=0?'+':''}${(e*100).toFixed(0)}%</span>`,
+        _notional:o.notional?fmtC(o.notional):'<span class="muted">—</span>',
         tier:tagEl(o.tier), market:mlinkDD(o), pick:pickBtn(o), outcome:esc(o.outcome),
         price:o.price==null?0:o.price, _price:o.price==null?'—':round(o.price),
         rts:rd?rd.ts:Infinity, _res:rd?`<span class="due ${rd.cls}">${rd.txt}</span>`:'—', earners:holders(o)};});
     rows=sortRows(rows,state.cons.key,state.cons.dir);
     const t=tableEl([{key:'pick',label:''},{key:'_agree',label:'Agreement',sortKey:'overlap',num:1},{key:'_mom',label:'Mom',sortKey:'mom',num:1},
-      {key:'_edge',label:'Edge',sortKey:'edge',num:1},{key:'tier',label:'Tier'},{key:'market',label:'Market'},
+      {key:'_edge',label:'Edge',sortKey:'edge',num:1},{key:'_notional',label:'Conviction',sortKey:'notional',num:1},{key:'tier',label:'Tier'},{key:'market',label:'Market'},
       {key:'outcome',label:'Outcome'},{key:'_price',label:'Price',sortKey:'price',num:1},
       {key:'_res',label:'Resolves',sortKey:'rts',num:1},{key:'earners',label:'Which earners hold it'}],rows,state.cons,
       k=>{state.cons.dir=state.cons.key===k?-state.cons.dir:-1;state.cons.key=k;draw();}, viewCap.cons, ()=>{ viewCap.cons=Infinity; draw(); });
@@ -676,7 +677,7 @@ function renderConsensus(){
   tb.querySelector('#ccsv').onclick=()=>downloadCSV('consensus.csv',filtered,[
     {label:'agreement',get:o=>`${o.overlap}/${o.participants||o.overlap}`},{label:'overlap',key:'overlap'},{label:'participants',key:'participants'},
     {label:'tier',key:'tier'},{label:'momentum',key:'momentum'},{label:'market',key:'title'},{label:'outcome',key:'outcome'},
-    {label:'price',key:'price'},{label:'liquidity',key:'liquidity'},{label:'category',get:categoryOf},{label:'resolves',key:'end_date'}]);
+    {label:'price',key:'price'},{label:'liquidity',key:'liquidity'},{label:'notional',key:'notional'},{label:'category',get:categoryOf},{label:'resolves',key:'end_date'}]);
   draw();
 }
 
