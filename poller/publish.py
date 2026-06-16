@@ -95,4 +95,37 @@ def write_site(store, run_result: dict, docs_dir: str = "docs") -> str:
     with open(tmp, "w") as fh:
         json.dump(payload, fh, indent=2, default=str)
     os.replace(tmp, path)
+
+    pub = _publish_to_supabase_storage(payload)
+    if pub:
+        print(f"published dashboard payload -> {pub}")
     return path
+
+
+def _publish_to_supabase_storage(payload: dict, bucket: str = "dashboard", name: str = "data.json"):
+    """Best-effort: upload the dashboard payload to a PUBLIC Supabase Storage
+    bucket so the dashboard can fetch it directly — no git commit / Pages build,
+    which is what lets the poll cadence go high. No-op when SUPABASE_* aren't set.
+    The bucket is created on first run (idempotent). Same already-public data as
+    the committed docs/data.json; this just hosts it where it can update freely."""
+    import requests
+    url = os.environ.get("SUPABASE_URL")
+    key = os.environ.get("SUPABASE_KEY") or os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+    if not (url and key):
+        return None
+    base = url.rstrip("/") + "/storage/v1"
+    auth = {"apikey": key, "Authorization": f"Bearer {key}"}
+    body = json.dumps(payload, default=str).encode("utf-8")
+    try:
+        # ensure the public bucket exists (409/400 if it already does — fine)
+        requests.post(f"{base}/bucket", headers={**auth, "Content-Type": "application/json"},
+                      data=json.dumps({"id": bucket, "name": bucket, "public": True}), timeout=15)
+        r = requests.post(f"{base}/object/{bucket}/{name}",
+                          headers={**auth, "Content-Type": "application/json", "x-upsert": "true"},
+                          data=body, timeout=30)
+        if r.ok:
+            return f"{url.rstrip('/')}/storage/v1/object/public/{bucket}/{name}"
+        print(f"supabase storage upload failed: {r.status_code} {r.text[:200]}")
+    except Exception as e:
+        print(f"supabase storage upload error: {e}")
+    return None
