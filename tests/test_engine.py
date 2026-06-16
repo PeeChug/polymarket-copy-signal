@@ -293,10 +293,10 @@ class TestEngineLifecycle(unittest.TestCase):
         self.assertTrue(traders["w2"]["eligible"])
 
     def test_signal_decay_closes_thinned_position(self):
-        # open at overlap 4; cohort thins to 1 holder (< 0.5*4) -> signal_decayed close
-        # even though one holder remains (so it is NOT a full abandonment).
+        # open at overlap 4; cohort thins to 1 holder (< buy bar of 2) -> signal_decayed
+        # close even though one holder remains (so it is NOT a full abandonment).
         self.store = MemoryStore()
-        self.store.insert_config({**CFG, "top_n": 4, "exit_overlap_frac": 0.5,
+        self.store.insert_config({**CFG, "top_n": 4, "min_tier_to_trade": "blue",
                                   "tier_blue_min": 2, "tier_green_min": 3})
         self.c.lb = [L(1, "w1"), L(2, "w2"), L(3, "w3"), L(4, "w4")]
         self.c.markets_map = {"mA": M("mA")}

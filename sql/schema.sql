@@ -45,7 +45,6 @@ create table if not exists config_history (
 
     -- exit + conflict rules
     stop_loss_pct               numeric not null default 0.25,       -- close if down this fraction from entry (0=off, 0.25=-25%)
-    exit_overlap_frac           numeric not null default 0.5,        -- signal-decay exit: close if overlap < this fraction of entry overlap
     contested_policy            text    not null default 'both',     -- 'both' | 'dominant' | 'skip'
 
     -- cohort quality (which top earners count toward a signal)
