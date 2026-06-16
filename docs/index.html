@@ -75,9 +75,16 @@
   .pnlbig { font-size:27px; font-weight:800; letter-spacing:-.5px; font-variant-numeric:tabular-nums; }
   .pnlbig .lab { display:block; font-size:11px; font-weight:600; color:var(--muted); letter-spacing:.04em; text-transform:uppercase; margin-bottom:2px; }
   .statrow { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin:14px 0 4px; }
-  .stat { background:var(--bg2); border:1px solid var(--line); border-radius:9px; padding:8px 10px; }
-  .stat .k { color:var(--muted); font-size:10.5px; text-transform:uppercase; letter-spacing:.03em; }
+  .statgrid { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin:14px 0 4px; }
+  .stat { background:var(--bg2); border:1px solid var(--line); border-radius:9px; padding:8px 10px; min-height:50px; display:flex; flex-direction:column; justify-content:center; }
+  .stat .k { color:var(--muted); font-size:10px; text-transform:uppercase; letter-spacing:.03em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .stat .v { font-size:15px; font-weight:600; font-variant-numeric:tabular-nums; margin-top:1px; }
+  .stat .v .sub2 { font-size:11px; color:var(--muted); font-weight:600; margin-left:4px; }
+  .inactive { font-size:10px; padding:1px 6px; border-radius:999px; background:var(--panel2); border:1px solid var(--line); color:var(--muted); font-weight:600; white-space:nowrap; }
+  .tcard.dim { opacity:.68; } .tcard.dim:hover { opacity:1; }
+  .tcard.noanim { animation:none; }
+  .plist .pp { flex:none; font-size:11px; font-variant-numeric:tabular-nums; margin-left:auto; }
+  .plist .pp + .pv { margin-left:10px; }
   .pos { color:var(--green); } .neg { color:var(--red); }
   .spark { width:90px; height:24px; }
   details.pos-list { margin-top:12px; border-top:1px solid var(--line); padding-top:8px; }
@@ -411,10 +418,14 @@ function spark(vals){ if(!vals||vals.length<2) return '';
   return `<svg class="spark" viewBox="0 0 ${w} ${h}"><path d="${d}" fill="none" stroke="${up?'var(--green)':'var(--red)'}" stroke-width="1.6"/></svg>`;
 }
 // count-up animation
+let introDone=false;  // animate count-ups only on the first load; snap to value on refresh / tab switch
 function countUp(el){
-  const target=+el.dataset.target, neg=el.dataset.neg==='1', fmt=el.dataset.fmt==='money'?money:fmtC; let t0=null;
+  const target=+el.dataset.target, neg=el.dataset.neg==='1', fmt=el.dataset.fmt==='money'?money:fmtC;
+  const final=(neg?-1:1)*target;
+  if(introDone){ el.textContent=fmt(final); return; }   // refresh: jump straight to the value, not from 0
+  let t0=null;
   function step(ts){ if(!t0)t0=ts; const p=Math.min((ts-t0)/700,1); const e=1-Math.pow(1-p,3);
-    el.textContent=fmt((neg?-1:1)*target*e); if(p<1) requestAnimationFrame(step); }
+    el.textContent=fmt(final*e); if(p<1) requestAnimationFrame(step); }
   requestAnimationFrame(step);
 }
 function runCountups(root){ root.querySelectorAll('[data-target]').forEach(countUp); }
@@ -458,7 +469,7 @@ function isResolved(o){ if(o&&o.market_closed) return true; const rd=relDate(o&&
 
 let DATA=null;
 const state={ tab:'traders',
-  trd:{sort:'rank', show:12, q:'', sharedOnly:false, verifiedOnly:false},
+  trd:{sort:'rank', show:12, q:'', sharedOnly:false, verifiedOnly:false, activeOnly:true},
   cons:{key:'overlap',dir:-1,min:2,q:'',minLiq:0,due:0,contest:'any',cat:'any',hideResolved:true},
   sig:{key:'overlap',dir:-1,q:'',tier:'all',minOv:1,minLiq:0,hideClosed:false},
   perf:{ok:'unrealized_pnl',od:-1,ck:'realized_pnl',cd:-1},
@@ -510,26 +521,32 @@ function perfCard(title,m){ return `<div class="card"><h3>${title}</h3><div clas
 function traderCard(t,cohort){
   const nm=realName(t),col=palette(t.wallet),letter=esc((nm[0]||'?').toUpperCase());
   const img=t.profile_image&&/^https?:/i.test(t.profile_image)?`<img src="${esc(t.profile_image)}" onerror="this.remove()">`:'';
-  const shared=(t.positions||[]).filter(p=>(p.overlap||0)>=2).length;
+  const shared=(t.positions||[]).filter(p=>(p.overlap||0)>=2).length, np=t.n_positions||0;
+  const nwin=t.n_winning!=null?t.n_winning:(t.positions||[]).filter(p=>(p.cash_pnl||0)>0).length;
+  const winPct=np>0?Math.round(nwin/np*100):null;
   const positions=(t.positions||[]).slice(0,8).map(p=>{
     const sh=(p.overlap||0)>=2?`<span class="shb" title="${p.overlap} of ${p.participants||p.overlap} holders on this side">🤝 ${p.overlap}/${p.participants||p.overlap}</span>`:'';
-    return `<li><span class="oc">${esc(p.outcome)}</span><span class="ti">${mlink(p.slug,p.title,52)}</span>${sh}<span class="pv">${fmtC(p.current_value)}</span></li>`;}).join('');
-  const more=(t.n_positions||0)>8?`<li class="muted" style="border:0">+${t.n_positions-8} more…</li>`:'';
+    const pp=p.percent_pnl!=null?`<span class="pp ${sgn(p.cash_pnl)}" title="open P&L ${money(p.cash_pnl)}">${p.percent_pnl>=0?'+':''}${(p.percent_pnl*100).toFixed(0)}%</span>`:'';
+    return `<li><span class="oc">${esc(p.outcome)}</span><span class="ti">${mlink(p.slug,p.title,44)}</span>${sh}${pp}<span class="pv">${fmtC(p.current_value)}</span></li>`;}).join('');
+  const more=np>8?`<li class="muted" style="border:0">+${np-8} more…</li>`:'';
   const sp=t.sharp&&(t.sharp.resolved||0)>=3?`<span class="sharpb ${t.sharp.win_rate>=0.5?'good':''}" title="Won ${Math.round((t.sharp.win_rate||0)*100)}% of ${t.sharp.resolved} resolved consensus picks${t.sharp.avg_return!=null?` · avg ${t.sharp.avg_return>=0?'+':''}${Math.round(t.sharp.avg_return*100)}%`:''}">🎯 ${Math.round((t.sharp.win_rate||0)*100)}%</span>`:'';
-  return `<div class="tcard">
+  const inactive=np===0?'<span class="inactive" title="No open positions right now — not contributing to live consensus">💤 inactive</span>':'';
+  const stat=(k,v,cls='')=>`<div class="stat"><div class="k">${k}</div><div class="v ${cls}">${v}</div></div>`;
+  return `<div class="tcard${np===0?' dim':''}">
     <div class="thead"><div class="rankb r${t.rank}">${t.rank}</div>
       <div class="ava" style="background:${col}">${letter}${img}</div>
-      <div class="who"><div class="nm"><a href="${profUrl(t.wallet)}" target="_blank" rel="noopener">${esc(nm)}</a>${t.verified?'<span class="vbadge" title="verified">✓</span>':''}${sp}</div>
+      <div class="who"><div class="nm"><a href="${profUrl(t.wallet)}" target="_blank" rel="noopener">${esc(nm)}</a>${t.verified?'<span class="vbadge" title="verified">✓</span>':''}${sp}${inactive}</div>
         <div class="sm">${t.x_username?`<a class="xlink" href="https://x.com/${esc(t.x_username)}" target="_blank" rel="noopener">@${esc(t.x_username)}</a> · `:''}${esc((t.wallet||'').slice(0,6))}…${esc((t.wallet||'').slice(-4))}</div></div></div>
     <div class="pnlrow"><div class="pnlbig ${sgn(t.pnl)}"><span class="lab">30-day profit</span><span data-target="${Math.abs(t.pnl||0)}" data-neg="${(t.pnl||0)<0?1:0}">${fmtC(0)}</span></div>${spark(t.spark)}</div>
-    <div class="statrow">
-      <div class="stat"><div class="k">Volume</div><div class="v">${fmtC(t.volume)}</div></div>
-      <div class="stat"><div class="k">Positions</div><div class="v">${t.n_positions??'—'}</div></div>
-      <div class="stat"><div class="k">On table</div><div class="v">${fmtC(t.total_value)}</div></div></div>
-    <div class="statrow" style="grid-template-columns:1fr 1fr">
-      <div class="stat"><div class="k">Open P&L (now)</div><div class="v ${sgn(t.open_pnl)}">${fmtC(t.open_pnl)}</div></div>
-      <div class="stat"><div class="k">Cohort overlap</div><div class="v">${shared} shared</div></div></div>
-    ${positions?`<details class="pos-list"><summary>Top positions (${Math.min(8,t.n_positions||0)} of ${t.n_positions||0})</summary><ul class="plist">${positions}${more}</ul></details>`:'<div class="muted" style="margin-top:10px;font-size:13px">No open positions right now.</div>'}
+    <div class="statgrid">
+      ${stat('Volume',fmtC(t.volume))}
+      ${stat('Open positions',np||'—')}
+      ${stat('On table',fmtC(t.total_value))}
+      ${stat('Open P&L',fmtC(t.open_pnl),sgn(t.open_pnl))}
+      ${stat('In profit',np?`${nwin}/${np}<span class="sub2">${winPct}%</span>`:'—',(np&&winPct>=50)?'pos':'')}
+      ${stat('Overlap',`${shared} shared`)}
+    </div>
+    ${positions?`<details class="pos-list"><summary>Top positions (${Math.min(8,np)} of ${np})</summary><ul class="plist">${positions}${more}</ul></details>`:'<div class="muted" style="margin-top:10px;font-size:13px">No open positions right now.</div>'}
     <a class="gobtn" href="${profUrl(t.wallet)}" target="_blank" rel="noopener">View on Polymarket ↗</a></div>`;
 }
 
@@ -546,6 +563,7 @@ function renderTraders(){
     ${sel('trdsort','Sort by',[['rank','Rank'],['pnl','30d profit'],['volume','Volume'],['n_positions','Positions'],['open_pnl','Open P&L'],['shared','Shared positions']],state.trd.sort)}
     ${sel('trdshow','Show',[['12','12'],['25','25'],['50','50'],['999','All']],String(state.trd.show))}
     <input type="search" id="trdq" placeholder="Search trader…" value="${esc(state.trd.q)}">
+    <label class="fl"><input type="checkbox" id="trdactive"${state.trd.activeOnly!==false?' checked':''}> active only</label>
     <label class="fl"><input type="checkbox" id="trdshared"${state.trd.sharedOnly?' checked':''}> only w/ shared</label>
     <label class="fl"><input type="checkbox" id="trdver"${state.trd.verifiedOnly?' checked':''}> verified</label>
     <span class="muted" id="trdcount"></span></div>`);
@@ -554,12 +572,13 @@ function renderTraders(){
   function draw(){
     const q=state.trd.q.toLowerCase();
     let rows=all.filter(t=>(!q||realName(t).toLowerCase().includes(q))
+      &&(state.trd.activeOnly===false||(t.n_positions||0)>0)
       &&(!state.trd.sharedOnly||sharedCount(t)>0)&&(!state.trd.verifiedOnly||t.verified));
     const k=state.trd.sort;
     rows.sort((a,b)=>k==='rank'?(a.rank-b.rank):k==='shared'?(sharedCount(b)-sharedCount(a)):((b[k]||0)-(a[k]||0)));
     const shown=rows.slice(0,state.trd.show);
     grid.innerHTML='';
-    shown.forEach((t,i)=>{const c=$(traderCard(t,cohort));c.style.animationDelay=(i*30)+'ms';grid.appendChild(c);});
+    shown.forEach((t,i)=>{const c=$(traderCard(t,cohort)); if(introDone)c.classList.add('noanim'); else c.style.animationDelay=(i*30)+'ms'; grid.appendChild(c);});
     runCountups(grid);
     tb.querySelector('#trdcount').textContent=`${shown.length} of ${rows.length}`;
     if(!shown.length) grid.appendChild($(`<div class="empty">No traders match.</div>`));
@@ -567,6 +586,7 @@ function renderTraders(){
   tb.querySelector('#trdsort').onchange=e=>{state.trd.sort=e.target.value;draw();};
   tb.querySelector('#trdshow').onchange=e=>{state.trd.show=+e.target.value;draw();};
   tb.querySelector('#trdq').oninput=e=>{state.trd.q=e.target.value;draw();};
+  tb.querySelector('#trdactive').onchange=e=>{state.trd.activeOnly=e.target.checked;draw();};
   tb.querySelector('#trdshared').onchange=e=>{state.trd.sharedOnly=e.target.checked;draw();};
   tb.querySelector('#trdver').onchange=e=>{state.trd.verifiedOnly=e.target.checked;draw();};
   draw();
@@ -1017,7 +1037,7 @@ function load(initial){
       state.tab=RENDER[want]?want:'traders';
       document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('on',b.dataset.tab===state.tab));
       document.querySelectorAll('.tab').forEach(s=>s.classList.toggle('on',s.id==='tab-'+state.tab));
-      render(); applySettings();
+      render(); applySettings(); setTimeout(()=>{ introDone=true; }, 1100);
     } else if(fresh){ render(); toast('↻ New cycle data loaded'); }
     lastGen=d.generated_at;
   }).catch(()=>{ if(initial) document.getElementById('tab-traders').innerHTML='<div class="empty">No data published yet — the first poller run will generate it. Check back shortly.</div>'; });

@@ -264,6 +264,7 @@ def _build_traders(cohort, cohort_positions, overlaps, max_positions=8):
             "pnl": e.pnl, "volume": e.volume, "profile_image": e.profile_image,
             "x_username": e.x_username, "verified": e.verified,
             "n_positions": len(positions), "total_value": total_value, "open_pnl": open_pnl,
+            "n_winning": sum(1 for p in positions if (p.cash_pnl or 0) > 0),  # open positions in profit
             "positions": rows[:max_positions],
         })
     return traders
