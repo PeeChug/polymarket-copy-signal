@@ -33,24 +33,14 @@ from __future__ import annotations
 # slippage_pct is a fraction of the price (1% = fill 1% worse than the touch).
 DEFAULT_ACCOUNTS = [
     {
-        "name": "Balanced", "starting_capital": 1000.0,
+        # A single $1,000 WALLET. Buying a position takes the stake OUT of the
+        # wallet; selling returns the FULL proceeds back IN — so the wallet
+        # compounds with wins, shrinks with losses, and can only ever spend what's
+        # in it (a signal is skipped when the wallet can't cover the stake).
+        "name": "Wallet", "starting_capital": 1000.0,
         "filter": {"tiers": ["green", "blue"]},
-        "sizing": {"mode": "equity_frac", "value": 0.05, "max_exposure": 0.70, "min_trade": 5.0},
-        "reinvest": {"withdraw_pct": 0.50},        # take 50% of each profit, compound the rest
-        "costs": {"slippage_pct": 0.01, "impact_coef": 0.0, "fee_pct": 0.0},
-    },
-    {
-        "name": "Conservative", "starting_capital": 500.0,
-        "filter": {"tiers": ["green"]},
-        "sizing": {"mode": "equity_frac", "value": 0.03, "max_exposure": 0.50, "min_trade": 5.0},
-        "reinvest": {"withdraw_pct": 0.50},
-        "costs": {"slippage_pct": 0.015, "impact_coef": 0.0, "fee_pct": 0.0},
-    },
-    {
-        "name": "Compounder", "starting_capital": 2000.0,
-        "filter": {"tiers": ["green", "blue"]},
-        "sizing": {"mode": "equity_frac", "value": 0.06, "max_exposure": 0.85, "min_trade": 5.0},
-        "reinvest": {"withdraw_pct": 0.0},         # reinvest everything (full compound)
+        "sizing": {"mode": "equity_frac", "value": 0.10, "max_exposure": 0.80, "min_trade": 5.0},
+        "reinvest": {"withdraw_pct": 0.0},         # full compound — all proceeds stay in the wallet
         "costs": {"slippage_pct": 0.01, "impact_coef": 0.0, "fee_pct": 0.0},
     },
 ]
@@ -182,6 +172,7 @@ def simulate(trades: list, cfg: dict) -> dict:
     total = equity + withdrawn
     return {
         "name": cfg.get("name"), "starting_capital": start,
+        "wallet": round(cash, 2),                    # spendable balance — buys leave it, sells return to it
         "cash": round(cash, 2), "deployed": round(deployed_mv, 2),
         "equity": round(equity, 2), "withdrawn": round(withdrawn, 2), "total": round(total, 2),
         "realized_pnl": round(realized, 2), "unrealized_pnl": round(unrealized, 2),

@@ -110,6 +110,21 @@ def test_equity_frac_compounds():
 
 def test_simulate_all_defaults():
     rs = accounts.simulate_all([])
-    assert [r["name"] for r in rs] == ["Balanced", "Conservative", "Compounder"]
-    assert [r["starting_capital"] for r in rs] == [1000.0, 500.0, 2000.0]
-    assert all(r["equity"] == r["starting_capital"] for r in rs)   # empty => untouched
+    assert [r["name"] for r in rs] == ["Wallet"]
+    assert rs[0]["starting_capital"] == 1000.0
+    assert rs[0]["equity"] == 1000.0 and rs[0]["wallet"] == 1000.0   # empty => untouched
+
+
+def test_wallet_compounds_full_proceeds():
+    # buy debits the wallet; sell returns the FULL proceeds (it compounds)
+    r = accounts.simulate([T("a", 0.50, 1.00)], CFG(withdraw=0.0))
+    assert near(r["wallet"], 1100)          # $100 stake out, $200 proceeds back in
+    assert near(r["realized_pnl"], 100) and r["withdrawn"] == 0
+    # a second winning trade compounds on the bigger wallet (10%-of-equity sizing)
+    cfg = {"name": "t", "starting_capital": 1000, "filter": {"tiers": ["green"]},
+           "sizing": {"mode": "equity_frac", "value": 1.0, "max_exposure": 1.0, "min_trade": 1},
+           "reinvest": {"withdraw_pct": 0.0}, "costs": {}}
+    r2 = accounts.simulate([T("a", 0.50, 0.60, ea="2026-06-01", xa="2026-06-02"),
+                            T("b", 0.50, 0.60, ea="2026-06-03", xa="2026-06-04")], cfg)
+    # +20% then +20% on the full wallet => ~1.44x, clearly compounding past +40%
+    assert r2["wallet"] > 1400
