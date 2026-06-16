@@ -308,6 +308,7 @@
   </div>
   <nav class="tabs" id="tabs">
     <button data-tab="performance" class="on">📊 Performance</button>
+    <button data-tab="accounts">💼 Accounts</button>
     <button data-tab="traders">Top Earners</button>
     <button data-tab="consensus">Consensus</button>
     <button data-tab="buy">🛒 Buy Candidates</button>
@@ -324,6 +325,7 @@
   <section id="tab-buy" class="tab"></section>
   <section id="tab-picks" class="tab"></section>
   <section id="tab-performance" class="tab on"></section>
+  <section id="tab-accounts" class="tab"></section>
   <section id="tab-backtest" class="tab"></section>
   <section id="tab-signals" class="tab"></section>
   <p class="sub" style="margin-top:34px">Auto-updates on a schedule: a Cloudflare cron triggers the poller, which stores to Supabase and serves the data from there. Source: <a href="https://github.com/PeeChug/polymarket-copy-signal">github.com/PeeChug/polymarket-copy-signal</a>.</p>
@@ -811,6 +813,42 @@ function renderConsensus(){
   draw();
 }
 
+function renderAccounts(){
+  const d=DATA, el=document.getElementById('tab-accounts'); el.innerHTML='';
+  el.appendChild($(`<h2>💼 Budgeted accounts</h2>`));
+  el.appendChild($(`<p class="sub">Realistic <b>finite-budget</b> sims of the consensus strategy — each starts with a set bankroll, sizes trades from available cash, pays <b>slippage &amp; fees</b>, <b>skips signals when cash runs out</b>, and reinvests or skims profit. The Performance tab assumes unlimited capital (to measure signal edge); this answers <b>"what would a real account have done?"</b></p>`));
+  const accs=d.accounts||[];
+  if(!accs.length){ el.appendChild($(`<div class="empty">No account sims yet — they accrue as consensus trades open and resolve.</div>`)); return; }
+  const accents=['var(--green)','var(--blue)','var(--gold)','var(--accent)'];
+  accs.forEach((a,i)=>{
+    const acc=accents[i%accents.length];
+    const ret=a.return_pct==null?'—':((a.return_pct>=0?'+':'')+(a.return_pct*100).toFixed(1)+'%');
+    const card=$(`<div class="card foldcard collapsed" style="border-left:4px solid ${acc}">
+      <div class="fold-h"><span>💼 ${esc(a.name)} · <b class="${sgn(a.return_pct)}">${ret}</b> <span class="muted" style="font-weight:400;font-size:12px">on $${(a.starting_capital||0).toLocaleString()}</span></span><span class="fold-x">▾</span></div>
+      <div class="fold-b"></div></div>`);
+    const b=card.querySelector('.fold-b');
+    const m=(k,v,cls='',tip)=>`<div class="metric"${tip?` title="${esc(tip)}"`:''}><div class="k">${k}</div><div class="v ${cls}">${v}</div></div>`;
+    b.innerHTML=`<div class="metrics">
+      ${m('Total value',money(a.total),sgn(a.total-a.starting_capital),'Equity + profit already withdrawn')}
+      ${m('Equity',money(a.equity))}
+      ${m('Cash',money(a.cash),'','Free to deploy on new signals')}
+      ${m('Deployed',money(a.deployed),'','Market value of open positions')}
+      ${m('Withdrawn',money(a.withdrawn),'','Profit skimmed off the table (locked)')}
+      ${m('Realized',money(a.realized_pnl),sgn(a.realized_pnl))}
+      ${m('Unrealized',money(a.unrealized_pnl),sgn(a.unrealized_pnl))}
+      ${m('Win rate',pct(a.win_rate))}
+      ${m('Open / Closed',`${a.open_count} / ${a.closed_count}`)}
+      ${m('Skipped',a.skipped,a.skipped?'neg':'','Signals the budget could NOT take — strategy capacity at this size')}
+      ${m('Max drawdown',a.max_drawdown==null?'—':('−'+(a.max_drawdown*100).toFixed(1)+'%'),a.max_drawdown?'neg':'')}
+      ${m('Utilization',pct(a.utilization),'','Share of equity currently deployed')}
+    </div>`;
+    const cfg=a.config||{}, sz=cfg.sizing||{}, ri=cfg.reinvest||{}, co=cfg.costs||{}, wd=+ri.withdraw_pct||0;
+    b.appendChild($(`<div class="muted" style="font-size:11.5px;margin-top:8px">${((sz.value||0)*100).toFixed(0)}% of equity / trade · max ${((sz.max_exposure||1)*100).toFixed(0)}% deployed · ${wd>0?`withdraw ${(wd*100).toFixed(0)}% of profit`:'full compound'} · ${((co.slippage_pct||0)*100).toFixed(1)}% slippage${co.fee_pct?` · ${(co.fee_pct*100).toFixed(1)}% fee`:''} · trades <b>${((cfg.filter||{}).tiers||[]).join('+')||'all'}</b></div>`));
+    const cv=[...(a.curve||[]).map(c=>({total:c.total})),{total:a.total}];
+    if(cv.length>=2){ b.appendChild($(`<h3 style="margin-top:14px">Account value over time</h3>`)); b.appendChild(chart(cv,[{key:'total',color:acc,label:'Total value',money:true}])); }
+    el.appendChild(card);
+  });
+}
 function renderPerformance(){
   const d=DATA,el=document.getElementById('tab-performance');el.innerHTML='';
   const cfg=d.config||{};
@@ -1149,7 +1187,7 @@ function renderBacktest(){   // 📜 History hub: winning wallets · resolved ma
     el.appendChild(card);
   } else el.appendChild($(`<p class="muted" style="font-size:12.5px;margin-top:6px">Win rate &amp; returns fill in once consensus markets resolve.</p>`));
 }
-const RENDER={traders:renderTraders,consensus:renderConsensus,buy:renderBuy,picks:renderPicks,performance:renderPerformance,backtest:renderBacktest,signals:renderSignals};
+const RENDER={traders:renderTraders,consensus:renderConsensus,buy:renderBuy,picks:renderPicks,performance:renderPerformance,accounts:renderAccounts,backtest:renderBacktest,signals:renderSignals};
 function setTab(name){
   state.tab=name; location.hash=name;
   try{localStorage.setItem('pm_tab',name);}catch(e){}
@@ -1191,7 +1229,7 @@ document.addEventListener('keydown',e=>{
   if(e.key==='Escape'){ document.getElementById('modal').classList.remove('open'); const p=document.getElementById('settings'); if(p)p.classList.remove('open'); document.getElementById('scrim').classList.remove('open'); return; }
   const tag=((e.target&&e.target.tagName)||'').toLowerCase();
   if(tag==='input'||tag==='select'||tag==='textarea'||e.metaKey||e.ctrlKey||e.altKey) return;
-  if(e.key>='1'&&e.key<='7'){ const t=['performance','traders','consensus','buy','picks','backtest','signals'][+e.key-1]; if(t)setTab(t); }
+  if(e.key>='1'&&e.key<='7'){ const t=['performance','accounts','traders','consensus','buy','picks','backtest'][+e.key-1]; if(t)setTab(t); }
   else if(e.key==='/'){ const s=document.querySelector('.tab.on input[type=search]'); if(s){ e.preventDefault(); s.focus(); } }
   else if(e.key==='r'||e.key==='R'){ manualRefresh(); }
   else if(e.key==='t'||e.key==='T'){ toggleTheme(); }

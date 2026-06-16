@@ -10,7 +10,7 @@ import json
 import os
 from datetime import datetime, timezone
 
-from core import analytics
+from core import analytics, accounts
 from poller import us_market
 
 
@@ -154,6 +154,13 @@ def write_site(store, run_result: dict, docs_dir: str = "docs") -> str:
     changes["new"].sort(key=lambda x: x["overlap"], reverse=True)
     changes["grown"].sort(key=lambda x: x["momentum"], reverse=True)
     payload["changes"] = {k: v[:20] for k, v in changes.items()}
+
+    # realistic finite-budget account sims (slippage/fees/reinvestment) — a pure
+    # replay of the consensus trades, so no engine/DB changes needed
+    try:
+        payload["accounts"] = accounts.simulate_all(store.all_trades())
+    except Exception as e:
+        print(f"accounts: sim skipped ({e})")
 
     # flag which markets a US-based user could actually trade (US Only toggle)
     _tag_us_availability(payload, store)
