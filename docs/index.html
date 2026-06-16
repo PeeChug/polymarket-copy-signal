@@ -356,27 +356,32 @@ function changesPanel(d){ const ch=d.changes||{}; if(!((ch.new||[]).length||(ch.
 function filterTF(rows){ const hrs=+(state.settings.tf||0); if(!hrs||!rows) return rows;
   const cut=Date.now()-hrs*3600000; return rows.filter(r=>{const t=Date.parse(r.ts); return isNaN(t)||t>=cut;}); }
 function fmtChartVal(s,v){ return s.pct?(Math.round(v*10)/10)+'%':s.money?money(v):String(Math.round(v*100)/100); }
+let _cuid=0;
 function chart(allRows, series, {w=640,h=200,pad=36}={}){
   const wrap=document.createElement('div'); wrap.className='chartwrap';
   const rows=filterTF(allRows||[]);
-  if(rows.length<2){ wrap.innerHTML='<div class="empty">Not enough points in this timeframe yet — widen it in ⚙️ Settings, or wait for more cycles.</div>'; return wrap; }
+  if(rows.length<2){ wrap.innerHTML='<div class="empty">Not enough points in this timeframe yet — widen it, or wait for more cycles.</div>'; return wrap; }
   const vals=series.flatMap(s=>rows.map(r=>+r[s.key]||0));
   let min=Math.min(...vals,0),max=Math.max(...vals,0); if(min===max)max=min+1;
+  const rMin=min,rMax=max,padv=(max-min)*0.10||1; min-=padv; max+=padv;   // breathing room
   const X=i=>pad+(w-2*pad)*(i/(rows.length-1));
   const Y=v=>h-pad-(h-2*pad)*((v-min)/(max-min));
-  const area=state.settings.area, z=Y(0);
-  const paths=series.map(s=>{
+  const z=Y(0), uid=++_cuid;
+  let grid=''; for(let g=0;g<=4;g++){ const gy=(pad+(h-2*pad)*g/4).toFixed(1);
+    grid+=`<line x1="${pad}" y1="${gy}" x2="${w-pad}" y2="${gy}" stroke="var(--line)" stroke-opacity="0.45"/>`; }
+  const defs=series.map((s,si)=>`<linearGradient id="cg${uid}_${si}" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${s.color}" stop-opacity="0.30"/><stop offset="100%" stop-color="${s.color}" stop-opacity="0.02"/></linearGradient>`).join('');
+  const paths=series.map((s,si)=>{
     const line='M'+rows.map((r,i)=>`${X(i).toFixed(1)} ${Y(+r[s.key]||0).toFixed(1)}`).join(' L');
-    let out=`<path d="${line}" fill="none" stroke="${s.color}" stroke-width="2.2" stroke-linejoin="round"/>`;
-    if(area) out=`<path d="${line} L${X(rows.length-1).toFixed(1)} ${z.toFixed(1)} L${X(0).toFixed(1)} ${z.toFixed(1)} Z" fill="${s.color}" opacity="0.12"/>`+out;
-    return out;}).join('');
-  const dots=series.map((s,si)=>`<circle class="cd cd${si}" r="3.5" fill="${s.color}" style="display:none"/>`).join('');
+    const fill=`<path d="${line} L${X(rows.length-1).toFixed(1)} ${Y(min).toFixed(1)} L${X(0).toFixed(1)} ${Y(min).toFixed(1)} Z" fill="url(#cg${uid}_${si})" stroke="none"/>`;
+    return fill+`<path d="${line}" fill="none" stroke="${s.color}" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>`;}).join('');
+  const dots=series.map((s,si)=>`<circle class="cd cd${si}" r="4" fill="${s.color}" stroke="var(--bg2)" stroke-width="2" style="display:none"/>`).join('');
   const legend=series.map(s=>`<span><i style="background:${s.color}"></i>${esc(s.label)}</span>`).join('');
-  wrap.innerHTML=`<svg viewBox="0 0 ${w} ${h}" class="chart" preserveAspectRatio="none">
-    <line x1="${pad}" y1="${z}" x2="${w-pad}" y2="${z}" stroke="var(--line)" stroke-dasharray="3 3"/>
-    <text x="4" y="${Y(max)+4}" fill="var(--dim)" font-size="11">${fmtShort(max)}</text>
-    <text x="4" y="${Y(min)+4}" fill="var(--dim)" font-size="11">${fmtShort(min)}</text>
-    <line class="cx" x1="0" y1="${pad}" x2="0" y2="${h-pad}" style="display:none"/>${paths}${dots}</svg>
+  wrap.innerHTML=`<svg viewBox="0 0 ${w} ${h}" class="chart" preserveAspectRatio="none"><defs>${defs}</defs>
+    ${grid}
+    <line x1="${pad}" y1="${z}" x2="${w-pad}" y2="${z}" stroke="var(--line)"/>
+    <text x="4" y="${(Y(rMax)+9).toFixed(1)}" fill="var(--dim)" font-size="11">${fmtShort(rMax)}</text>
+    <text x="4" y="${(Y(rMin)-3).toFixed(1)}" fill="var(--dim)" font-size="11">${fmtShort(rMin)}</text>
+    <line class="cx" x1="0" y1="${pad}" x2="0" y2="${h-pad}" stroke="var(--dim)" stroke-opacity="0.6" style="display:none"/>${paths}${dots}</svg>
     <div class="legend">${legend}</div>`;
   const tip=document.createElement('div'); tip.className='charttip'; tip.style.display='none'; wrap.appendChild(tip);
   const svg=wrap.querySelector('svg'), cx=svg.querySelector('.cx'), dotEls=[...svg.querySelectorAll('.cd')];
@@ -688,6 +693,14 @@ function renderPerformance(){
   const cfg=d.config||{}, tierLabel=(cfg.min_tier_to_trade==='green'?'🟢 green only':'🔵 blue + 🟢 green');
   el.appendChild($(`<h2>📊 Paper-trade performance</h2>`));
   el.appendChild($(`<p class="sub">A <b>simulated</b> track record — no real money — of buying every position that crosses the tier threshold at a fixed stake and marking it to live prices. Realized = closed trades; unrealized = still open.</p>`));
+  el.appendChild($(`<div class="card" style="border-left:4px solid var(--green);margin:6px 0 4px">
+    <b style="font-size:15px">📋 The strategy, in plain English</b>
+    <ol style="margin:8px 0 0;padding-left:22px;line-height:1.75">
+      <li>👀 Watch the <b>50 best traders</b> (active, funded, currently winning).</li>
+      <li>🤝 When <b>≥${cfg.min_tier_to_trade==='green'?(cfg.tier_green_min??10):(cfg.tier_blue_min??5)} of them hold the same bet</b>, buy <b>$${cfg.stake_usd??100}</b> of it at the real market price.</li>
+      <li>🛑 Sell if it <b>drops ${Math.round((cfg.stop_loss_pct??0.25)*100)}%</b>, when <b>those traders sell</b>, or when the market <b>resolves</b>.</li>
+    </ol>
+    <div class="muted" style="font-size:12px;margin-top:8px">The 🥇 control at the bottom just blindly copies the #1 trader — a yardstick to see if following the <i>crowd</i> beats following one person.</div></div>`));
   el.appendChild($(`<details class="howto"><summary>ℹ️ How this works — read me</summary>
     <div class="howbody">
       <p>Each cycle the poller checks which positions enough top-earners independently hold, then books hypothetical trades so you can see whether copying the crowd would have paid:</p>
@@ -735,21 +748,25 @@ function renderPerformance(){
       ${metric('Realized P&L',money(m.realized_pnl),sgn(m.realized_pnl))}${metric('Closed trades',m.closed_count??0)}${metric('Win rate',pct(m.win_rate))}
       ${metric('Wins',m.wins??0,'pos')}${metric('Losses',m.losses??0,(m.losses?'neg':''))}${metric('ROI (realized)',pct(m.roi_realized),sgn(m.roi_realized))}
       ${metric('Avg / trade',money(avg),sgn(avg))}${metric('Best',money(best),sgn(best))}${metric('Worst',money(worst),sgn(worst))}</div></div>`);}
-  const roiSeries=h=>(h||[]).map(r=>({ts:r.ts,ov_roi:(+r.ov_roi||0)*100,ct_roi:(+r.ct_roi||0)*100}));
+  const roiSeries=h=>(h||[]).filter(r=>r.ov_roi!=null||r.ct_roi!=null).map(r=>({ts:r.ts,ov_roi:(+r.ov_roi||0)*100,ct_roi:(+r.ct_roi||0)*100}));
 
   // ===================== CONSENSUS — your strategy ==========================
   el.appendChild($(`<h2 style="margin-top:22px">🤝 Consensus — your strategy</h2>`));
   el.appendChild($(`<p class="sub">Buy when <b>≥${cfg.min_tier_to_trade==='green'?(cfg.tier_green_min??10):(cfg.tier_blue_min??5)} top traders agree</b> on the same outcome; sell on the <b>−${Math.round((cfg.stop_loss_pct??0.25)*100)}% stop</b>, when agreement falls back below the buy bar, or at resolution.</p>`));
   const ovCard=$(perfCard('🟢🔵 Consensus — all tiers',d.performance.overlap)); el.appendChild(ovCard); runCountups(ovCard);
   {const bt=d.backtest||{};if((bt.resolved_total||0)===0) el.appendChild($(`<p class="muted" style="font-size:12.5px;margin:4px 0">⏳ <b>0</b> of ${bt.tracking_total||0} tracked markets have resolved yet — win-rate / realized ROI are still warming up; figures are mark-to-market for now.</p>`));}
-  if((d.history||[]).some(h=>h.ov_roi!=null)){
-    el.appendChild($(`<h3 style="margin-top:18px">Consensus return over time <span class="muted" style="font-size:12px;font-weight:400">(% ROI)</span></h3>`));
+  if((d.history||[]).some(h=>h.ov_net!=null)){
+    el.appendChild($(`<h3 style="margin-top:18px">My strategy — net P&L over time <span class="muted" style="font-size:12px;font-weight:400">($${cfg.stake_usd??100}/trade)</span></h3>`));
     el.appendChild(tfBar(renderPerformance));
-    el.appendChild(chart(roiSeries(d.history),[{key:'ov_roi',color:'var(--green)',label:'Consensus',pct:true}]));
+    el.appendChild(chart(d.history,[{key:'ov_net',color:'var(--green)',label:'Consensus net P&L',money:true}]));
   }
   el.appendChild($(`<h2 style="margin-top:24px">By tier — does 🟢 green beat 🔵 blue?</h2>`));
   const tierCards=$(`<div class="grid grid2">${perfCard('🟢 Green tier',d.tiers.green)}${perfCard('🔵 Blue tier',d.tiers.blue)}</div>`);
   el.appendChild(tierCards); runCountups(tierCards);
+  if((d.history||[]).some(h=>h.green_net!=null||h.blue_net!=null)){
+    el.appendChild($(`<h3 style="margin-top:16px">🟢 Green vs. 🔵 blue — net P&L over time</h3>`));
+    el.appendChild(chart(d.history,[{key:'green_net',color:'var(--green)',label:'Green',money:true},{key:'blue_net',color:'var(--blue)',label:'Blue',money:true}]));
+  }
   const ovOpen=(d.open_positions||[]).filter(t=>(t.strategy||'overlap')==='overlap');
   const ovClosed=(d.closed_positions||[]).filter(t=>(t.strategy||'overlap')==='overlap');
   el.appendChild($(`<h2 style="margin-top:24px">Open consensus positions <span class="muted" style="font-size:13px;font-weight:400">(${ovOpen.length})</span></h2>`));
