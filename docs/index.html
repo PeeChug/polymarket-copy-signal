@@ -211,9 +211,51 @@
     .scroll td:empty { display:none; }
     .modal { width:96vw; padding:18px 16px; } .panelx { width:300px; }
   }
+  /* ---- access gate (soft client-side lock) ---- */
+  body.locked { overflow:hidden; }
+  .gate { position:fixed; inset:0; z-index:200; display:grid; place-items:center; padding:20px;
+    background:radial-gradient(900px 500px at 70% -10%, var(--grad) 0%, var(--bg) 60%), var(--bg); }
+  .gate[hidden] { display:none; }
+  .gate-card { width:100%; max-width:340px; background:var(--panel); border:1px solid var(--line);
+    border-radius:16px; padding:26px 24px; box-shadow:0 20px 60px rgba(0,0,0,.4); text-align:center; }
+  .gate-logo { font-size:34px; margin-bottom:6px; }
+  .gate-card h2 { margin:2px 0 6px; font-size:20px; }
+  .gate-card .muted { font-size:12.5px; margin:0 0 16px; line-height:1.5; }
+  .gate-card form { display:flex; flex-direction:column; gap:10px; }
+  .gate-card input[type=text], .gate-card input[type=password], .gate-card input:not([type]) {
+    width:100%; padding:11px 13px; font-size:15px; border:1px solid var(--line); border-radius:10px;
+    background:var(--bg2); color:var(--text); text-align:center; letter-spacing:.04em; }
+  .gate-card input:focus { outline:none; border-color:var(--accent); }
+  .gate-remember { display:flex; align-items:center; justify-content:center; gap:7px; font-size:12.5px; color:var(--muted); }
+  .gate-remember input { width:auto; }
+  #gate-btn { padding:11px; font-size:15px; font-weight:700; border:0; border-radius:10px; cursor:pointer;
+    background:var(--accent); color:#fff; }
+  #gate-btn:hover { filter:brightness(1.08); }
+  .gate-err { color:var(--red); font-size:12.5px; min-height:16px; }
+  .gate-link { background:none; border:0; color:var(--muted); font-size:12px; cursor:pointer; margin-top:14px; text-decoration:underline; }
+  .gate-foot { color:var(--dim); font-size:11px; margin-top:14px; line-height:1.45; }
+  .gate-card.shake { animation:shake .4s; }
+  @keyframes shake { 10%,90%{transform:translateX(-2px)} 20%,80%{transform:translateX(4px)} 30%,50%,70%{transform:translateX(-7px)} 40%,60%{transform:translateX(7px)} }
 </style>
 </head>
 <body>
+<div class="gate" id="gate" hidden>
+  <div class="gate-card" id="gate-card">
+    <div class="gate-logo">📊</div>
+    <h2 id="gate-title">Enter access code</h2>
+    <p class="muted" id="gate-sub"></p>
+    <form id="gate-form" autocomplete="off">
+      <input id="gate-init" type="text" maxlength="4" placeholder="Initials" aria-label="Initials" autocomplete="off" autocapitalize="characters" spellcheck="false">
+      <input id="gate-code" type="password" inputmode="numeric" maxlength="4" placeholder="4-digit code" aria-label="4-digit code" autocomplete="off">
+      <input id="gate-code2" type="password" inputmode="numeric" maxlength="4" placeholder="Confirm 4-digit code" aria-label="Confirm code" autocomplete="off" hidden>
+      <label class="gate-remember"><input type="checkbox" id="gate-remember" checked> Remember this device for 7 days</label>
+      <button type="submit" id="gate-btn">Unlock</button>
+      <div class="gate-err" id="gate-err" aria-live="polite"></div>
+    </form>
+    <button type="button" class="gate-link" id="gate-forgot">Forgot code? Reset on this device</button>
+    <div class="gate-foot">Private deterrent stored only on this device — the underlying page &amp; data are a public static site.</div>
+  </div>
+</div>
 <header class="top">
   <div class="topin">
     <div class="brand">📊 Polymarket Copy-Signal <span class="ro">read-only</span></div>
@@ -252,6 +294,12 @@
   <h3>⚙️ Settings</h3>
   <div class="row"><label>View refresh (re-read data)</label>
     <select id="setRefresh"><option value="1">every 1 min</option><option value="2.5">every 2.5 min</option><option value="5">every 5 min</option></select></div>
+  <h3>🔒 Access</h3>
+  <div class="row" style="display:flex;gap:8px">
+    <button class="tbtn" id="gateLock" style="flex:1" title="Require the code again on this device">Lock now</button>
+    <button class="tbtn" id="gateChange" style="flex:1" title="Set a new initials + 4-digit code">Change code</button>
+  </div>
+  <div class="row muted" style="font-size:11px;margin-top:-4px">Deterrent only — this page &amp; its data are public.</div>
   <h3>Display</h3>
   <div class="row"><label>Theme</label>
     <select id="setTheme"><option value="dark">dark</option><option value="light">light</option></select></div>
@@ -1199,12 +1247,68 @@ function initSettings(){
     Object.assign(state.cons,{key:'overlap',dir:-1,min:2,q:'',minLiq:0,due:0,contest:'any',cat:'any',hideResolved:true});
     Object.assign(state.sig,{key:'overlap',dir:-1,q:'',tier:'all',minOv:1,minLiq:0,hideClosed:false});
     persist(); RENDER[state.tab](); toast('Filters reset'); };
+  if(g('gateLock')) g('gateLock').onclick=()=>{ gateForget(); location.reload(); };
+  if(g('gateChange')) g('gateChange').onclick=()=>{ if(confirm('Set a new access code now? You’ll create a fresh initials + 4-digit code.')){ gateReset(); location.reload(); } };
 }
 applyTheme(curTheme());
 document.getElementById('themebtn').onclick=toggleTheme;
 document.getElementById('helpbtn').onclick=showHelp;
-initSettings(); startRefresh();
-showSkeleton(); load(true);
+
+// ---- soft access gate: initials + 4-digit code, 7-day device memory ----
+// Client-side deterrent ONLY: the page and its data.json are a public static
+// site, so this keeps casual eyes out — it is not real authentication.
+const GATE_CRED='pm_gate_cred', GATE_DEV='pm_gate_dev', GATE_DAYS=7;
+let gateBooted=false;
+async function gateHash(init,code){
+  const msg='pmgate:v1:'+(init||'').trim().toUpperCase()+':'+(code||'');
+  const buf=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(msg));
+  return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+const gateHasCred=()=>!!lsGet(GATE_CRED,'');
+const gateDeviceValid=()=>(+lsGet(GATE_DEV,'0'))>Date.now();
+const gateRemember=()=>lsSet(GATE_DEV,String(Date.now()+GATE_DAYS*864e5));
+function gateForget(){ try{localStorage.removeItem(GATE_DEV);}catch(e){} }
+function gateReset(){ gateForget(); try{localStorage.removeItem(GATE_CRED);}catch(e){} }
+function gateBoot(){ if(gateBooted)return; gateBooted=true;
+  const g=document.getElementById('gate'); if(g)g.hidden=true;
+  document.body.classList.remove('locked');
+  initSettings(); startRefresh(); showSkeleton(); load(true);
+}
+function gateShow(setup){
+  document.body.classList.add('locked');
+  const G=id=>document.getElementById(id);
+  G('gate').hidden=false;
+  G('gate-title').textContent=setup?'Create your access code':'Enter access code';
+  G('gate-sub').textContent=setup?'Set a short code to keep this dashboard private on shared screens.':'This dashboard is private.';
+  G('gate-code2').hidden=!setup;
+  G('gate-forgot').hidden=setup;
+  G('gate-btn').textContent=setup?'Set code & enter':'Unlock';
+  G('gate-err').textContent=''; G('gate-init').value=''; G('gate-code').value=''; G('gate-code2').value='';
+  setTimeout(()=>G('gate-init').focus(),50);
+}
+async function gateSubmit(e){
+  e.preventDefault();
+  const G=id=>document.getElementById(id), err=G('gate-err'); err.textContent='';
+  const setup=!gateHasCred();
+  const init=G('gate-init').value.trim(), code=G('gate-code').value.trim();
+  if(!/^[A-Za-z]{1,4}$/.test(init)){ err.textContent='Initials: 1–4 letters.'; return; }
+  if(!/^\d{4}$/.test(code)){ err.textContent='Code must be exactly 4 digits.'; return; }
+  if(setup){
+    if(code!==G('gate-code2').value.trim()){ err.textContent='The two codes don’t match.'; return; }
+    lsSet(GATE_CRED, await gateHash(init,code));
+  } else if(await gateHash(init,code)!==lsGet(GATE_CRED,'')){
+    err.textContent='Wrong initials or code.';
+    const c=G('gate-card'); c.classList.remove('shake'); void c.offsetWidth; c.classList.add('shake'); return;
+  }
+  if(G('gate-remember').checked) gateRemember(); else gateForget();
+  gateBoot();
+}
+(function gateInit(){
+  document.getElementById('gate-form').addEventListener('submit',gateSubmit);
+  document.getElementById('gate-forgot').onclick=()=>{ if(confirm('Reset the access code on this device? You’ll create a new one.')){ gateReset(); gateShow(true); } };
+  if(gateDeviceValid()) gateBoot();
+  else gateShow(!gateHasCred());
+})();
 </script>
 </body>
 </html>
