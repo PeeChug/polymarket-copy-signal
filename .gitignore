@@ -39,3 +39,6 @@ docs/data.json
 .claude/
 .idea/
 .vscode/
+
+# Fast-mark price overlay — published to Supabase Storage by the Worker, not committed.
+docs/marks.json

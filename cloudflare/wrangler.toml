@@ -2,7 +2,10 @@ name = "polymarket-copy-signal"
 main = "worker.js"
 compatibility_date = "2024-11-01"
 
-# Fire the poller every 5 minutes (standard 5-field cron, UTC). Safe now that
-# data is served from Supabase Storage (no per-cycle git commit / Pages build).
+# Two cadences (standard 5-field cron, UTC):
+#   "*/10 * * * *" → heavy GitHub full scan (must match FULL_SCAN_CRON in worker.js)
+#   "* * * * *"    → light fast price-mark (re-prices open paper trades, writes marks.json)
+# At minute 0/10/20… both fire as separate scheduled invocations; worker.js
+# branches on event.cron. Both fit the Worker free tier.
 [triggers]
-crons = ["*/5 * * * *"]
+crons = ["*/10 * * * *", "* * * * *"]

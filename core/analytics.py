@@ -32,6 +32,10 @@ def _metrics(trades: list[dict]) -> dict:
     staked_open = sum(_num(t.get("stake_usd")) for t in open_t)
     staked_all = staked_closed + staked_open
     wins = sum(1 for t in closed_t if _num(t.get("realized_pnl")) > 0)
+    # "on table" = current market value of the OPEN positions (shares × live mark),
+    # i.e. what's riding on the table right now — vs "staked" (the cost basis).
+    on_table = sum(_num(t.get("shares")) * _num(t.get("marked_price"), default=_num(t.get("entry_price")))
+                   for t in open_t)
 
     return {
         "open_count": len(open_t),
@@ -45,6 +49,7 @@ def _metrics(trades: list[dict]) -> dict:
         "staked_closed": staked_closed,
         "staked_open": staked_open,
         "staked_all": staked_all,
+        "on_table": on_table,
         "roi_realized": (realized / staked_closed) if staked_closed else None,
         "roi_total": ((realized + unrealized) / staked_all) if staked_all else None,
     }

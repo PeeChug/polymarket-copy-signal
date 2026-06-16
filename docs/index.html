@@ -586,11 +586,12 @@ function notifyStrong(list){
   }
 }
 
-function metric(k,v,cls='',count){ const cv=(count!=null)?`<div class="v ${cls}" data-target="${Math.abs(count)}" data-neg="${count<0?1:0}" data-fmt="money">${money(0)}</div>`:`<div class="v ${cls}">${v}</div>`; return `<div class="metric"><div class="k">${k}</div>${cv}</div>`; }
+function metric(k,v,cls='',count,tip){ const cv=(count!=null)?`<div class="v ${cls}" data-target="${Math.abs(count)}" data-neg="${count<0?1:0}" data-fmt="money">${money(0)}</div>`:`<div class="v ${cls}">${v}</div>`; return `<div class="metric"${tip?` title="${esc(tip)}"`:''}><div class="k">${k}</div>${cv}</div>`; }
 function perfCard(title,m){ return `<div class="card"><h3>${title}</h3><div class="metrics">
   ${metric('Net P&L',null,sgn(m.net_pnl),m.net_pnl)}${metric('Realized',money(m.realized_pnl),sgn(m.realized_pnl))}${metric('Unrealized',money(m.unrealized_pnl),sgn(m.unrealized_pnl))}
   ${metric('Open',m.open_count)}${metric('Closed',m.closed_count)}${metric('Win rate',pct(m.win_rate))}
-  ${metric('ROI (realized)',pct(m.roi_realized),sgn(m.roi_realized))}${metric('ROI (incl. open)',pct(m.roi_total),sgn(m.roi_total))}${metric('Staked',money(m.staked_all))}</div></div>`; }
+  ${metric('ROI (realized)',pct(m.roi_realized),sgn(m.roi_realized))}${metric('ROI (incl. open)',pct(m.roi_total),sgn(m.roi_total))}
+  ${metric('Staked',money(m.staked_all))}${metric('On table',m.on_table==null?'—':money(m.on_table),'',null,'Current market value of open positions (shares × live price) — vs Staked, the cost basis')}</div></div>`; }
 
 function traderCard(t,cohort){
   const nm=realName(t),col=palette(t.wallet),letter=esc((nm[0]||'?').toUpperCase());
@@ -778,8 +779,9 @@ function renderPerformance(){
     const op=ts.filter(t=>t.status==='OPEN'),cl=ts.filter(t=>t.status==='CLOSED');
     const realized=cl.reduce((s,t)=>s+(+t.realized_pnl||0),0),unreal=op.reduce((s,t)=>s+(+t.unrealized_pnl||0),0);
     const sc=cl.reduce((s,t)=>s+(+t.stake_usd||0),0),sa=sc+op.reduce((s,t)=>s+(+t.stake_usd||0),0),wins=cl.filter(t=>(+t.realized_pnl||0)>0).length;
+    const onTable=op.reduce((s,t)=>s+(+t.shares||0)*(+t.marked_price|| +t.entry_price||0),0);
     return {open_count:op.length,closed_count:cl.length,wins,losses:cl.length-wins,win_rate:cl.length?wins/cl.length:null,
-      realized_pnl:realized,unrealized_pnl:unreal,net_pnl:realized+unreal,staked_all:sa,
+      realized_pnl:realized,unrealized_pnl:unreal,net_pnl:realized+unreal,staked_all:sa,on_table:onTable,
       roi_realized:sc?realized/sc:null,roi_total:sa?(realized+unreal)/sa:null};
   }
   // Total uses the server aggregate (all trades, uncapped); US recomputes from the US subset
@@ -790,6 +792,7 @@ function renderPerformance(){
     <div class="seg">${[['total','🌐 Total Market'],['us','🇺🇸 US Only']].map(o=>`<button class="tbtn segb${mkt===o[0]?' on-acc':''}" data-mkt="${o[0]}">${o[1]}</button>`).join('')}</div></div>`);
   _hdr.querySelectorAll('.segb').forEach(b=>b.onclick=()=>{state.perf.market=b.dataset.mkt;persist();renderPerformance();});
   el.appendChild(_hdr);
+  if(marksMeta&&marksMeta.ts) el.appendChild($(`<p class="muted" style="font-size:11.5px;margin:1px 0 2px">⚡ Live prices — open positions re-marked ${relTime(new Date(marksMeta.ts))} <span style="opacity:.7">(auto every ~1 min)</span></p>`));
   if(mkt==='us'){const u=d.us||{}; const fa=u.fetched_at?new Date(u.fetched_at):null;
     const fresh=u.events!=null?`<div class="muted" style="font-size:11.5px;margin-top:7px">Catalog: <b>${u.events}</b> live US events${fa?` · updated ${relTime(fa)}`:''}${u.stale?` · <span style="color:var(--red)">⚠ live fetch failed — showing last-good catalog</span>`:''}</div>`:'';
     el.appendChild($(`<div class="card" style="border-left:4px solid var(--gold);font-size:13px;margin:2px 0">🇺🇸 <b>US Only</b> — only the cohort's markets a US-based trader can actually access on <b>Polymarket US</b>. Each position is matched against the <b>live US catalog</b> (U.S. elections, the Fed, IPOs, macro &amp; culture — sports excluded), bridging the wording gap across venues (our "Republican control of the House" = their "U.S. House Midterm Winner")${u.consensus!=null?` — <b>${u.consensus}</b> consensus signal${u.consensus===1?'':'s'} matched this cycle`:''}. The bulk of the cohort's edge (geopolitics &amp; crypto) isn't listed on US, so this view is intentionally narrow; matched rows carry a 🇺🇸 link.${fresh}</div>`));}
@@ -1162,7 +1165,35 @@ function fetchData(){
     .catch(()=>fetch('./data.json?t='+Date.now()).then(r=>{if(!r.ok)throw new Error('no data');return r.json();}));
 }
 let freshTimer=null;
-function applyData(d){ DATA=d; computeFlash(d); lastGen=d.generated_at; render(); }
+
+// ---- live price marks (Cloudflare fast-mark, every ~1 min) -----------------
+// The Worker re-prices OPEN paper trades into marks.json; we overlay it onto the
+// open positions + headline scorecards so P&L refreshes every minute, between
+// the heavier ~10-min full scans. Realized P&L is unchanged between scans.
+const SUPA_MARKS=SUPA_DATA.replace('data.json','marks.json');
+let lastMarks=null, marksMeta=null, marksTimer=null;
+function mergeMarks(m){      // mutate DATA's open positions + scorecards with fresh marks (no render)
+  if(!m||!m.marks||!DATA) return false;
+  const mk=m.marks; let touched=false;
+  (DATA.open_positions||[]).forEach(t=>{ const p=mk[t.asset]; if(p==null) return;
+    t.marked_price=p; t.unrealized_pnl=(+t.shares||0)*(p-(+t.entry_price||0)); touched=true; });
+  if(touched){
+    const sumU=fn=>{let u=0;(DATA.open_positions||[]).forEach(t=>{if(fn(t))u+=(+t.unrealized_pnl||0);});return u;};
+    const sumV=fn=>{let v=0;(DATA.open_positions||[]).forEach(t=>{if(fn(t))v+=(+t.shares||0)*(+t.marked_price|| +t.entry_price||0);});return v;};
+    if(DATA.performance)['overlap','control'].forEach(s=>{const o=DATA.performance[s];if(o){const f=t=>(t.strategy||'overlap')===s;
+      o.unrealized_pnl=sumU(f); o.net_pnl=(+o.realized_pnl||0)+o.unrealized_pnl; o.on_table=sumV(f);}});
+    if(DATA.tiers)['green','blue'].forEach(tr=>{const o=DATA.tiers[tr];if(o){const f=t=>(t.strategy||'overlap')==='overlap'&&t.tier_at_entry===tr;
+      o.unrealized_pnl=sumU(f); o.net_pnl=(+o.realized_pnl||0)+o.unrealized_pnl; o.on_table=sumV(f);}});
+  }
+  marksMeta={ts:m.ts, priced:m.priced, open:m.open};
+  return touched;
+}
+function applyMarks(m){ if(m)lastMarks=m; if(mergeMarks(m)&&state.tab==='performance') renderPerformance(); }
+function fetchMarks(){ return fetch(SUPA_MARKS+'?t='+Date.now())
+  .then(r=>r.ok?r.json():null).then(m=>{ if(m&&m.marks) applyMarks(m); }).catch(()=>{}); }
+function startMarks(){ clearInterval(marksTimer); fetchMarks(); marksTimer=setInterval(fetchMarks,60000); }
+
+function applyData(d){ DATA=d; computeFlash(d); lastGen=d.generated_at; if(lastMarks)mergeMarks(lastMarks); render(); }
 function manualRefresh(){ const b=document.getElementById('refresh'); b.classList.add('spin'); clearInterval(freshTimer);
   // 1) re-read whatever's already published (instant)
   fetchData().then(applyData).catch(()=>{});
@@ -1187,14 +1218,14 @@ function showSkeleton(){ document.getElementById('tab-traders').innerHTML='<div 
 function load(initial){
   return fetchData().then(d=>{
     const fresh=d.generated_at!==lastGen;
-    DATA=d; computeFlash(d); if(initial){
+    DATA=d; computeFlash(d); if(lastMarks)mergeMarks(lastMarks); if(initial){
       try{ const saved=JSON.parse(localStorage.getItem('pm_state')||'{}');
         ['trd','cons','sig','perf','buy','settings'].forEach(k=>{ if(saved[k]) Object.assign(state[k],saved[k]); }); }catch(e){}
       const want=(location.hash||'').replace('#','')||(()=>{try{return localStorage.getItem('pm_tab');}catch(e){return null;}})()||'traders';
       state.tab=RENDER[want]?want:'traders';
       document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('on',b.dataset.tab===state.tab));
       document.querySelectorAll('.tab').forEach(s=>s.classList.toggle('on',s.id==='tab-'+state.tab));
-      render(); applySettings(); setTimeout(()=>{ introDone=true; }, 1100);
+      render(); applySettings(); startMarks(); setTimeout(()=>{ introDone=true; }, 1100);
     } else if(fresh){ render(); toast('↻ New cycle data loaded'); }
     lastGen=d.generated_at;
   }).catch(()=>{ if(initial) document.getElementById('tab-traders').innerHTML='<div class="empty">No data published yet — the first poller run will generate it. Check back shortly.</div>'; });
