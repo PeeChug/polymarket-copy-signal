@@ -1,34 +1,44 @@
-# Cloudflare Worker — reliable 15-min poller trigger
+# Cloudflare Worker — poller trigger + config save
 
-GitHub Actions' scheduled cron is "best effort" and fires unreliably on the free
-tier. This tiny Worker pokes the poller's `workflow_dispatch` endpoint every 15
-minutes on Cloudflare's dependable cron, so the dashboard stays fresh **with no
-browser tab open**. The poller's actual work still runs in GitHub Actions; this
-only presses the button.
+This Worker does two jobs:
 
-You need a GitHub fine-grained PAT with **Actions: Read and write** on this repo
-(reuse the one from the dashboard's Auto-poll). Free Cloudflare plan is plenty:
-a 15-min cron is 96 runs/day, far under the 100k/day free limit.
+1. **Triggers the poller.** GitHub Actions' scheduled cron is "best effort" and
+   fires unreliably on the free tier. This Worker pokes the poller's
+   `workflow_dispatch` endpoint every **5 minutes** on Cloudflare's dependable
+   cron, so the dashboard stays fresh **with no browser tab open**. The poller's
+   actual work still runs in GitHub Actions; this only presses the button.
+2. **Saves paper-trade config.** The dashboard `POST`s settings to `/config` and
+   the Worker writes a new `config_history` row to Supabase using a secret it
+   holds **server-side** — so the public dashboard never carries a key and never
+   asks for a token.
+
+## Secrets
+
+Set three secrets on the Worker (names matter):
+
+| Secret | Value | Used for |
+| --- | --- | --- |
+| `GH_PAT` | GitHub fine-grained PAT with **Actions: Read and write** on this repo | firing `workflow_dispatch` |
+| `SUPABASE_URL` | `https://<project>.supabase.co` | the `/config` write |
+| `SUPABASE_KEY` | Supabase **secret** (service) key — stays server-side only | the `/config` write |
+
+Free Cloudflare plan is plenty: a 5-min cron is 288 runs/day, far under the
+100k/day free limit, and each invocation does a single outbound request.
 
 ## Option A — Dashboard (no CLI, ~10 min)
 
 1. Sign in at **dash.cloudflare.com** → **Workers & Pages** → **Create** →
-   **Create Worker**. Name it `polymarket-poller-cron`, Deploy (the default hello
+   **Create Worker**. Name it `polymarket-copy-signal`, Deploy (the default hello
    worker is fine for now).
 2. **Edit code** → paste the contents of [`worker.js`](worker.js) over the
    template → **Deploy**.
-3. Worker → **Settings → Variables and Secrets** → **Add** a **Secret**:
-   - Name: `GH_PAT`
-   - Value: your `github_pat_…` token
-   - Save / Deploy.
+3. Worker → **Settings → Variables and Secrets** → add the three **Secrets** in
+   the table above → Save / Deploy.
 4. Worker → **Settings → Triggers → Cron Triggers** → **Add Cron Trigger** →
-   `*/15 * * * *` → Save.
-5. Test: open `https://polymarket-poller-cron.<your-subdomain>.workers.dev/?run`
-   — it should say "Triggered a poll (204)". Check the repo's Actions tab for a
-   new `workflow_dispatch` run.
-
-Then turn **off** the dashboard's in-page Auto-poll and close the tab — it stays
-fresh on its own.
+   `*/5 * * * *` → Save.
+5. Test: open `https://<name>.<your-subdomain>.workers.dev/?run` — it should say
+   "Triggered a poll (204)". A `POST` to `/config` with a JSON body of settings
+   returns `{"ok":true,...}`.
 
 ## Option B — Connect to Git (auto-deploys on push)
 
@@ -43,7 +53,7 @@ so there's no manual cron-trigger step.
    critical step — `wrangler.toml` lives there, not at the repo root). Leave the
    deploy command as the default (`npx wrangler deploy`). **Save and Deploy.**
 3. After the first deploy, open the Worker → **Settings → Variables and
-   Secrets** → add a **Secret** `GH_PAT` = your `github_pat_…` → redeploy.
+   Secrets** → add the three secrets from the table above → redeploy.
 4. Test with `…workers.dev/?run` as above.
 
 Future edits to `cloudflare/worker.js` deploy themselves on push.
@@ -54,8 +64,10 @@ Future edits to `cloudflare/worker.js` deploy themselves on push.
 npm i -g wrangler
 cd cloudflare
 wrangler login
-wrangler secret put GH_PAT      # paste the token when prompted
-wrangler deploy                 # reads wrangler.toml (cron + entry point)
+wrangler secret put GH_PAT         # paste the GitHub PAT when prompted
+wrangler secret put SUPABASE_URL   # https://<project>.supabase.co
+wrangler secret put SUPABASE_KEY   # Supabase secret (service) key
+wrangler deploy                    # reads wrangler.toml (cron + entry point)
 ```
 
 ## Manage
@@ -65,5 +77,5 @@ wrangler deploy                 # reads wrangler.toml (cron + entry point)
 - Change cadence: edit the cron in the dashboard trigger or `wrangler.toml`.
 - Remove: delete the Worker, or remove the cron trigger.
 
-The GitHub `*/5` Actions cron stays as a free backup; the 15-minute interval gate
-(`poll_interval_minutes`) means there's no double work if both happen to fire.
+The GitHub `*/5` Actions cron stays as a free backup; the `poll_interval_minutes`
+interval gate means there's no double work if both happen to fire.

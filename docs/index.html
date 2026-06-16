@@ -238,19 +238,6 @@
 
 <div class="wrap">
   <div class="stale" id="stale"></div>
-  <div id="tokenSetup" class="card" style="display:none;margin-top:14px">
-    <b>GitHub token</b> — only used to <b>save paper-trade config changes</b> from this page (it commits
-    <code>config.yaml</code>). Stored <b>only in this browser</b> (localStorage), never uploaded. Optional —
-    skip it unless you want to edit the config here. Create a <b>fine-grained</b> token with
-    <b>Contents: Read and write</b> scoped to this one repo:
-    <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">create token ↗</a>
-    <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-      <input type="password" id="ghtok" placeholder="github_pat_…" style="flex:1;min-width:240px">
-      <button class="tbtn" id="ghtoksave">Save</button>
-      <button class="tbtn" id="ghtokcancel">Cancel</button>
-      <button class="tbtn" id="ghtokforget" style="margin-left:auto">Forget token</button>
-    </div>
-  </div>
   <section id="tab-traders" class="tab on"></section>
   <section id="tab-consensus" class="tab"></section>
   <section id="tab-buy" class="tab"></section>
@@ -265,10 +252,6 @@
   <h3>⚙️ Settings</h3>
   <div class="row"><label>View refresh (re-read data)</label>
     <select id="setRefresh"><option value="1">every 1 min</option><option value="2.5">every 2.5 min</option><option value="5">every 5 min</option></select></div>
-  <div class="row"><label>GitHub token <span class="muted" style="font-size:11px;font-weight:400">— only to save config changes below</span></label>
-    <div id="setTokenStatus" class="muted" style="font-size:12.5px;margin-bottom:6px"></div>
-    <button class="tbtn" id="setTokenBtn">Set / update token</button>
-    <button class="tbtn" id="setTokenForget">Forget token</button></div>
   <h3>Display</h3>
   <div class="row"><label>Theme</label>
     <select id="setTheme"><option value="dark">dark</option><option value="light">light</option></select></div>
@@ -299,9 +282,9 @@
   <div class="row"><label>Max entry price (skip near-resolved)</label><input type="number" id="ptMaxP" min="0.5" max="0.99" step="0.01"></div>
   <div class="row"><label>Stop-loss % (exit if down this much · 0 = off)</label><input type="number" id="ptStop" min="0" max="95" step="5"></div>
   <div class="row"><label>Split markets (cohort on both sides)</label>
-    <select id="ptContested"><option value="dominant">trade the stronger side</option><option value="skip">skip it</option><option value="both">trade both (a wash)</option></select></div>
-  <div class="row"><button class="tbtn" id="ptSave">💾 Save to config (commits)</button>
-    <div class="muted" id="ptStatus" style="font-size:11.5px;margin-top:6px">Forward-only: changes apply to future cycles. Needs your token to have <b>Contents: write</b>.</div></div>
+    <select id="ptContested"><option value="both">trade both (box spreads)</option><option value="dominant">trade the stronger side</option><option value="skip">skip it</option></select></div>
+  <div class="row"><button class="tbtn" id="ptSave">💾 Save settings</button>
+    <div class="muted" id="ptStatus" style="font-size:11.5px;margin-top:6px">Forward-only: changes apply to future cycles. Saved straight to your backend — <b>no token needed</b>.</div></div>
   <h3>Charts</h3>
   <div class="row"><label>Timeframe</label>
     <select id="setTF"><option value="1">last 1h</option><option value="6">last 6h</option><option value="24">last 24h</option><option value="72">last 3d</option><option value="168">last 7d</option><option value="0">all</option></select></div>
@@ -1057,7 +1040,6 @@ function load(initial){
 let refreshTimer=null;
 const lsGet=(k,d='')=>{try{return localStorage.getItem(k)??d;}catch(e){return d;}};
 const lsSet=(k,v)=>{try{localStorage.setItem(k,v);}catch(e){}};
-const ghToken=()=>lsGet('pm_gh_token','');   // optional, only for the in-page config editor
 function startRefresh(){ clearInterval(refreshTimer); refreshTimer=setInterval(()=>load(false),(state.settings.refreshMin||2.5)*60000); }
 // ---- Telegram alerts (browser-side; token+chat stored only in this browser) ----
 const tgTok=()=>lsGet('pm_tg_token','');
@@ -1074,10 +1056,8 @@ async function tgFind(){ const st=document.getElementById('tgStatus'); if(!tgTok
     lsSet('pm_tg_chat',String(id)); const f=document.getElementById('tgChat'); if(f)f.value=id;
     st.innerHTML='<span class="pos">✓ Found chat '+id+(chat.first_name||chat.title?(' ('+esc(chat.first_name||chat.title)+')'):'')+'</span>';
   }catch(e){ st.innerHTML='<span class="neg">Network error.</span>'; } }
-const GH_CONTENTS='https://api.github.com/repos/PeeChug/polymarket-copy-signal/contents/config.yaml';
 async function saveConfig(){
-  const g=id=>document.getElementById(id), st=g('ptStatus'), tok=ghToken();
-  if(!tok){ st.innerHTML='<span class="neg">Set your auto-poll token first (above).</span>'; return; }
+  const g=id=>document.getElementById(id), st=g('ptStatus');
   const vals={ min_tier_to_trade:g('ptTier').value, stake_usd:Math.max(1,Math.round(+g('ptStake').value||100)),
     tier_green_min:Math.max(2,Math.round(+g('ptGreen').value||10)), tier_blue_min:Math.max(2,Math.round(+g('ptBlue').value||5)),
     max_entry_price:Math.min(0.99,Math.max(0.5,+g('ptMaxP').value||0.9)),
@@ -1085,20 +1065,16 @@ async function saveConfig(){
     contested_policy:g('ptContested').value };
   if(vals.tier_green_min<vals.tier_blue_min){ st.innerHTML='<span class="neg">Green threshold must be ≥ blue.</span>'; return; }
   st.textContent='Saving…';
-  const H={'Authorization':'Bearer '+tok,'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'};
+  // Send the full current config + edits so untouched fields keep their values.
+  const full=Object.assign({}, (DATA&&DATA.config)||{}, vals);
+  ['id','source','note','created_at'].forEach(k=>delete full[k]);
   try{
-    const r=await fetch(GH_CONTENTS+'?ref=main',{headers:H});
-    if(r.status===401){ st.innerHTML='<span class="neg">Token rejected (401).</span>'; return; }
-    if(r.status===403||r.status===404){ st.innerHTML="<span class=\"neg\">Token can't read files — re-create it with <b>Contents: Read and write</b>.</span>"; return; }
-    if(!r.ok){ st.innerHTML='<span class="neg">Read failed ('+r.status+').</span>'; return; }
-    const j=await r.json(); let yaml=atob((j.content||'').replace(/\s/g,''));
-    Object.entries(vals).forEach(([k,v])=>{ const re=new RegExp('^(\\s*'+k+':\\s*)\\S+','m'); yaml=re.test(yaml)?yaml.replace(re,'$1'+v):(yaml+'\n'+k+': '+v); });
-    const put=await fetch(GH_CONTENTS,{method:'PUT',headers:H,body:JSON.stringify({message:'config: update paper-trade settings via dashboard',content:btoa(yaml),sha:j.sha,branch:'main'})});
-    if(put.status===200||put.status===201){ st.innerHTML='<span class="pos">✓ Committed — the next poll will use it.</span>'; toast('Paper-trade config saved'); }
-    else if(put.status===403||put.status===404){ st.innerHTML="<span class=\"neg\">Token can't write files — add <b>Contents: Read and write</b> to it.</span>"; }
-    else if(put.status===409){ st.innerHTML='<span class="neg">Conflict — someone changed config.yaml; try again.</span>'; }
-    else st.innerHTML='<span class="neg">Save failed ('+put.status+').</span>';
-  }catch(e){ st.innerHTML='<span class="neg">Network error.</span>'; }
+    const r=await fetch(WORKER_BASE+'/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(full)});
+    const j=await r.json().catch(()=>({}));
+    if(r.ok&&j.ok){ if(DATA) DATA.config=Object.assign({}, DATA.config||{}, vals); syncSettingsUI();
+      st.innerHTML='<span class="pos">✓ Saved — the next poll will use it.</span>'; toast('Paper-trade config saved'); }
+    else st.innerHTML='<span class="neg">Save failed'+(j&&j.error?(': '+esc(j.error)):(' ('+r.status+')'))+'.</span>';
+  }catch(e){ st.innerHTML='<span class="neg">Network error — worker unreachable.</span>'; }
 }
 function syncSettingsUI(){ const g=(id)=>document.getElementById(id); if(!g('setRefresh')) return;
   g('setRefresh').value=String(state.settings.refreshMin);
@@ -1111,16 +1087,8 @@ function syncSettingsUI(){ const g=(id)=>document.getElementById(id); if(!g('set
     g('ptStop').value=Math.round((cfg.stop_loss_pct??0.25)*100); g('ptContested').value=cfg.contested_policy||'both'; }
   if(g('tgChat')) g('tgChat').value=tgChatId();
   if(g('tgTok')) g('tgTok').placeholder=tgTok()?'saved ✓ (paste to replace)':'123456:ABC-…';
-  if(g('tgOn')) g('tgOn').checked=!!state.settings.tgOn;
-  g('setTokenStatus').textContent=ghToken()?'Token set ✓ (used only to save config)':'No token set'; }
+  if(g('tgOn')) g('tgOn').checked=!!state.settings.tgOn; }
 function applySettings(){ startRefresh(); syncSettingsUI(); }
-function initTokenSetup(){
-  const panel=document.getElementById('tokenSetup'), inp=document.getElementById('ghtok');
-  const save=document.getElementById('ghtoksave'), cancel=document.getElementById('ghtokcancel'), forget=document.getElementById('ghtokforget');
-  if(save) save.onclick=()=>{ const v=(inp.value||'').trim(); if(!v){toast('Paste a token first');return;} lsSet('pm_gh_token',v); inp.value=''; panel.style.display='none'; syncSettingsUI(); toast('Token saved (this browser only)'); };
-  if(cancel) cancel.onclick=()=>{ panel.style.display='none'; };
-  if(forget) forget.onclick=()=>{ lsSet('pm_gh_token',''); if(inp)inp.value=''; panel.style.display='none'; syncSettingsUI(); toast('Token forgotten'); };
-}
 function initSettings(){
   const g=(id)=>document.getElementById(id), panel=g('settings'), scrim=g('scrim');
   const open=()=>{ syncSettingsUI(); panel.classList.add('open'); scrim.classList.add('open'); };
@@ -1141,8 +1109,6 @@ function initSettings(){
   if(g('tgChat')) g('tgChat').onchange=e=>lsSet('pm_tg_chat',(e.target.value||'').trim());
   if(g('tgTest')) g('tgTest').onclick=async()=>{ if(!tgTok()||!tgChatId()){ g('tgStatus').innerHTML='<span class="neg">Need a saved token + chat ID first.</span>'; return; } g('tgStatus').textContent='Sending…'; const ok=await tgSend('✅ Test from your Polymarket Copy-Signal dashboard — alerts are working.'); g('tgStatus').innerHTML=ok?'<span class="pos">✓ Sent — check Telegram.</span>':'<span class="neg">Failed. Re-check the token, and that you messaged the bot + ran Find my chat ID.</span>'; };
   if(g('tgOn')) g('tgOn').onchange=e=>{ if(e.target.checked&&(!tgTok()||!tgChatId())){ e.target.checked=false; g('tgStatus').innerHTML='<span class="neg">Set token + chat ID first.</span>'; return; } state.settings.tgOn=e.target.checked; persist(); g('tgStatus').innerHTML=e.target.checked?'<span class="pos">Telegram alerts on.</span>':'Telegram alerts off.'; };
-  g('setTokenBtn').onclick=()=>{ close(); const p=g('tokenSetup'); p.style.display='block'; g('ghtok').focus(); p.scrollIntoView({behavior:'smooth'}); };
-  g('setTokenForget').onclick=()=>{ lsSet('pm_gh_token',''); syncSettingsUI(); toast('Token forgotten'); };
   g('setReset').onclick=()=>{ Object.assign(state.trd,{sort:'rank',show:12,q:'',sharedOnly:false});
     Object.assign(state.cons,{key:'overlap',dir:-1,min:2,q:'',minLiq:0,due:0,contest:'any',cat:'any',hideResolved:true});
     Object.assign(state.sig,{key:'overlap',dir:-1,q:'',tier:'all',minOv:1,minLiq:0,hideClosed:false});
@@ -1151,7 +1117,7 @@ function initSettings(){
 applyTheme(curTheme());
 document.getElementById('themebtn').onclick=toggleTheme;
 document.getElementById('helpbtn').onclick=showHelp;
-initTokenSetup(); initSettings(); startRefresh();
+initSettings(); startRefresh();
 showSkeleton(); load(true);
 </script>
 </body>
