@@ -197,7 +197,8 @@
   .help-grid { display:grid; grid-template-columns:auto 1fr; gap:10px 16px; font-size:13.5px; align-items:center; margin-top:10px; }
   .help-grid .d { color:var(--muted); }
   @media (max-width:720px){ .grid2{grid-template-columns:1fr;} .metrics{grid-template-columns:repeat(2,1fr);} .calib{grid-template-columns:1fr;} }
-  @media (max-width:560px){ .brand .ro{display:none;} .meta{font-size:0;gap:0;} .meta .pill{font-size:11px;} }
+  @media (max-width:560px){ .brand .ro{display:none;} .topin{flex-wrap:wrap; row-gap:7px;}
+    .meta{order:3; flex-basis:100%; margin-left:0; justify-content:flex-start; white-space:normal; font-size:12px;} .meta .pill{font-size:11px;} }
   /* Top Earners collapse chevron: hidden on desktop, shown on mobile (declared BEFORE
      the mobile query so the mobile display override wins on equal specificity). */
   .tcard .chev { display:none; align-items:center; margin-left:auto; align-self:flex-start; color:var(--muted); font-size:13px; transition:transform .2s; }
@@ -207,12 +208,17 @@
     .wrap { padding:14px 12px 60px; }
     .scroll { border:0; overflow:visible; }
     .scroll table, .scroll tbody, .scroll tr, .scroll td { display:block; width:100%; }
-    .scroll thead { position:absolute; left:-9999px; }
+    .scroll thead { display:none; }   /* fully remove (not off-screen) — an off-screen header still forced the table wide, leaving cards stuck at ~350px */
     .scroll tr { border:1px solid var(--line); border-radius:12px; margin:10px 0; padding:3px 2px; background:linear-gradient(180deg,var(--panel),var(--bg2)); }
-    .scroll td { display:flex; justify-content:space-between; align-items:center; gap:14px; text-align:right; white-space:normal; padding:8px 14px; border-bottom:1px solid var(--line); }
+    .scroll td { display:flex; justify-content:space-between; align-items:center; gap:14px; text-align:right; white-space:normal; overflow-wrap:anywhere; min-width:0; padding:8px 14px; border-bottom:1px solid var(--line); }
     .scroll td:last-child { border-bottom:0; }
     .scroll td::before { content:attr(data-label); color:var(--muted); font-weight:600; font-size:12px; text-align:left; flex:none; }
     .scroll td:empty { display:none; }
+    /* collapsible row-cards: show only the mobile-key cells (.mk); tap to expand the rest */
+    .scroll.coll tbody tr { position:relative; padding-right:26px; cursor:pointer; }
+    .scroll.coll tbody tr:not(.exp) td:not(.mk) { display:none; }
+    .scroll.coll tbody tr::after { content:'▾'; position:absolute; right:11px; top:12px; color:var(--muted); font-size:13px; }
+    .scroll.coll tbody tr.exp::after { content:'▴'; }
     .modal { width:96vw; padding:18px 16px; } .panelx { width:300px; }
     /* tab nav: smooth horizontal scroll, no ugly scrollbar, snug buttons */
     .tabs { overflow-x:auto; scrollbar-width:none; -webkit-overflow-scrolling:touch; }
@@ -279,7 +285,7 @@
 </div>
 <header class="top">
   <div class="topin">
-    <div class="brand">📊 Polymarket Copy-Signal <span class="ro">read-only</span></div>
+    <div class="brand">📊 PM Copy-Signal <span class="ro">read-only</span></div>
     <div class="meta" id="meta"></div>
     <div class="hdr-actions">
       <button class="tbtn ic" id="refresh" title="Refresh — pull a fresh cycle now">↻</button>
@@ -383,7 +389,7 @@ const realName=(t)=>(t.username&&!/^0x/i.test(t.username))?t.username:((t.wallet
 const PAL=['#7c5cff','#2f9e7d','#c7873b','#3b82c7','#b85c8a','#5aa0a0','#a35adb','#c25a5a','#5a8fc2','#9a8a3a'];
 const palette=(w)=>{let h=0;for(const c of(w||'x'))h=(h*31+c.charCodeAt(0))>>>0;return PAL[h%PAL.length];};
 const mlink=(slug,title,n=56)=>{const u=mktUrl(slug),t=esc((title||'').slice(0,n));return u?`<a href="${u}" target="_blank" rel="noopener">${t}</a>`:t;};
-const holders=(o)=>{const n=(o.holder_usernames||[]).filter(Boolean);return n.length?esc(n.join(', ')):`<span class="muted">${(o.holder_wallets||[]).length} wallet(s)</span>`;};
+const holders=(o)=>{const n=(o.holder_usernames||[]).filter(Boolean); if(!n.length) return `<span class="muted">${(o.holder_wallets||[]).length} wallet(s)</span>`; const k=n.slice(0,6); return esc(k.join(', '))+(n.length>k.length?` <span class="muted">+${n.length-k.length} more</span>`:'');};
 const sel=(id,label,opts,val)=>`<label class="fl">${label} <select id="${id}">${opts.map(o=>`<option value="${o[0]}"${o[0]==val?' selected':''}>${o[1]}</option>`).join('')}</select></label>`;
 function npCell(o,cohort){const n=o.overlap||0,p=o.participants||n||1,cls=o.tier==='green'?'strong':(o.tier==='blue'?'mod':'');
   return `<span class="agree ${cls}" title="${n} of ${p} holders are on this side · ${n} of ${cohort} cohort">${n}/${p}<span class="bar"><i style="width:${Math.min(100,n/Math.max(p,1)*100).toFixed(0)}%"></i></span></span>`;}
@@ -527,9 +533,10 @@ function tableEl(headers, rows, sortState, onSort, cap, onMore){
     const cls=(hd.num?'num ':'')+(hd.sortKey?'sortable':'');
     const arr=sortState&&sortState.key===hd.sortKey?`<span class="arr">${sortState.dir<0?'▼':'▲'}</span>`:'';
     return `<th class="${cls}" data-ci="${ci}">${esc(hd.label)} ${arr}</th>`;}).join('')+'</tr>';
-  const body=vis.map(r=>`<tr class="${r._cls||''}"${r._id!=null?` data-id="${esc(r._id)}"`:''}>`+headers.map(hd=>`<td class="${hd.num?'num':''}" data-label="${esc(hd.label||'')}">${r[hd.key]==null?'':r[hd.key]}</td>`).join('')+'</tr>').join('');
+  const body=vis.map(r=>`<tr class="${r._cls||''}"${r._id!=null?` data-id="${esc(r._id)}"`:''}>`+headers.map(hd=>`<td class="${hd.num?'num':''}${hd.mob?' mk':''}" data-label="${esc(hd.label||'')}">${r[hd.key]==null?'':r[hd.key]}</td>`).join('')+'</tr>').join('');
   const more=(shown<total)?`<div class="morebar"><button class="tbtn morebtn">▾ Show all ${total} rows (${total-shown} more)</button></div>`:'';
-  const wrap=$(`<div class="scroll"><table><thead>${thead}</thead><tbody>${body}</tbody></table>${more}</div>`);
+  const coll=headers.some(h=>h.mob)?' coll':'';   // any mobile-key column => collapsible row-cards on mobile
+  const wrap=$(`<div class="scroll${coll}"><table><thead>${thead}</thead><tbody>${body}</tbody></table>${more}</div>`);
   if(onSort) wrap.querySelectorAll('th.sortable').forEach(th=>th.onclick=()=>onSort(headers[+th.dataset.ci].sortKey));
   if(onMore){ const mb=wrap.querySelector('.morebtn'); if(mb) mb.onclick=onMore; }
   return wrap;
@@ -759,8 +766,8 @@ function renderConsensus(){
         price:o.price==null?0:o.price, _price:o.price==null?'—':round(o.price),
         rts:rd?rd.ts:Infinity, _res:rd?`<span class="due ${rd.cls}">${rd.txt}</span>`:'—', earners:holders(o)};});
     rows=sortRows(rows,state.cons.key,state.cons.dir);
-    const t=tableEl([{key:'pick',label:''},{key:'_agree',label:'Agreement',sortKey:'overlap',num:1},{key:'_mom',label:'Mom',sortKey:'mom',num:1},
-      {key:'_edge',label:'Edge',sortKey:'edge',num:1},{key:'_notional',label:'Conviction',sortKey:'notional',num:1},{key:'tier',label:'Tier'},{key:'market',label:'Market'},
+    const t=tableEl([{key:'pick',label:''},{key:'_agree',label:'Agreement',sortKey:'overlap',num:1,mob:1},{key:'_mom',label:'Mom',sortKey:'mom',num:1},
+      {key:'_edge',label:'Edge',sortKey:'edge',num:1},{key:'_notional',label:'Conviction',sortKey:'notional',num:1},{key:'tier',label:'Tier'},{key:'market',label:'Market',mob:1},
       {key:'outcome',label:'Outcome'},{key:'_price',label:'Price',sortKey:'price',num:1},
       {key:'_res',label:'Resolves',sortKey:'rts',num:1},{key:'earners',label:'Which earners hold it'}],rows,state.cons,
       k=>{state.cons.dir=state.cons.key===k?-state.cons.dir:-1;state.cons.key=k;draw();}, viewCap.cons, ()=>{ viewCap.cons=Infinity; draw(); });
@@ -837,8 +844,8 @@ function renderPerformance(){
         entry:+t.entry_price||0,_entry:round(t.entry_price),mark:+t.marked_price||0,_mark:t.marked_price==null?'—':round(t.marked_price),
         upnl:up,_upnl:`<span class="${sgn(up)}">${money(up)}</span>`,pct:stake?up/stake:0,_pct:stake?`<span class="${sgn(up)}">${(up/stake*100).toFixed(0)}%</span>`:'—',
         days:days,_days:days<1?'<1d':days+'d',rts:rd?rd.ts:Infinity,_res:rd?`<span class="due ${rd.cls}">${rd.txt}</span>`:'—',opened:esc(String(t.entry_at||'').slice(0,10))};});
-    return tableEl([{key:'tier',label:'Tier'},{key:'market',label:'Market'},{key:'outcome',label:'Outcome'},{key:'ov',label:'Agree@entry',sortKey:'ov',num:1},
-      {key:'_entry',label:'Entry',sortKey:'entry',num:1},{key:'_mark',label:'Mark',sortKey:'mark',num:1},{key:'_upnl',label:'Unrealized',sortKey:'upnl',num:1},
+    return tableEl([{key:'tier',label:'Tier'},{key:'market',label:'Market',mob:1},{key:'outcome',label:'Outcome'},{key:'ov',label:'Agree@entry',sortKey:'ov',num:1},
+      {key:'_entry',label:'Entry',sortKey:'entry',num:1},{key:'_mark',label:'Mark',sortKey:'mark',num:1},{key:'_upnl',label:'Unrealized',sortKey:'upnl',num:1,mob:1},
       {key:'_pct',label:'P&L %',sortKey:'pct',num:1},{key:'_days',label:'Held',sortKey:'days',num:1},{key:'_res',label:'Resolves',sortKey:'rts',num:1},{key:'opened',label:'Opened'}],
       sortRows(rows,state.perf.ok,state.perf.od),{key:state.perf.ok,dir:state.perf.od},
       k=>{state.perf.od=state.perf.ok===k?-state.perf.od:-1;state.perf.ok=k;persist();renderPerformance();});
@@ -853,8 +860,8 @@ function renderPerformance(){
         pct:stake?rp/stake:0,_pct:stake?`<span class="${sgn(rp)}">${(rp/stake*100).toFixed(0)}%</span>`:'—',
         result:t.resolved_won==null?'<span class="muted">—</span>':(t.resolved_won?'<span class="pos">✓ won</span>':'<span class="neg">✗ lost</span>'),
         reason:`<span title="${esc(RT[t.close_reason]||'')}">${esc(RL[t.close_reason]||(t.close_reason||'').replace(/_/g,' '))}</span>`,closed:esc(String(t.exit_at||'').slice(0,10))};});
-    return tableEl([{key:'tier',label:'Tier'},{key:'market',label:'Market'},{key:'outcome',label:'Outcome'},{key:'_entry',label:'Entry',sortKey:'entry',num:1},
-      {key:'_exit',label:'Exit',sortKey:'exit',num:1},{key:'_rpnl',label:'Realized',sortKey:'rpnl',num:1},{key:'_pct',label:'P&L %',sortKey:'pct',num:1},
+    return tableEl([{key:'tier',label:'Tier'},{key:'market',label:'Market',mob:1},{key:'outcome',label:'Outcome'},{key:'_entry',label:'Entry',sortKey:'entry',num:1},
+      {key:'_exit',label:'Exit',sortKey:'exit',num:1},{key:'_rpnl',label:'Realized',sortKey:'rpnl',num:1,mob:1},{key:'_pct',label:'P&L %',sortKey:'pct',num:1},
       {key:'result',label:'Result'},{key:'reason',label:'Why closed'},{key:'closed',label:'Closed'}],
       sortRows(rows,state.perf.ck,state.perf.cd),{key:state.perf.ck,dir:state.perf.cd},
       k=>{state.perf.cd=state.perf.ck===k?-state.perf.cd:-1;state.perf.ck=k;persist();renderPerformance();});
@@ -946,7 +953,7 @@ function renderSignals(){
       rts:rd?rd.ts:Infinity, _res:rd?`<span class="due ${rd.cls}">${rd.txt}</span>`:'—',
       closed:o.market_closed?'yes':'no', holders:holders(o)};});
     const sorted=sortRows(disp,state.sig.key,state.sig.dir);
-    const t=tableEl([{key:'_agree',label:'Agreement',sortKey:'overlap',num:1},{key:'tier',label:'Tier'},{key:'market',label:'Market'},{key:'outcome',label:'Outcome'},{key:'_price',label:'Price',sortKey:'price',num:1},{key:'_liq',label:'Liquidity',sortKey:'liquidity',num:1},{key:'_res',label:'Resolves',sortKey:'rts',num:1},{key:'closed',label:'Closed'},{key:'holders',label:'Holders'}],sorted,state.sig,k=>{state.sig.dir=state.sig.key===k?-state.sig.dir:-1;state.sig.key=k;draw();}, viewCap.sig, ()=>{ viewCap.sig=Infinity; draw(); });
+    const t=tableEl([{key:'_agree',label:'Agreement',sortKey:'overlap',num:1,mob:1},{key:'tier',label:'Tier'},{key:'market',label:'Market',mob:1},{key:'outcome',label:'Outcome'},{key:'_price',label:'Price',sortKey:'price',num:1},{key:'_liq',label:'Liquidity',sortKey:'liquidity',num:1},{key:'_res',label:'Resolves',sortKey:'rts',num:1},{key:'closed',label:'Closed'},{key:'holders',label:'Holders'}],sorted,state.sig,k=>{state.sig.dir=state.sig.key===k?-state.sig.dir:-1;state.sig.key=k;draw();}, viewCap.sig, ()=>{ viewCap.sig=Infinity; draw(); });
     host.innerHTML=''; host.appendChild(t||$(`<div class="empty">No matching positions.</div>`));
     tb.querySelector('#scount').textContent=`${sorted.length} shown`;
     const _ss=tb.querySelector('#ssortsel'); if(_ss)_ss.value=state.sig.key; const _sd=tb.querySelector('#ssortdir'); if(_sd)_sd.textContent=state.sig.dir<0?'▼':'▲';
@@ -1007,7 +1014,7 @@ function renderPicks(){
       rm:`<button class="pickbtn has" data-pick="${esc(pk.asset)}" title="Remove">✕</button>`};});
   const totPnl=totVal-totCost;
   el.appendChild($(`<div class="chips"><span class="chip">📦 <b>${picks.length}</b> picks</span><span class="chip">cost <b>${money(totCost)}</b></span><span class="chip">value <b>${money(totVal)}</b></span><span class="chip">P&L <b class="${sgn(totPnl)}">${money(totPnl)}</b> (${totCost?(totPnl/totCost*100).toFixed(0):0}%)</span></div>`));
-  const tbl=tableEl([{key:'market',label:'Market'},{key:'outcome',label:'Outcome'},{key:'entry',label:'Your entry',num:1},{key:'cur',label:'Now',num:1},{key:'stake',label:'Stake',num:1},{key:'_pnl',label:'P&L',num:1},{key:'_pct',label:'P&L %',num:1},{key:'added',label:'Added'},{key:'note',label:'Notes'},{key:'rm',label:''}],rows);
+  const tbl=tableEl([{key:'market',label:'Market',mob:1},{key:'outcome',label:'Outcome'},{key:'entry',label:'Your entry',num:1},{key:'cur',label:'Now',num:1},{key:'stake',label:'Stake',num:1},{key:'_pnl',label:'P&L',num:1,mob:1},{key:'_pct',label:'P&L %',num:1},{key:'added',label:'Added'},{key:'note',label:'Notes'},{key:'rm',label:''}],rows);
   el.appendChild(tbl);
   tbl.querySelectorAll('.noteinp').forEach(i=>i.onchange=e=>{ const p=picksGet(),a=e.target.dataset.note; if(p[a]){ p[a].note=e.target.value; picksSet(p); toast('Note saved'); } });
 }
@@ -1050,8 +1057,8 @@ function renderBuy(){
     const pk={score:'score',consensus:'overlap',conviction:'conv',edge:'edge',momentum:'mom',resolving:'rts'}[state.buy.preset]||'score';
     let sorted=sortRows(mapped,pk,state.buy.preset==='resolving'?1:-1);
     if(state.buy.preset==='resolving') sorted=sorted.filter(r=>r.rts!==Infinity);
-    const t=tableEl([{key:'pick',label:''},{key:'_score',label:'Score'},{key:'_agree',label:'Agreement'},{key:'_edge',label:'Edge'},{key:'_mom',label:'Mom'},
-      {key:'market',label:'Market'},{key:'outcome',label:'Outcome'},{key:'_price',label:'Price',num:1},{key:'_liq',label:'Liquidity',num:1},
+    const t=tableEl([{key:'pick',label:''},{key:'_score',label:'Score',mob:1},{key:'_agree',label:'Agreement'},{key:'_edge',label:'Edge'},{key:'_mom',label:'Mom'},
+      {key:'market',label:'Market',mob:1},{key:'outcome',label:'Outcome'},{key:'_price',label:'Price',num:1},{key:'_liq',label:'Liquidity',num:1},
       {key:'_res',label:'Resolves',num:1},{key:'_stake',label:'½-Kelly $',num:1},{key:'_ev',label:'EV $',num:1}],sorted,null,null,viewCap.buy,()=>{viewCap.buy=Infinity;draw();});
     host.innerHTML=''; host.appendChild(t||$(`<div class="empty">No candidates match these filters — loosen them, or wait for stronger consensus.</div>`));
     tb.querySelector('#bCount').textContent=`${sorted.length} candidates`;
@@ -1112,7 +1119,7 @@ function renderBacktest(){   // 📜 History hub: winning wallets · resolved ma
         move:(m.first_price!=null&&m.exit_price!=null)?`${round(m.first_price)}→${round(m.exit_price)}`:'—',
         when:relAgo(m.resolved_at)||'—',
         holders:`<span title="${esc(names.join(', '))}">${(m.holders||[]).length} <span class="muted">(${esc(shown)})</span></span>` };});
-    el.appendChild(tableEl([{key:'market',label:'Market'},{key:'outcome',label:'Outcome'},{key:'tier',label:'Tier'},{key:'agree',label:'Peak agree',num:1},{key:'_res',label:'Result'},{key:'move',label:'Entry→Exit',num:1},{key:'when',label:'Resolved'},{key:'holders',label:'Held by'}],rmrows,null,null,histCap.resolved,()=>{histCap.resolved=Infinity;renderBacktest();}));
+    el.appendChild(tableEl([{key:'market',label:'Market',mob:1},{key:'outcome',label:'Outcome'},{key:'tier',label:'Tier'},{key:'agree',label:'Peak agree',num:1},{key:'_res',label:'Result',mob:1},{key:'move',label:'Entry→Exit',num:1},{key:'when',label:'Resolved'},{key:'holders',label:'Held by'}],rmrows,null,null,histCap.resolved,()=>{histCap.resolved=Infinity;renderBacktest();}));
   } else el.appendChild($(`<div class="empty">No consensus markets have resolved yet. When a market the cohort agreed on settles, it's recorded here with who held the winning side.</div>`));
 
   // 3) Strategy backtest
@@ -1141,7 +1148,10 @@ document.addEventListener('click',e=>{
   const pb=e.target.closest('[data-pick]'); if(pb){const a=pb.getAttribute('data-pick'); togglePick(a); const on=!!picksGet()[a];
     document.querySelectorAll(`.pickbtn[data-pick="${CSS.escape(a)}"]`).forEach(b=>{ b.classList.toggle('has',on); b.textContent=on?'✓':'＋'; b.title=on?'In My Picks — click to remove':'Add to My Picks'; });
     if(document.getElementById('modal').classList.contains('open'))openMarket(a);
-    if(state.tab==='picks')renderPicks();}
+    if(state.tab==='picks')renderPicks();return;}
+  // mobile: tap a collapsible row-card (not a link/control) to expand/collapse it
+  const row=e.target.closest('.scroll.coll tbody tr');
+  if(row && window.matchMedia('(max-width:640px)').matches && !e.target.closest('a,button,input,label,select,.dd,[data-pick]')) row.classList.toggle('exp');
 });
 function showHelp(){ const m=document.getElementById('modal'); m.innerHTML=`<span class="x" id="modalx">×</span><h3>⌨️ Keyboard shortcuts</h3>
   <div class="help-grid">
