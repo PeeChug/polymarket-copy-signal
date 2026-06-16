@@ -27,6 +27,7 @@ create table if not exists config_history (
     top_n                       int     not null default 5,
     leaderboard_window          text    not null default 'MONTH',   -- DAY | WEEK | MONTH | ALL
     size_threshold              numeric not null default 1,          -- min position size to count a holding
+    poll_interval_minutes       int     not null default 15,         -- how often the poller does real work (5|10|15|30)
 
     -- tiering (overlap -> tier)
     tier_green_min              int     not null default 5,          -- overlap >= this => green (default: all N)
