@@ -292,9 +292,10 @@ class TestEngineLifecycle(unittest.TestCase):
         self.assertIn("w2", traders)
         self.assertTrue(traders["w2"]["eligible"])
 
-    def test_signal_decay_closes_thinned_position(self):
-        # open at overlap 4; cohort thins to 1 holder (< buy bar of 2) -> signal_decayed
-        # close even though one holder remains (so it is NOT a full abandonment).
+    def test_holder_exit_closes_when_a_holder_sells(self):
+        # open at overlap 4; ONE holder sells (overlap 4->3) -> holder_exited, even
+        # though 3 holders (>= buy bar 2) remain. We match the sell, like following
+        # the leader out — this is earlier than the old "agreement below the bar" rule.
         self.store = MemoryStore()
         self.store.insert_config({**CFG, "top_n": 4, "min_tier_to_trade": "blue",
                                   "tier_blue_min": 2, "tier_green_min": 3})
@@ -303,12 +304,13 @@ class TestEngineLifecycle(unittest.TestCase):
         self.c.positions_by_wallet = {w: [P("A", "mA")] for w in ("w1", "w2", "w3", "w4")}
         self.c.marks_map = {"A": 0.40}
         self.run_quiet()                                   # entry overlap 4
-        self.c.positions_by_wallet = {"w1": [P("A", "mA")], "w2": [], "w3": [], "w4": []}
+        self.c.positions_by_wallet = {"w1": [P("A", "mA")], "w2": [P("A", "mA")],
+                                      "w3": [P("A", "mA")], "w4": []}   # w4 sold
         self.c.marks_map = {"A": 0.45}
-        self.run_quiet()                                   # overlap 1 < 0.5*4 -> decay
+        self.run_quiet()                                   # overlap 4 -> 3: a holder sold
         t = [x for x in self.store.all_trades() if x["strategy"] == "overlap"][0]
         self.assertEqual(t["status"], "CLOSED")
-        self.assertEqual(t["close_reason"], "signal_decayed")
+        self.assertEqual(t["close_reason"], "holder_exited")
 
     def test_realistic_fills_enter_at_ask_mark_at_bid(self):
         self.store = MemoryStore()

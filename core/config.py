@@ -18,7 +18,7 @@ from typing import Optional
 _CONFIG_FIELDS = (
     "top_n", "candidate_pool", "leaderboard_window", "size_threshold", "poll_interval_minutes",
     "tier_green_min", "tier_blue_min",
-    "min_liquidity", "max_entry_price", "min_resolve_hours", "min_tier_to_trade",
+    "min_liquidity", "min_entry_price", "max_entry_price", "min_resolve_hours", "min_tier_to_trade",
     "stake_usd", "price_source", "control_respects_guardrails",
     "stop_loss_pct", "contested_policy",
     "min_holder_value", "min_holder_win_ratio",
@@ -41,6 +41,10 @@ class Config:
     tier_blue_min: int = 3
 
     min_liquidity: float = 1000.0
+    # skip deep longshots: at a price like 0.001 the bid/ask spread is ~100% of the
+    # price (one tick) and the book is empty, so a "win" is untradeable noise. Also
+    # used as the price floor for the stop (exit if a held position falls below it).
+    min_entry_price: float = 0.05
     max_entry_price: float = 0.90
     # skip markets that resolve within this many hours — live/same-day bets (esp.
     # sports) resolve to 0/1 in hours, so copying them adds fat-tail variance, not

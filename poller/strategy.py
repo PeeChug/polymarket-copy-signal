@@ -162,6 +162,8 @@ def passes_guardrails(*, tier: str, price, liquidity, market_closed: bool,
             return GuardrailResult(False, "low_liquidity")
         if price > cfg.max_entry_price:
             return GuardrailResult(False, "price_too_high")
+        if price < getattr(cfg, "min_entry_price", 0.0):
+            return GuardrailResult(False, "price_too_low")   # deep longshot: spread eats any "win"
         if _resolves_within(end_date, getattr(cfg, "min_resolve_hours", 24.0)):
             return GuardrailResult(False, "resolves_too_soon")
     return GuardrailResult(True, "ok")

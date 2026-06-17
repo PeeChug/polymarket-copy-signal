@@ -120,6 +120,13 @@ class TestGuardrails(unittest.TestCase):
     def test_price_too_high_blocked(self):
         self.assertFalse(self.g(price=0.95).ok)
 
+    def test_price_too_low_blocked(self):
+        self.cfg.min_entry_price = 0.05
+        r = self.g(price=0.01)                 # deep longshot
+        self.assertFalse(r.ok)
+        self.assertEqual(r.reason, "price_too_low")
+        self.assertTrue(self.g(price=0.06).ok)
+
     def test_closed_market_blocked(self):
         self.assertFalse(self.g(market_closed=True).ok)
 

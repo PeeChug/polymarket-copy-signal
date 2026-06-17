@@ -33,9 +33,11 @@ tier_blue_min: 5               # overlap >= this  => "blue"   (moderate: 5+ of 5
 
 # --- guardrails before a signal becomes a paper trade -----------------------
 min_liquidity: 1000            # USD; don't simulate filling a market we couldn't actually trade
+min_entry_price: 0.05          # skip deep longshots (e.g. 0.001): spread ~= the whole price, untradeable
+                               # noise; also the price floor for the stop. (mirror of max_entry_price)
 max_entry_price: 0.90          # skip positions already near resolution (little upside left)
-min_resolve_hours: 24          # skip markets resolving within this many hours — live/same-day
-                               # bets (esp. sports) are 0/1 coin-flips, not durable consensus edge. 0=off
+min_resolve_hours: 2           # only skip markets resolving within this many hours (almost-over games).
+                               # Kept low on purpose: we scalp sentiment + exit when holders sell. 0=off
 min_tier_to_trade: blue        # 'blue' (trade blue+green) or 'green' (trade green only)
 
 # --- paper-trade mechanics --------------------------------------------------
@@ -46,7 +48,9 @@ control_respects_guardrails: true   # apply liquidity + max_entry to the #1-copy
                                     # so the only difference vs overlap is the SELECTION rule
 
 # --- exit + conflict rules --------------------------------------------------
-stop_loss_pct: 0.15             # close a trade if it falls this fraction below entry. 0 = off,
+stop_loss_pct: 0.30             # WIDE backstop only — the holder-exit (sell when the cohort sells) is the
+                                # real risk control; a tight % just whipsaws on prediction-market noise. 0=off.
+                                # (was 0.15) — close a trade if it falls this fraction below entry,
                                 # 0.25 = exit at -25% (default). (Prices are 0..1, so a "stop" is a % of entry.)
 contested_policy: both          # cohort split on a market (both sides held): 'both' = trade both
                                 # (box spreads / hedges are a real strategy worth testing); 'dominant'
@@ -56,5 +60,5 @@ contested_policy: both          # cohort split on a market (both sides held): 'b
 min_holder_value: 10000         # a cohort member must hold at least this much (USD) in OPEN
                                 # positions to count toward overlap — filters cashed-out whales
                                 # (e.g. a #1 earner with $10 on the table) and inactive traders.
-min_holder_win_ratio: 0.5       # ...and at least this fraction of their open positions must be
+min_holder_win_ratio: 0.65      # ...and at least this fraction of their open positions must be
                                 # in profit right now (0 = off). Tightens the cohort to active winners.

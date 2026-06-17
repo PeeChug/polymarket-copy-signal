@@ -319,20 +319,28 @@ def _run(store, client, cfg, cid, summary, log):
         else:
             if mark is None:
                 continue
-            # signal decay: exit as soon as it's no longer a tradeable signal — i.e.
-            # agreement fell back below the BUY BAR (the tier floor we require to open).
-            # Only on a complete cohort snapshot (a partial fetch understates overlap).
+            # HOLDER-DRIVEN EXIT (consensus): sell as soon as the cohort starts
+            # SELLING — any net holder has left since we entered. Mirrors the
+            # control's leader-exit (its win engine) and beats waiting for agreement
+            # to decay past the buy bar (which exits late + tiny). Only act on a
+            # complete cohort snapshot (a partial fetch understates overlap).
             if cohort_complete and t["strategy"] == "overlap":
                 cur_ov = overlaps[t["asset"]].overlap if t["asset"] in overlaps else 0
+                entry_ov = t.get("overlap_at_entry") or 0
                 buy_bar = cfg.tier_green_min if cfg.min_tier_to_trade == "green" else cfg.tier_blue_min
-                if cur_ov < buy_bar:
-                    _close(store, t, mark, "signal_decayed", summary, resolved_won=None)
-                    log(f"  CLOSE [{t['strategy']}] signal_decayed {t['title'][:30]!r} "
-                        f"agreement {t.get('overlap_at_entry')}->{cur_ov} (<{buy_bar}) @ {mark:.3f}")
+                left = (cur_ov < entry_ov) if entry_ov else (cur_ov < buy_bar)
+                if left:
+                    _close(store, t, mark, "holder_exited", summary, resolved_won=None)
+                    log(f"  CLOSE [{t['strategy']}] holder_exited {t['title'][:30]!r} "
+                        f"holders {entry_ov}->{cur_ov} @ {mark:.3f}")
                     continue
+            # STOP: a WIDE % backstop + a price floor (outcome nearly dead). The
+            # holder-exit above is the primary risk control; this just catches a
+            # slow bleed the cohort hasn't reacted to yet, or a gap toward zero.
             entry = t["entry_price"] or 0
             ret = (mark - entry) / entry if entry else 0.0
-            if cfg.stop_loss_pct and ret <= -cfg.stop_loss_pct:
+            floor = getattr(cfg, "min_entry_price", 0.0)
+            if (cfg.stop_loss_pct and ret <= -cfg.stop_loss_pct) or (floor and mark < floor):
                 _close(store, t, mark, "stop_loss", summary, resolved_won=None)
                 log(f"  CLOSE [{t['strategy']}] stop_loss {t['title'][:30]!r} "
                     f"@ {mark:.3f} ({ret*100:.0f}%)")

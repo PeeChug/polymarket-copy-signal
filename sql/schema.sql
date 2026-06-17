@@ -35,8 +35,9 @@ create table if not exists config_history (
 
     -- guardrails before a signal becomes a paper trade
     min_liquidity               numeric not null default 1000,       -- USD; skip illiquid markets
+    min_entry_price             numeric not null default 0.05,       -- skip deep longshots (spread eats any win); also the stop price floor
     max_entry_price             numeric not null default 0.90,       -- skip positions near resolution
-    min_resolve_hours           numeric not null default 24,         -- skip markets resolving within N hours (live sports etc.); 0=off
+    min_resolve_hours           numeric not null default 2,          -- skip markets resolving within N hours (almost-over games); 0=off
     min_tier_to_trade           text    not null default 'blue',     -- 'blue' | 'green'
 
     -- paper-trade mechanics
@@ -45,12 +46,12 @@ create table if not exists config_history (
     control_respects_guardrails boolean not null default true,       -- apply liquidity+max_entry to the #1-copy control too
 
     -- exit + conflict rules
-    stop_loss_pct               numeric not null default 0.15,       -- close if down this fraction from entry (0=off, 0.15=-15%)
+    stop_loss_pct               numeric not null default 0.30,       -- WIDE backstop (holder-exit is primary); 0=off, 0.30=-30%
     contested_policy            text    not null default 'both',     -- 'both' | 'dominant' | 'skip'
 
     -- cohort quality (which top earners count toward a signal)
     min_holder_value            numeric not null default 10000,      -- min USD in OPEN positions to count toward overlap
-    min_holder_win_ratio        numeric not null default 0.5         -- min fraction of their open positions in profit
+    min_holder_win_ratio        numeric not null default 0.65        -- min fraction of their open positions in profit
 );
 
 -- ----------------------------------------------------------------------------
