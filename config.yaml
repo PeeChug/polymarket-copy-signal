@@ -87,3 +87,9 @@ min_holder_win_ratio: 0.60      # ...and at least this fraction of their open po
                                 # in profit right now (0 = off). Tightens the cohort to active winners.
                                 # (was 0.65 — relaxed to 0.60 to admit more wallets: the leaderboard
                                 # universe is ~225 and 0.65 only cleared ~30; ~75 fail only this bar.)
+
+# --- cohort stability (hysteresis) ------------------------------------------
+cohort_grace_hours: 48          # once a wallet qualifies, keep it in the cohort this many hours through
+                                # transient dips (win-ratio wobble, a day off the DAY board) as long as it
+                                # stays active + funded. Stops the cohort SET churning 30<->50 each cycle.
+                                # Entry is immediate; only EXIT is sticky. 0 = off (revert to per-cycle).

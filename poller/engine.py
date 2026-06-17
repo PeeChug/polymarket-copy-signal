@@ -30,6 +30,20 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _hours_between(a_iso, b_iso) -> float:
+    """Absolute hours between two ISO timestamps; 1e9 (=> 'expired') if unparseable."""
+    try:
+        a = datetime.fromisoformat(str(a_iso).replace("Z", "+00:00"))
+        b = datetime.fromisoformat(str(b_iso).replace("Z", "+00:00"))
+        if a.tzinfo is None:
+            a = a.replace(tzinfo=timezone.utc)
+        if b.tzinfo is None:
+            b = b.replace(tzinfo=timezone.utc)
+        return abs((b - a).total_seconds()) / 3600.0
+    except (ValueError, TypeError, AttributeError):
+        return 1e9
+
+
 def run_cycle(store, client, seed_path=None, log=print) -> dict:
     t0 = time.time()
     cfg = load_config(store, seed_path)
@@ -103,7 +117,33 @@ def _run(store, client, cfg, cid, summary, log):
     # Active, funded (>= min_holder_value on the table) and winning (>= min_holder_win_ratio
     # of open positions in profit). A #1-by-profit earner who has cashed out is noise.
     eligibility = {e.wallet: strategy.trader_eligibility(all_positions.get(e.wallet, []), cfg) for e in pool}
-    eligible = [e for e in pool if eligibility[e.wallet][0]]   # pool is already pnl-sorted
+
+    # ---- cohort STABILITY (hysteresis) -------------------------------------
+    # A wallet ENTERS the cohort the moment it qualifies, but once in it is
+    # RETAINED for cfg.cohort_grace_hours through a transient dip (a win-ratio
+    # wobble, a day off the DAY leaderboard) as long as it is still active +
+    # funded — so the cohort SET stops churning 30<->50 every cycle. Only the
+    # win-ratio bar is relaxed during grace; cashed-out/inactive wallets still
+    # drop. Entry immediate, exit sticky.
+    now = _now_iso()
+    qual_wallets = {w for w, (ok, _, _) in eligibility.items() if ok}   # genuine qualifiers this cycle
+    grace_h = getattr(cfg, "cohort_grace_hours", 0.0) or 0.0
+    prev_state = store.get_cohort_state() if grace_h > 0 else {}
+    retained = []
+    if grace_h > 0:
+        for e in pool:                       # only retain wallets still in the pool (positions in hand)
+            w = e.wallet
+            if w in qual_wallets:
+                continue
+            lastq = prev_state.get(w)
+            if not lastq or _hours_between(lastq, now) > grace_h:
+                continue
+            st = eligibility[w][2]            # still active + funded? (relax only the win-ratio bar)
+            if st.get("n_positions", 0) > 0 and st.get("total_value", 0.0) >= cfg.min_holder_value:
+                eligibility[w] = (True, "retained (grace)", st)
+                retained.append(w)
+
+    eligible = [e for e in pool if eligibility[e.wallet][0]]   # qualifiers + retained, pnl-sorted
     cohort = eligible[: cfg.top_n]
     for i, e in enumerate(cohort, 1):   # re-rank 1..N by profit for clean display
         e.rank = i
@@ -115,9 +155,22 @@ def _run(store, client, cfg, cid, summary, log):
         for p in cohort_positions.get(e.wallet, []):   # annotate for overlap labelling
             p._username = e.username
             p._rank = e.rank
-    log(f"cohort: screened {len(pool)} earners -> {len(cohort)}/{cfg.top_n} eligible "
-        f"(>=${cfg.min_holder_value:,.0f} on the table & "
-        f">={cfg.min_holder_win_ratio:.0%} of open positions in profit)")
+
+    # persist the membership clock: bump genuine qualifiers to now, and preserve
+    # anyone else still within grace (so a one-cycle blip off the pool doesn't
+    # reset their clock); everyone past grace is pruned.
+    if grace_h > 0:
+        new_state = {w: now for w in qual_wallets}
+        for w, lastq in prev_state.items():
+            if w not in new_state and _hours_between(lastq, now) <= grace_h:
+                new_state[w] = lastq
+        store.set_cohort_state(new_state)
+
+    n_ret = len([w for w in cohort_wallets if w in set(retained)])
+    log(f"cohort: screened {len(pool)} earners -> {len(cohort)}/{cfg.top_n} in cohort "
+        f"({len(qual_wallets)} qualifying"
+        + (f" + {n_ret} retained within {grace_h:.0f}h grace" if n_ret else "")
+        + f"; bar >=${cfg.min_holder_value:,.0f} & >={cfg.min_holder_win_ratio:.0%} in profit)")
 
     # why the rest were screened out — so we know which knob to turn to grow the cohort
     def _rcat(r):

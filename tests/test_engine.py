@@ -326,6 +326,51 @@ class TestEngineLifecycle(unittest.TestCase):
         self.assertAlmostEqual(t["marked_price"], 0.38)  # marked to the bid
         self.assertLess(t["unrealized_pnl"], 0)          # the spread is an immediate paper loss
 
+    def test_cohort_grace_retains_a_member_through_a_dip(self):
+        # win-ratio bar ON: a member that dips below it but stays funded + active
+        # is RETAINED for the grace window instead of churning out of the cohort.
+        self.store = MemoryStore()
+        self.store.insert_config({**CFG, "top_n": 3, "min_holder_value": 0,
+                                  "min_holder_win_ratio": 0.6, "cohort_grace_hours": 48,
+                                  "tier_blue_frac": 0, "tier_green_frac": 0})
+        self.c.lb = [L(1, "w1"), L(2, "w2"), L(3, "w3")]
+        self.c.markets_map = {"mA": M("mA")}
+
+        def win(): p = P("A", "mA"); p.cash_pnl = 5.0; return p    # in profit  -> win_ratio 1.0
+        def lose(): p = P("A", "mA"); p.cash_pnl = -5.0; return p  # underwater -> win_ratio 0.0
+
+        # cycle 1: all three winning -> all qualify and enter the cohort
+        self.c.positions_by_wallet = {w: [win()] for w in ("w1", "w2", "w3")}
+        self.c.marks_map = {"A": 0.40}
+        self.run_quiet()
+        self.assertEqual({t["wallet"] for t in self.store.latest_traders()}, {"w1", "w2", "w3"})
+
+        # cycle 2: w3 dips underwater (fails the 60% bar) but is still funded + active
+        self.c.positions_by_wallet = {"w1": [win()], "w2": [win()], "w3": [lose()]}
+        self.run_quiet()
+        traders = {t["wallet"]: t for t in self.store.latest_traders()}
+        self.assertIn("w3", traders)                       # retained, not churned out
+        self.assertTrue(traders["w3"]["eligible"])
+        self.assertIn("retained", traders["w3"]["ineligible_reason"])
+
+    def test_cohort_grace_off_drops_a_member_that_stops_qualifying(self):
+        # grace=0 -> the old per-cycle behaviour: a dip below the bar drops the member.
+        self.store = MemoryStore()
+        self.store.insert_config({**CFG, "top_n": 3, "min_holder_value": 0,
+                                  "min_holder_win_ratio": 0.6, "cohort_grace_hours": 0,
+                                  "tier_blue_frac": 0, "tier_green_frac": 0})
+        self.c.lb = [L(1, "w1"), L(2, "w2"), L(3, "w3")]
+        self.c.markets_map = {"mA": M("mA")}
+
+        def win(): p = P("A", "mA"); p.cash_pnl = 5.0; return p
+        def lose(): p = P("A", "mA"); p.cash_pnl = -5.0; return p
+        self.c.positions_by_wallet = {w: [win()] for w in ("w1", "w2", "w3")}
+        self.c.marks_map = {"A": 0.40}
+        self.run_quiet()
+        self.c.positions_by_wallet = {"w1": [win()], "w2": [win()], "w3": [lose()]}
+        self.run_quiet()
+        self.assertNotIn("w3", {t["wallet"] for t in self.store.latest_traders()})
+
     def test_contested_both_opens_both_sides(self):
         self.store = MemoryStore()
         self.store.insert_config({**CFG, "top_n": 4, "contested_policy": "both"})

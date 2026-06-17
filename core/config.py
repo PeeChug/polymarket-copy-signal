@@ -22,7 +22,7 @@ _CONFIG_FIELDS = (
     "stake_usd", "price_source", "control_respects_guardrails",
     "stop_loss_pct", "take_profit_pct", "trailing_stop_pct", "trailing_arm_pct",
     "time_stop_minutes", "fast_exit_slippage_pct", "contested_policy",
-    "min_holder_value", "min_holder_win_ratio",
+    "min_holder_value", "min_holder_win_ratio", "cohort_grace_hours",
 )
 
 _TIER_RANK = {"none": 0, "blue": 1, "green": 2}
@@ -90,6 +90,12 @@ class Config:
     # earner with $10 on the table) and coin-flippers. Active is implied (value>0).
     min_holder_value: float = 10000.0      # min USD in OPEN positions to count toward overlap
     min_holder_win_ratio: float = 0.5      # min fraction of their open positions currently in profit
+
+    # cohort STABILITY (hysteresis): once a wallet qualifies, keep it in the cohort
+    # for this many hours through transient dips (a win-ratio wobble or a day off the
+    # DAY leaderboard) as long as it's still active + funded — so the cohort SET stops
+    # churning 30<->50 cycle to cycle. Entry is immediate; only EXIT is sticky. 0 = off.
+    cohort_grace_hours: float = 48.0
 
     # metadata (set when loaded from the DB; not user-editable)
     id: Optional[int] = None

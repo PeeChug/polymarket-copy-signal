@@ -60,7 +60,8 @@ create table if not exists config_history (
 
     -- cohort quality (which top earners count toward a signal)
     min_holder_value            numeric not null default 10000,      -- min USD in OPEN positions to count toward overlap
-    min_holder_win_ratio        numeric not null default 0.65        -- min fraction of their open positions in profit
+    min_holder_win_ratio        numeric not null default 0.60,       -- min fraction of their open positions in profit
+    cohort_grace_hours          numeric not null default 48          -- keep a member this long through transient dips (hysteresis); 0=off
 );
 
 -- ----------------------------------------------------------------------------
@@ -225,3 +226,5 @@ alter table paper_trades  add column if not exists peak_price numeric;       -- 
 alter table config_history add column if not exists candidate_pool  int     not null default 400;
 alter table config_history add column if not exists tier_green_frac numeric not null default 0.20;
 alter table config_history add column if not exists tier_blue_frac  numeric not null default 0.10;
+-- cohort stability (hysteresis grace window)
+alter table config_history add column if not exists cohort_grace_hours numeric not null default 48;

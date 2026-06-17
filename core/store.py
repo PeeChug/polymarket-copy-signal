@@ -82,6 +82,9 @@ class Store:
     # user-tuned wallet/account policy (dashboard Settings) — optional; default no-op
     def get_wallet_config(self) -> dict: return {}
     def set_wallet_config(self, d: dict) -> None: return None
+    # cohort membership clock {wallet: last_qualified_iso} for the stability/grace rule
+    def get_cohort_state(self) -> dict: return {}
+    def set_cohort_state(self, d: dict) -> None: return None
 
 
 # --------------------------------------------------------------------------- #
@@ -319,6 +322,12 @@ class PostgrestStore(Store):
     def set_wallet_config(self, d):
         self._kv_set("wallet_config", d)
 
+    def get_cohort_state(self):
+        return self._kv_get("cohort_state", {})
+
+    def set_cohort_state(self, d):
+        self._kv_set("cohort_state", d)
+
 
 # --------------------------------------------------------------------------- #
 # In-memory (dry-run + tests)
@@ -334,6 +343,7 @@ class MemoryStore(Store):
         self._watch: dict = {}
         self._tseries: dict = {}
         self._agreement: dict = {}
+        self._cohort_state: dict = {}
         self._seq = {"config": 0, "cycle": 0, "trade": 0}
 
     def _next(self, k):
@@ -444,6 +454,12 @@ class MemoryStore(Store):
 
     def get_agreement(self):
         return dict(self._agreement)
+
+    def get_cohort_state(self):
+        return dict(self._cohort_state)
+
+    def set_cohort_state(self, d):
+        self._cohort_state = dict(d)
 
 
 # --------------------------------------------------------------------------- #
@@ -655,4 +671,10 @@ class FileStore(Store):
 
     def set_wallet_config(self, d):
         self._state["wallet_config"] = d
+
+    def get_cohort_state(self):
+        return dict(self._state.get("cohort_state", {}))
+
+    def set_cohort_state(self, d):
+        self._state["cohort_state"] = d
         self._save()
