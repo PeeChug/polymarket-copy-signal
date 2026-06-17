@@ -83,5 +83,7 @@ contested_policy: both          # cohort split on a market (both sides held): 'b
 min_holder_value: 10000         # a cohort member must hold at least this much (USD) in OPEN
                                 # positions to count toward overlap — filters cashed-out whales
                                 # (e.g. a #1 earner with $10 on the table) and inactive traders.
-min_holder_win_ratio: 0.65      # ...and at least this fraction of their open positions must be
+min_holder_win_ratio: 0.60      # ...and at least this fraction of their open positions must be
                                 # in profit right now (0 = off). Tightens the cohort to active winners.
+                                # (was 0.65 — relaxed to 0.60 to admit more wallets: the leaderboard
+                                # universe is ~225 and 0.65 only cleared ~30; ~75 fail only this bar.)

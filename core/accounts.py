@@ -60,7 +60,13 @@ def wallet_configs_from(settings) -> list:
     # FIXED-dollar stake (not % of equity) so starting capital actually matters:
     # a $500 wallet funds far fewer $100 trades than a $3,000 wallet.
     stake, max_exp = g("stake", 100.0), g("max_exposure", 0.80)
-    slip, fee, min_ov = g("slippage_pct", 0.01), g("fee_pct", 0.0), int(g("min_overlap", 0))
+    # slippage models MARKET IMPACT (your order moving the book) — SEPARATE from the
+    # bid/ask spread, which is already paid via the realistic ask-in/bid-out entry &
+    # exit prices. A $100 order on a >=$1k-liquidity market barely moves it, so 1%
+    # was far too high — it ate nearly the whole ~2% gross consensus margin and made
+    # bigger wallets look WORSE (more marginal near-breakeven trades). 0.5% is a
+    # realistic, still-conservative default; raise it in Settings to stress-test.
+    slip, fee, min_ov = g("slippage_pct", 0.005), g("fee_pct", 0.0), int(g("min_overlap", 0))
     return [{
         "name": _money_name(cap), "starting_capital": cap,
         "filter": {"tiers": list(tiers), "min_overlap": min_ov},

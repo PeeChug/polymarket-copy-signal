@@ -855,9 +855,9 @@ function renderAccounts(){
       ${m('Total bankroll',money(a.equity),sgn(a.equity-a.starting_capital),'Wallet + value of open trades')}
       ${m('Realized P&L',money(a.realized_pnl),sgn(a.realized_pnl))}
       ${m('Unrealized',money(a.unrealized_pnl),sgn(a.unrealized_pnl))}
-      ${m('Win rate',pct(a.win_rate))}
+      ${m('Win rate (net)',pct(a.win_rate),'','Share of CLOSED trades that ended net-positive AFTER slippage & fees. Skipped signals are NOT counted. It runs below the gross signal win-rate because thin consensus margins partly wash against trading costs.')}
       ${m('Open / Closed',`${a.open_count} / ${a.closed_count}`)}
-      ${m('Skipped',a.skipped,a.skipped?'neg':'','Signals the wallet could not cover — skipped')}
+      ${m('Skipped',a.skipped,a.skipped?'neg':'','Signals the wallet could not cover (out of cash / exposure cap) — these are NOT counted in the win rate')}
       ${m('Max drawdown',a.max_drawdown==null?'—':('−'+(a.max_drawdown*100).toFixed(1)+'%'),a.max_drawdown?'neg':'')}
       ${m('Utilization',pct(a.utilization),'','Share of the bankroll currently in open trades')}
       ${(+a.withdrawn>0)?m('Profit banked',money(a.withdrawn),'','Profit taken out of the wallet'):''}
@@ -1402,7 +1402,7 @@ function loadWalletSettings(){
   const set=(id,v)=>{const e=document.getElementById(id); if(e&&v!=null&&document.activeElement!==e)e.value=v;};
   set('wStake', sz.value!=null?Math.round(sz.value):100);
   set('wMax', sz.max_exposure!=null?Math.round(sz.max_exposure*100):80);
-  set('wSlip', co.slippage_pct!=null?+(co.slippage_pct*100).toFixed(2):1);
+  set('wSlip', co.slippage_pct!=null?+(co.slippage_pct*100).toFixed(2):0.5);
   set('wFee', co.fee_pct!=null?+(co.fee_pct*100).toFixed(2):0);
   set('wMinOv', fi.min_overlap!=null?fi.min_overlap:0);
   const wg=document.getElementById('wGreen'); if(wg&&document.activeElement!==wg) wg.checked=Array.isArray(fi.tiers)&&fi.tiers.length===1&&fi.tiers[0]==='green';
