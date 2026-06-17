@@ -73,7 +73,10 @@ def _run(store, client, cfg, cid, summary, log):
     # traders that PASS the quality filter — so the cohort is N active, funded,
     # winning wallets, not "top N by profit of which only some qualify."
     seen, pool = set(), []
-    for win, order in (("MONTH", "PNL"), ("ALL", "PNL"), ("WEEK", "PNL"), ("MONTH", "VOL"), ("ALL", "VOL")):
+    # DAY/PNL catches brand-new hot traders before they climb the 7/30-day boards;
+    # the rest give durable rank. Re-pulled every full scan (~10 min) so the cohort
+    # tracks new top performers within minutes, not days.
+    for win, order in (("DAY", "PNL"), ("MONTH", "PNL"), ("ALL", "PNL"), ("WEEK", "PNL"), ("MONTH", "VOL"), ("ALL", "VOL")):
         for e in client.leaderboard(window=win, limit=50, order=order):
             if e.wallet and e.wallet not in seen:
                 seen.add(e.wallet)

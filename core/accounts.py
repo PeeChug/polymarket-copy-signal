@@ -31,19 +31,46 @@ from __future__ import annotations
 # Starter accounts (tunable later via config). Differ by risk profile so the
 # policy effects are visible side by side. Prices are 0..1 probabilities, so
 # slippage_pct is a fraction of the price (1% = fill 1% worse than the touch).
-DEFAULT_ACCOUNTS = [
-    {
-        # A single $1,000 WALLET. Buying a position takes the stake OUT of the
-        # wallet; selling returns the FULL proceeds back IN — so the wallet
-        # compounds with wins, shrinks with losses, and can only ever spend what's
-        # in it (a signal is skipped when the wallet can't cover the stake).
-        "name": "Wallet", "starting_capital": 1000.0,
-        "filter": {"tiers": ["green", "blue"]},
-        "sizing": {"mode": "equity_frac", "value": 0.10, "max_exposure": 0.80, "min_trade": 5.0},
-        "reinvest": {"withdraw_pct": 0.0},         # full compound — all proceeds stay in the wallet
-        "costs": {"slippage_pct": 0.01, "impact_coef": 0.0, "fee_pct": 0.0},
-    },
-]
+# Three WALLETS at different starting capital, to test how budget size affects the
+# SAME strategy. Each wallet: buying a position takes the stake OUT of the wallet,
+# selling returns the FULL proceeds IN (compounds with wins, shrinks with losses,
+# can only ever spend what's in it — a signal it can't cover is skipped). The
+# dashboard Settings tune the shared policy (sizing, slippage, fee, green-only,
+# min agreement); the three differ ONLY in starting capital.
+WALLET_CAPITALS = [500.0, 1000.0, 3000.0]
+
+
+def _money_name(v) -> str:
+    return "$" + format(int(round(v)), ",d")
+
+
+def wallet_configs_from(settings) -> list:
+    """Build the wallet account configs (one per WALLET_CAPITALS) from flat user
+    settings (a kv blob the dashboard saves). Missing/invalid fields fall back to
+    sensible defaults; the shared policy is applied at every capital level."""
+    s = settings or {}
+
+    def g(key, default):
+        try:
+            return float(s[key])
+        except (KeyError, TypeError, ValueError):
+            return default
+
+    tiers = ["green"] if s.get("green_only") else ["green", "blue"]
+    # FIXED-dollar stake (not % of equity) so starting capital actually matters:
+    # a $500 wallet funds far fewer $100 trades than a $3,000 wallet.
+    stake, max_exp = g("stake", 100.0), g("max_exposure", 0.80)
+    slip, fee, min_ov = g("slippage_pct", 0.01), g("fee_pct", 0.0), int(g("min_overlap", 0))
+    return [{
+        "name": _money_name(cap), "starting_capital": cap,
+        "filter": {"tiers": list(tiers), "min_overlap": min_ov},
+        "sizing": {"mode": "fixed", "value": stake, "max_exposure": max_exp, "min_trade": 5.0},
+        "reinvest": {"withdraw_pct": 0.0},   # full compound — proceeds return to the wallet
+        "costs": {"slippage_pct": slip, "impact_coef": 0.0, "fee_pct": fee},
+    } for cap in WALLET_CAPITALS]
+
+
+DEFAULT_ACCOUNTS = wallet_configs_from(None)
 
 _MAX_SLIP = 0.10   # cap modelled slippage at 10% of price, however large the order
 
@@ -74,17 +101,21 @@ def _size_for(sizing: dict, cash: float, book_equity: float) -> float:
 
 
 def _events(trades: list) -> list:
-    """Chronological open/close events for the overlap trades. Each open sorts
-    before a same-timestamp close so cash from a close isn't reused too early."""
+    """Chronological open/close events for the overlap trades.
+
+    Ordering within a single timestamp (cycle): CLOSES first (free up cash),
+    then OPENS ranked by agreement strength DESC — so when the wallet is tight
+    it funds the STRONGEST signals first and skips the weaker ones (selectivity),
+    rather than whatever happened to be earliest."""
     evs = []
     for t in trades:
         if (t.get("strategy") or "overlap") != "overlap":
             continue
-        ea = str(t.get("entry_at") or "")
-        evs.append((ea, 0, "open", t))
+        ov = _num(t.get("overlap_at_entry"))
+        evs.append((str(t.get("entry_at") or ""), 1, -ov, "open", t))   # kind 1 = open
         if (t.get("status") == "CLOSED") and t.get("exit_at"):
-            evs.append((str(t.get("exit_at")), 1, "close", t))
-    evs.sort(key=lambda e: (e[0], e[1]))
+            evs.append((str(t.get("exit_at")), 0, 0.0, "close", t))     # kind 0 = close (first)
+    evs.sort(key=lambda e: (e[0], e[1], e[2]))
     return evs
 
 
@@ -92,6 +123,7 @@ def simulate(trades: list, cfg: dict) -> dict:
     """Replay the consensus trades through one budgeted account. Pure."""
     start = _num(cfg.get("starting_capital"), 1000.0)
     tiers = set((cfg.get("filter") or {}).get("tiers") or ["green", "blue"])
+    min_overlap = _num((cfg.get("filter") or {}).get("min_overlap"), 0)   # selectivity bar
     sizing = cfg.get("sizing") or {}
     max_exp = _num(sizing.get("max_exposure"), 1.0) or 1.0
     min_trade = _num(sizing.get("min_trade"), 0.0)
@@ -110,10 +142,12 @@ def simulate(trades: list, cfg: dict) -> dict:
     def book_equity():
         return cash + sum(p["cost"] for p in pos.values())
 
-    for ts, _o, kind, t in _events(trades):
+    for ts, _k, _s, kind, t in _events(trades):
         asset = t.get("asset")
         if kind == "open":
             if t.get("tier_at_entry") not in tiers or not asset or asset in pos:
+                continue
+            if _num(t.get("overlap_at_entry")) < min_overlap:   # below the selectivity bar
                 continue
             entry = _num(t.get("entry_price"))
             if entry <= 0:

@@ -158,7 +158,8 @@ def write_site(store, run_result: dict, docs_dir: str = "docs") -> str:
     # realistic finite-budget account sims (slippage/fees/reinvestment) — a pure
     # replay of the consensus trades, so no engine/DB changes needed
     try:
-        payload["accounts"] = accounts.simulate_all(store.all_trades())
+        wcfgs = accounts.wallet_configs_from(store.get_wallet_config())
+        payload["accounts"] = accounts.simulate_all(store.all_trades(), wcfgs)
     except Exception as e:
         print(f"accounts: sim skipped ({e})")
 

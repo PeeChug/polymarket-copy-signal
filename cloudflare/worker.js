@@ -104,6 +104,35 @@ async function saveConfig(request, env) {
   return json({ error: "Supabase rejected the write.", detail: text }, 502);
 }
 
+// Save the wallet/account policy (dashboard Settings) into kv_store. The poller
+// reads it to build the wallet sims. Clamped server-side; secret stays here.
+const WALLET_CLAMP = {
+  stake: [1, 100000], max_exposure: [0.05, 1],
+  slippage_pct: [0, 0.2], fee_pct: [0, 0.2], min_overlap: [0, 50],
+};
+async function saveWallet(request, env) {
+  if (!env.SUPABASE_URL || !env.SUPABASE_KEY) return json({ error: "Missing SUPABASE secrets." }, 500);
+  let body;
+  try { body = await request.json(); } catch { return json({ error: "Body must be JSON." }, 400); }
+  const w = { green_only: !!body.green_only };
+  for (const [k, [lo, hi]] of Object.entries(WALLET_CLAMP)) {
+    const v = +body[k];
+    if (isFinite(v)) w[k] = Math.min(hi, Math.max(lo, v));
+  }
+  const r = await fetch(env.SUPABASE_URL + "/rest/v1/kv_store", {
+    method: "POST",
+    headers: {
+      apikey: env.SUPABASE_KEY, Authorization: "Bearer " + env.SUPABASE_KEY,
+      "Content-Type": "application/json",
+      Prefer: "resolution=merge-duplicates,return=representation",
+    },
+    body: JSON.stringify({ key: "wallet_config", value: w, updated_at: new Date().toISOString() }),
+  });
+  const text = await r.text();
+  if (r.ok) return json({ ok: true, saved: w });
+  return json({ error: "Supabase rejected the write.", status: r.status, detail: text.slice(0, 200) }, 502);
+}
+
 // Batched sell-side (bid) prices — what you'd realistically GET exiting now,
 // matching the Python engine's realistic mark. {token_id: float}.
 async function clobMarks(assets) {
@@ -194,6 +223,9 @@ export default {
     // Save paper-trade config — writes to Supabase server-side, no token needed.
     if (url.pathname === "/config" && request.method === "POST") return saveConfig(request, env);
 
+    // Save the wallet/account policy — writes to Supabase kv_store.
+    if (url.pathname === "/wallet" && request.method === "POST") return saveWallet(request, env);
+
     // Fire a poll now (?run) — handy one-click test; the poller is read-only.
     if (url.searchParams.has("run")) {
       const res = await poke(env);
@@ -212,7 +244,7 @@ export default {
 
     return new Response(
       "Polymarket poller worker — alive. Full GitHub scan every 10 min; fast price-mark every 1 min. " +
-      "POST /config to save settings; ?run = poll now; ?mark = re-mark prices now.",
+      "POST /config (paper-trade settings) or /wallet (wallet policy); ?run = poll now; ?mark = re-mark prices now.",
       { headers: CORS },
     );
   },

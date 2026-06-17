@@ -376,6 +376,15 @@
   <div class="row"><label>Cohort: min % of their open positions in profit</label><input type="number" id="ptHolderWin" min="0" max="100" step="5"></div>
   <div class="row"><button class="tbtn" id="ptSave">💾 Save settings</button>
     <div class="muted" id="ptStatus" style="font-size:11.5px;margin-top:6px">Forward-only: changes apply to future cycles. Saved straight to your backend — <b>no token needed</b>.</div></div>
+  <h3>💼 Wallet <span class="muted" style="font-size:11px;font-weight:400">— the $500 / $1k / $3k sims</span></h3>
+  <div class="row"><label>Stake per trade ($)</label><input type="number" id="wStake" min="1" step="10"></div>
+  <div class="row"><label>Max in open trades (%)</label><input type="number" id="wMax" min="5" max="100" step="5"></div>
+  <div class="row"><label>Slippage % (fill haircut per side)</label><input type="number" id="wSlip" min="0" max="20" step="0.25"></div>
+  <div class="row"><label>Fee % (per side · e.g. US venue)</label><input type="number" id="wFee" min="0" max="20" step="0.25"></div>
+  <div class="row"><label>Min agreement to buy <span class="muted" style="font-size:11px;font-weight:400">— 0 = use tier rule</span></label><input type="number" id="wMinOv" min="0" max="50" step="1"></div>
+  <div class="row"><label class="fl"><input type="checkbox" id="wGreen"> 🟢 green-only (most selective)</label></div>
+  <div class="row"><button class="tbtn" id="wSave">💾 Save wallet policy</button>
+    <div class="muted" id="wStatus" style="font-size:11.5px;margin-top:6px">Applies to all three wallets on the next cycle (hit ↻ to pull now).</div></div>
   <h3>Charts</h3>
   <div class="row"><label>Timeframe</label>
     <select id="setTF"><option value="1">last 1h</option><option value="6">last 6h</option><option value="24">last 24h</option><option value="72">last 3d</option><option value="168">last 7d</option><option value="0">all</option></select></div>
@@ -815,8 +824,8 @@ function renderConsensus(){
 
 function renderAccounts(){
   const d=DATA, el=document.getElementById('tab-accounts'); el.innerHTML='';
-  el.appendChild($(`<h2>💼 Wallet — paper-trade account</h2>`));
-  el.appendChild($(`<p class="sub">Your paper-trade <b>wallet</b>, starting at <b>$1,000</b>. Buying a position takes the stake <b>out</b> of the wallet; selling returns the <b>full proceeds back in</b> — so it compounds with wins, shrinks with losses, and can only ever spend what's in it (signals are <b>skipped</b> when the wallet can't cover a stake). Slippage &amp; fees are included — unlike the Performance tab (unlimited capital), this answers <b>"what would a real $1,000 account have done?"</b></p>`));
+  el.appendChild($(`<h2>💼 Wallets — testing starting capital</h2>`));
+  el.appendChild($(`<p class="sub">Three wallets running the <b>same strategy</b> at <b>$500 / $1,000 / $3,000</b>, to see how starting capital changes the outcome. Each: buying takes the stake <b>out</b> of the wallet, selling returns the <b>full proceeds back in</b> — so it compounds with wins, shrinks with losses, and can only ever spend what's in it (signals are <b>skipped</b> when it can't cover a stake). When cash is tight it funds the <b>strongest signals first</b>. Tune the shared policy in <b>⚙️ Settings → Wallet</b>. Slippage &amp; fees included.</p>`));
   const accs=d.accounts||[];
   if(!accs.length){ el.appendChild($(`<div class="empty">No account sims yet — they accrue as consensus trades open and resolve.</div>`)); return; }
   const accents=['var(--green)','var(--blue)','var(--gold)','var(--accent)'];
@@ -824,7 +833,7 @@ function renderAccounts(){
     const acc=accents[i%accents.length];
     const ret=a.return_pct==null?'—':((a.return_pct>=0?'+':'')+(a.return_pct*100).toFixed(1)+'%');
     const card=$(`<div class="card foldcard collapsed" style="border-left:4px solid ${acc}">
-      <div class="fold-h"><span>💼 ${esc(a.name)} · <b class="${sgn(a.return_pct)}">${ret}</b> <span class="muted" style="font-weight:400;font-size:12px">on $${(a.starting_capital||0).toLocaleString()}</span></span><span class="fold-x">▾</span></div>
+      <div class="fold-h"><span>💼 ${esc(a.name)} wallet · <b class="${sgn(a.return_pct)}">${ret}</b></span><span class="fold-x">▾</span></div>
       <div class="fold-b"></div></div>`);
     const b=card.querySelector('.fold-b');
     const m=(k,v,cls='',tip)=>`<div class="metric"${tip?` title="${esc(tip)}"`:''}><div class="k">${k}</div><div class="v ${cls}">${v}</div></div>`;
@@ -842,7 +851,7 @@ function renderAccounts(){
       ${(+a.withdrawn>0)?m('Profit banked',money(a.withdrawn),'','Profit taken out of the wallet'):''}
     </div>`;
     const cfg=a.config||{}, sz=cfg.sizing||{}, ri=cfg.reinvest||{}, co=cfg.costs||{}, wd=+ri.withdraw_pct||0;
-    b.appendChild($(`<div class="muted" style="font-size:11.5px;margin-top:8px">${((sz.value||0)*100).toFixed(0)}% of bankroll / trade · max ${((sz.max_exposure||1)*100).toFixed(0)}% in open trades · ${wd>0?`bank ${(wd*100).toFixed(0)}% of profit`:'proceeds compound in the wallet'} · ${((co.slippage_pct||0)*100).toFixed(1)}% slippage${co.fee_pct?` · ${(co.fee_pct*100).toFixed(1)}% fee`:''} · trades <b>${((cfg.filter||{}).tiers||[]).join('+')||'all'}</b></div>`));
+    b.appendChild($(`<div class="muted" style="font-size:11.5px;margin-top:8px">$${(sz.value||0).toFixed(0)} / trade · max ${((sz.max_exposure||1)*100).toFixed(0)}% in open trades · ${wd>0?`bank ${(wd*100).toFixed(0)}% of profit`:'proceeds compound in the wallet'} · ${((co.slippage_pct||0)*100).toFixed(1)}% slippage${co.fee_pct?` · ${(co.fee_pct*100).toFixed(1)}% fee`:''} · trades <b>${((cfg.filter||{}).tiers||[]).join('+')||'all'}</b>${(cfg.filter||{}).min_overlap?` (≥${cfg.filter.min_overlap} agree)`:''}</div>`));
     const cv=[...(a.curve||[]).map(c=>({total:c.total})),{total:a.total}];
     if(cv.length>=2){ b.appendChild($(`<h3 style="margin-top:14px">Wallet over time</h3>`)); b.appendChild(chart(cv,[{key:'total',color:acc,label:'Bankroll',money:true}])); }
     el.appendChild(card);
@@ -1365,6 +1374,30 @@ async function saveConfig(){
     else st.innerHTML='<span class="neg">Save failed'+(j&&j.error?(': '+esc(j.error)):(' ('+r.status+')'))+'.</span>';
   }catch(e){ st.innerHTML='<span class="neg">Network error — worker unreachable.</span>'; }
 }
+// load the wallet-policy inputs from the live config, and save them to the worker
+function loadWalletSettings(){
+  const c=((DATA&&DATA.accounts&&DATA.accounts[0]&&DATA.accounts[0].config)||{}), sz=c.sizing||{}, co=c.costs||{}, fi=c.filter||{};
+  const set=(id,v)=>{const e=document.getElementById(id); if(e&&v!=null&&document.activeElement!==e)e.value=v;};
+  set('wStake', sz.value!=null?Math.round(sz.value):100);
+  set('wMax', sz.max_exposure!=null?Math.round(sz.max_exposure*100):80);
+  set('wSlip', co.slippage_pct!=null?+(co.slippage_pct*100).toFixed(2):1);
+  set('wFee', co.fee_pct!=null?+(co.fee_pct*100).toFixed(2):0);
+  set('wMinOv', fi.min_overlap!=null?fi.min_overlap:0);
+  const wg=document.getElementById('wGreen'); if(wg&&document.activeElement!==wg) wg.checked=Array.isArray(fi.tiers)&&fi.tiers.length===1&&fi.tiers[0]==='green';
+}
+async function saveWallet(){
+  const st=document.getElementById('wStatus'); if(st) st.textContent='Saving…';
+  const num=(id,d)=>{const v=parseFloat((document.getElementById(id)||{}).value); return isFinite(v)?v:d;};
+  const body={ stake:num('wStake',100), max_exposure:num('wMax',80)/100, slippage_pct:num('wSlip',1)/100,
+    fee_pct:num('wFee',0)/100, min_overlap:Math.round(num('wMinOv',0)),
+    green_only:!!(document.getElementById('wGreen')||{}).checked };
+  try{
+    const r=await fetch(WORKER_BASE+'/wallet',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const j=await r.json().catch(()=>({}));
+    if(st) st.innerHTML=(r.ok&&j.ok)?'<span class="pos">✓ Saved — applies on the next cycle (hit ↻ to pull now).</span>':('<span class="neg">Save failed'+(j&&j.error?(': '+esc(j.error)):(' ('+r.status+')'))+'.</span>');
+    if(r.ok&&j.ok) toast('Wallet policy saved');
+  }catch(e){ if(st) st.innerHTML='<span class="neg">Network error — worker unreachable.</span>'; }
+}
 function syncSettingsUI(){ const g=(id)=>document.getElementById(id); if(!g('setRefresh')) return;
   g('setRefresh').value=String(state.settings.refreshMin);
   g('setTF').value=String(state.settings.tf); g('setStyle').value=state.settings.area?'area':'line';
@@ -1381,7 +1414,7 @@ function syncSettingsUI(){ const g=(id)=>document.getElementById(id); if(!g('set
 function applySettings(){ startRefresh(); syncSettingsUI(); }
 function initSettings(){
   const g=(id)=>document.getElementById(id), panel=g('settings'), scrim=g('scrim');
-  const open=()=>{ syncSettingsUI(); panel.classList.add('open'); scrim.classList.add('open'); };
+  const open=()=>{ syncSettingsUI(); loadWalletSettings(); panel.classList.add('open'); scrim.classList.add('open'); };
   const close=()=>{ panel.classList.remove('open'); scrim.classList.remove('open'); };
   g('settingsbtn').onclick=open; g('setClose').onclick=close;
   scrim.onclick=()=>{ panel.classList.remove('open'); g('modal').classList.remove('open'); scrim.classList.remove('open'); };
@@ -1394,6 +1427,7 @@ function initSettings(){
       Notification.requestPermission().then(p=>{ state.settings.notify=(p==='granted'); persist(); syncSettingsUI(); if(p!=='granted') toast('Notifications blocked in browser settings'); else toast('🔔 Notifications on'); });
     } else { state.settings.notify=on && ('Notification'in window) && Notification.permission==='granted'; persist(); if(on&&!('Notification'in window)) toast('This browser has no notifications'); } };
   if(g('ptSave')) g('ptSave').onclick=saveConfig;
+  if(g('wSave')) g('wSave').onclick=saveWallet;
   if(g('tgTokSave')) g('tgTokSave').onclick=()=>{ const v=(g('tgTok').value||'').trim(); if(!v){ g('tgStatus').innerHTML='<span class="neg">Paste a token first.</span>'; return; } lsSet('pm_tg_token',v); g('tgTok').value=''; g('tgTok').placeholder='saved ✓'; g('tgStatus').innerHTML='<span class="pos">Token saved (this browser only). Now message your bot, then Find my chat ID.</span>'; };
   if(g('tgFind')) g('tgFind').onclick=tgFind;
   if(g('tgChat')) g('tgChat').onchange=e=>lsSet('pm_tg_chat',(e.target.value||'').trim());

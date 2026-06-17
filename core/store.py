@@ -79,6 +79,9 @@ class Store:
     # failure instead of blanking the view) — optional; default no-op
     def get_us_catalog(self) -> dict: return {}
     def set_us_catalog(self, d: dict) -> None: return None
+    # user-tuned wallet/account policy (dashboard Settings) — optional; default no-op
+    def get_wallet_config(self) -> dict: return {}
+    def set_wallet_config(self, d: dict) -> None: return None
 
 
 # --------------------------------------------------------------------------- #
@@ -277,6 +280,12 @@ class PostgrestStore(Store):
 
     def set_us_catalog(self, d):
         self._kv_set("us_catalog", d)
+
+    def get_wallet_config(self):
+        return self._kv_get("wallet_config", {})
+
+    def set_wallet_config(self, d):
+        self._kv_set("wallet_config", d)
 
 
 # --------------------------------------------------------------------------- #
@@ -607,4 +616,11 @@ class FileStore(Store):
 
     def set_us_catalog(self, d):
         self._state["us_catalog"] = d
+        self._save()
+
+    def get_wallet_config(self):
+        return dict(self._state.get("wallet_config", {}))
+
+    def set_wallet_config(self, d):
+        self._state["wallet_config"] = d
         self._save()

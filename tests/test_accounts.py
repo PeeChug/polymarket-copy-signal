@@ -8,10 +8,10 @@ slippage, filter and budget-skip behaviour.
 from core import accounts
 
 
-def T(asset, entry, exit=None, tier="green", mark=None,
+def T(asset, entry, exit=None, tier="green", mark=None, ov=5,
       ea="2026-06-01T00:00:00", xa="2026-06-02T00:00:00"):
     d = {"strategy": "overlap", "asset": asset, "title": asset, "tier_at_entry": tier,
-         "entry_price": entry, "entry_at": ea,
+         "entry_price": entry, "entry_at": ea, "overlap_at_entry": ov,
          "status": "CLOSED" if exit is not None else "OPEN"}
     if exit is not None:
         d["exit_price"] = exit; d["exit_at"] = xa
@@ -75,6 +75,21 @@ def test_budget_skips_when_cash_runs_out():
     assert near(r["cash"], 50)
 
 
+def test_selectivity_funds_strongest_first():
+    # same cycle, wallet only fits one $100 trade => the higher-agreement one wins
+    trades = [T("weak", 0.5, ov=6, ea="2026-06-01"), T("strong", 0.5, ov=12, ea="2026-06-01")]
+    r = accounts.simulate(trades, CFG(start=160, size=100))
+    assert r["open_count"] == 1 and r["skipped"] == 1
+    assert r["open_positions"][0]["title"] == "strong"
+
+
+def test_min_overlap_bar_skips_weak():
+    trades = [T("a", 0.5, ov=6), T("b", 0.5, ov=11)]
+    cfg = CFG(); cfg["filter"]["min_overlap"] = 8
+    r = accounts.simulate(trades, cfg)
+    assert r["open_count"] == 1 and r["open_positions"][0]["title"] == "b"
+
+
 def test_tier_filter_green_only():
     trades = [T("a", 0.5, 1.0, tier="green"), T("b", 0.5, 1.0, tier="blue")]
     r = accounts.simulate(trades, CFG(tiers=("green",)))
@@ -110,9 +125,23 @@ def test_equity_frac_compounds():
 
 def test_simulate_all_defaults():
     rs = accounts.simulate_all([])
-    assert [r["name"] for r in rs] == ["Wallet"]
-    assert rs[0]["starting_capital"] == 1000.0
-    assert rs[0]["equity"] == 1000.0 and rs[0]["wallet"] == 1000.0   # empty => untouched
+    assert [r["name"] for r in rs] == ["$500", "$1,000", "$3,000"]
+    assert [r["starting_capital"] for r in rs] == [500.0, 1000.0, 3000.0]
+    assert all(r["equity"] == r["starting_capital"] for r in rs)   # empty => untouched
+
+
+def test_wallet_configs_from_settings():
+    cfgs = accounts.wallet_configs_from({"stake": 50, "max_exposure": 0.5,
+                                         "slippage_pct": 0.02, "fee_pct": 0.01,
+                                         "min_overlap": 7, "green_only": True})
+    assert [c["starting_capital"] for c in cfgs] == [500.0, 1000.0, 3000.0]  # 3 capitals
+    c = cfgs[0]
+    assert c["sizing"]["mode"] == "fixed" and c["sizing"]["value"] == 50 and c["sizing"]["max_exposure"] == 0.5
+    assert c["costs"]["slippage_pct"] == 0.02 and c["costs"]["fee_pct"] == 0.01
+    assert c["filter"]["tiers"] == ["green"] and c["filter"]["min_overlap"] == 7
+    # bad/missing settings fall back to defaults ($100 fixed stake, green+blue)
+    d = accounts.wallet_configs_from({})[1]
+    assert d["sizing"]["value"] == 100.0 and d["filter"]["tiers"] == ["green", "blue"]
 
 
 def test_wallet_compounds_full_proceeds():
