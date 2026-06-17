@@ -222,7 +222,8 @@ def _run(store, client, cfg, cid, summary, log):
 
     def try_open(strat, asset, ov, tier, price, liquidity, closed):
         g = strategy.passes_guardrails(tier=tier, price=price, liquidity=liquidity,
-                                       market_closed=closed, cfg=cfg, strategy=strat)
+                                       market_closed=closed, cfg=cfg, strategy=strat,
+                                       end_date=ov.end_date)
         if not g.ok:
             return
         key = (strat, ov.condition_id, ov.outcome_index)

@@ -137,6 +137,25 @@ class TestGuardrails(unittest.TestCase):
                                        market_closed=False, cfg=cfg, strategy="control")
         self.assertTrue(r.ok)
 
+    def test_resolves_too_soon_blocked(self):
+        from datetime import datetime, timezone, timedelta
+        soon = (datetime.now(timezone.utc) + timedelta(hours=3)).isoformat()
+        r = self.g(end_date=soon)            # default min_resolve_hours = 24
+        self.assertFalse(r.ok)
+        self.assertEqual(r.reason, "resolves_too_soon")
+
+    def test_far_resolution_ok(self):
+        from datetime import datetime, timezone, timedelta
+        far = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
+        self.assertTrue(self.g(end_date=far).ok)
+        self.assertTrue(self.g(end_date=None).ok)   # unknown end date => don't block
+
+    def test_resolve_filter_off_when_zero(self):
+        from datetime import datetime, timezone, timedelta
+        self.cfg.min_resolve_hours = 0
+        soon = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+        self.assertTrue(self.g(end_date=soon).ok)
+
 
 if __name__ == "__main__":
     unittest.main()

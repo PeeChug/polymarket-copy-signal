@@ -34,6 +34,8 @@ tier_blue_min: 5               # overlap >= this  => "blue"   (moderate: 5+ of 5
 # --- guardrails before a signal becomes a paper trade -----------------------
 min_liquidity: 1000            # USD; don't simulate filling a market we couldn't actually trade
 max_entry_price: 0.90          # skip positions already near resolution (little upside left)
+min_resolve_hours: 24          # skip markets resolving within this many hours — live/same-day
+                               # bets (esp. sports) are 0/1 coin-flips, not durable consensus edge. 0=off
 min_tier_to_trade: blue        # 'blue' (trade blue+green) or 'green' (trade green only)
 
 # --- paper-trade mechanics --------------------------------------------------

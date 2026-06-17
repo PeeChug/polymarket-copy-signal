@@ -18,7 +18,7 @@ from typing import Optional
 _CONFIG_FIELDS = (
     "top_n", "candidate_pool", "leaderboard_window", "size_threshold", "poll_interval_minutes",
     "tier_green_min", "tier_blue_min",
-    "min_liquidity", "max_entry_price", "min_tier_to_trade",
+    "min_liquidity", "max_entry_price", "min_resolve_hours", "min_tier_to_trade",
     "stake_usd", "price_source", "control_respects_guardrails",
     "stop_loss_pct", "contested_policy",
     "min_holder_value", "min_holder_win_ratio",
@@ -42,6 +42,10 @@ class Config:
 
     min_liquidity: float = 1000.0
     max_entry_price: float = 0.90
+    # skip markets that resolve within this many hours — live/same-day bets (esp.
+    # sports) resolve to 0/1 in hours, so copying them adds fat-tail variance, not
+    # consensus edge. 0 = off.
+    min_resolve_hours: float = 24.0
     min_tier_to_trade: str = "blue"
 
     stake_usd: float = 100.0

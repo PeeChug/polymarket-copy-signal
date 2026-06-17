@@ -10,6 +10,22 @@ wallets holding the same asset.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
+
+
+def _resolves_within(end_date, hours: float) -> bool:
+    """True if the market resolves within `hours` from now (so we should skip it).
+    Off when hours<=0 or end_date is missing/unparseable (can't tell => don't skip)."""
+    if not end_date or hours is None or hours <= 0:
+        return False
+    try:
+        s = end_date if isinstance(end_date, str) else end_date.isoformat()
+        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt <= datetime.now(timezone.utc) + timedelta(hours=float(hours))
+    except (ValueError, TypeError, AttributeError):
+        return False
 
 
 @dataclass
@@ -122,7 +138,7 @@ class GuardrailResult:
 
 
 def passes_guardrails(*, tier: str, price, liquidity, market_closed: bool,
-                      cfg, strategy: str) -> GuardrailResult:
+                      cfg, strategy: str, end_date=None) -> GuardrailResult:
     """
     Decide whether an observed position may become a paper trade THIS cycle.
     'overlap' strategy enforces the tier minimum; 'control' does not (it has no
@@ -146,6 +162,8 @@ def passes_guardrails(*, tier: str, price, liquidity, market_closed: bool,
             return GuardrailResult(False, "low_liquidity")
         if price > cfg.max_entry_price:
             return GuardrailResult(False, "price_too_high")
+        if _resolves_within(end_date, getattr(cfg, "min_resolve_hours", 24.0)):
+            return GuardrailResult(False, "resolves_too_soon")
     return GuardrailResult(True, "ok")
 
 

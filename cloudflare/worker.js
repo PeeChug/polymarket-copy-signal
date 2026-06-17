@@ -26,7 +26,7 @@ const FULL_SCAN_CRON = "*/10 * * * *";                       // GitHub heavy sca
 // in the request body is dropped, so a stray/hostile field can never land.
 const ALLOWED = [
   "top_n", "leaderboard_window", "size_threshold", "poll_interval_minutes",
-  "tier_green_min", "tier_blue_min", "min_liquidity", "max_entry_price",
+  "tier_green_min", "tier_blue_min", "min_liquidity", "max_entry_price", "min_resolve_hours",
   "min_tier_to_trade", "stake_usd", "price_source", "control_respects_guardrails",
   "stop_loss_pct", "contested_policy", "min_holder_value", "min_holder_win_ratio",
 ];

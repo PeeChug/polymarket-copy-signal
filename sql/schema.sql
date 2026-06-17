@@ -36,6 +36,7 @@ create table if not exists config_history (
     -- guardrails before a signal becomes a paper trade
     min_liquidity               numeric not null default 1000,       -- USD; skip illiquid markets
     max_entry_price             numeric not null default 0.90,       -- skip positions near resolution
+    min_resolve_hours           numeric not null default 24,         -- skip markets resolving within N hours (live sports etc.); 0=off
     min_tier_to_trade           text    not null default 'blue',     -- 'blue' | 'green'
 
     -- paper-trade mechanics
