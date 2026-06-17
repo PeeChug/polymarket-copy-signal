@@ -307,8 +307,8 @@
     </div>
   </div>
   <nav class="tabs" id="tabs">
-    <button data-tab="performance" class="on">📊 Performance</button>
-    <button data-tab="accounts">💼 Accounts</button>
+    <button data-tab="accounts" class="on">💼 Wallet</button>
+    <button data-tab="performance">📊 Performance</button>
     <button data-tab="traders">Top Earners</button>
     <button data-tab="consensus">Consensus</button>
     <button data-tab="buy">🛒 Buy Candidates</button>
@@ -324,8 +324,8 @@
   <section id="tab-consensus" class="tab"></section>
   <section id="tab-buy" class="tab"></section>
   <section id="tab-picks" class="tab"></section>
-  <section id="tab-performance" class="tab on"></section>
-  <section id="tab-accounts" class="tab"></section>
+  <section id="tab-performance" class="tab"></section>
+  <section id="tab-accounts" class="tab on"></section>
   <section id="tab-backtest" class="tab"></section>
   <section id="tab-signals" class="tab"></section>
   <p class="sub" style="margin-top:34px">Auto-updates on a schedule: a Cloudflare cron triggers the poller, which stores to Supabase and serves the data from there. Source: <a href="https://github.com/PeeChug/polymarket-copy-signal">github.com/PeeChug/polymarket-copy-signal</a>.</p>
@@ -815,7 +815,7 @@ function renderConsensus(){
 
 function renderAccounts(){
   const d=DATA, el=document.getElementById('tab-accounts'); el.innerHTML='';
-  el.appendChild($(`<h2>💼 Budgeted accounts</h2>`));
+  el.appendChild($(`<h2>💼 Wallet — paper-trade account</h2>`));
   el.appendChild($(`<p class="sub">Your paper-trade <b>wallet</b>, starting at <b>$1,000</b>. Buying a position takes the stake <b>out</b> of the wallet; selling returns the <b>full proceeds back in</b> — so it compounds with wins, shrinks with losses, and can only ever spend what's in it (signals are <b>skipped</b> when the wallet can't cover a stake). Slippage &amp; fees are included — unlike the Performance tab (unlimited capital), this answers <b>"what would a real $1,000 account have done?"</b></p>`));
   const accs=d.accounts||[];
   if(!accs.length){ el.appendChild($(`<div class="empty">No account sims yet — they accrue as consensus trades open and resolve.</div>`)); return; }
@@ -879,6 +879,7 @@ function renderPerformance(){
     const fresh=u.events!=null?`<div class="muted" style="font-size:11.5px;margin-top:7px">Catalog: <b>${u.events}</b> live US events${fa?` · updated ${relTime(fa)}`:''}${u.stale?` · <span style="color:var(--red)">⚠ live fetch failed — showing last-good catalog</span>`:''}</div>`:'';
     el.appendChild($(foldCard('🇺🇸 US Only', `<div style="font-size:13px">Only the cohort's markets a US-based trader can actually access on <b>Polymarket US</b>. Each position is matched against the <b>live US catalog</b> (U.S. elections, the Fed, IPOs, macro &amp; culture — sports excluded), bridging the wording gap across venues (our "Republican control of the House" = their "U.S. House Midterm Winner")${u.consensus!=null?` — <b>${u.consensus}</b> consensus signal${u.consensus===1?'':'s'} matched this cycle`:''}. The bulk of the cohort's edge (geopolitics &amp; crypto) isn't listed on US, so this view is intentionally narrow; matched rows carry a 🇺🇸 link.${fresh}</div>`, 'var(--gold)')));}
   el.appendChild($(`<p class="sub">A <b>simulated</b> track record — no real money — of buying every position that crosses the tier threshold at a fixed stake and marking it to live prices. Realized = closed trades; unrealized = still open.</p>`));
+  el.appendChild($(`<div class="card" style="border-left:4px solid var(--accent);font-size:12.5px;margin:2px 0 6px">📊 This is the <b>unlimited-capital reference</b> — $${cfg.stake_usd??100} on every trigger, no budget — so it measures the <b>signal's raw edge</b> (ROI / win-rate), not a real account. Your real, finite account is the <b>💼 Wallet</b> tab.</div>`));
   el.appendChild($(foldCard('📋 Strategy overview', `<ol style="margin:0;padding-left:22px;line-height:1.75">
       <li>👀 Watch the <b>50 best traders</b> (active, funded, currently winning).</li>
       <li>🤝 When <b>≥${cfg.min_tier_to_trade==='green'?(cfg.tier_green_min??10):(cfg.tier_blue_min??5)} of them hold the same bet</b>, buy <b>$${cfg.stake_usd??100}</b> of it at the real market price.</li>
@@ -1228,7 +1229,7 @@ document.addEventListener('keydown',e=>{
   if(e.key==='Escape'){ document.getElementById('modal').classList.remove('open'); const p=document.getElementById('settings'); if(p)p.classList.remove('open'); document.getElementById('scrim').classList.remove('open'); return; }
   const tag=((e.target&&e.target.tagName)||'').toLowerCase();
   if(tag==='input'||tag==='select'||tag==='textarea'||e.metaKey||e.ctrlKey||e.altKey) return;
-  if(e.key>='1'&&e.key<='7'){ const t=['performance','accounts','traders','consensus','buy','picks','backtest'][+e.key-1]; if(t)setTab(t); }
+  if(e.key>='1'&&e.key<='7'){ const t=['accounts','performance','traders','consensus','buy','picks','backtest'][+e.key-1]; if(t)setTab(t); }
   else if(e.key==='/'){ const s=document.querySelector('.tab.on input[type=search]'); if(s){ e.preventDefault(); s.focus(); } }
   else if(e.key==='r'||e.key==='R'){ manualRefresh(); }
   else if(e.key==='t'||e.key==='T'){ toggleTheme(); }
@@ -1304,7 +1305,7 @@ function manualRefresh(){ const b=document.getElementById('refresh'); b.classLis
 document.getElementById('refresh').onclick=manualRefresh;
 
 function render(){ updateMeta(); RENDER[state.tab](); clearInterval(metaTimer); metaTimer=setInterval(updateMeta,30000); }
-function showSkeleton(){ document.getElementById('tab-performance').innerHTML='<div style="margin-top:10px">'+Array(3).fill('<div class="skel" style="height:120px;margin:10px 0"></div>').join('')+'</div>'; }
+function showSkeleton(){ document.getElementById('tab-accounts').innerHTML='<div style="margin-top:10px">'+Array(3).fill('<div class="skel" style="height:120px;margin:10px 0"></div>').join('')+'</div>'; }
 
 function load(initial){
   return fetchData().then(d=>{
@@ -1312,8 +1313,8 @@ function load(initial){
     DATA=d; computeFlash(d); if(lastMarks)mergeMarks(lastMarks); if(initial){
       try{ const saved=JSON.parse(localStorage.getItem('pm_state')||'{}');
         ['trd','cons','sig','perf','buy','settings'].forEach(k=>{ if(saved[k]) Object.assign(state[k],saved[k]); }); }catch(e){}
-      const want=(location.hash||'').replace('#','')||(()=>{try{return localStorage.getItem('pm_tab');}catch(e){return null;}})()||'performance';
-      state.tab=RENDER[want]?want:'performance';
+      const want=(location.hash||'').replace('#','')||(()=>{try{return localStorage.getItem('pm_tab');}catch(e){return null;}})()||'accounts';
+      state.tab=RENDER[want]?want:'accounts';
       document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('on',b.dataset.tab===state.tab));
       document.querySelectorAll('.tab').forEach(s=>s.classList.toggle('on',s.id==='tab-'+state.tab));
       render(); applySettings(); startMarks(); setTimeout(()=>{ introDone=true; }, 1100);
