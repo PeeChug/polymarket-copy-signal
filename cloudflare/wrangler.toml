@@ -3,9 +3,9 @@ main = "worker.js"
 compatibility_date = "2024-11-01"
 
 # Two cadences (standard 5-field cron, UTC):
-#   "*/10 * * * *" → heavy GitHub full scan (must match FULL_SCAN_CRON in worker.js)
-#   "* * * * *"    → light fast price-mark (re-prices open paper trades, writes marks.json)
-# At minute 0/10/20… both fire as separate scheduled invocations; worker.js
+#   "*/5 * * * *" → heavy GitHub full scan / BUY cadence (must match FULL_SCAN_CRON in worker.js)
+#   "* * * * *"   → light fast price-mark / SELL cadence (re-prices open paper trades, writes marks.json)
+# At minute 0/5/10… both fire as separate scheduled invocations; worker.js
 # branches on event.cron. Both fit the Worker free tier.
 [triggers]
-crons = ["*/10 * * * *", "* * * * *"]
+crons = ["*/5 * * * *", "* * * * *"]

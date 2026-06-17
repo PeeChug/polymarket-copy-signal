@@ -79,8 +79,9 @@ class Config:
     fast_exit_slippage_pct: float = 0.02  # extra haircut on a PANIC sell (stop/trailing) — thin book on the way down
     # after we STOP out of a (market, outcome), don't re-buy it for this many hours
     # even if the cohort still holds it — kills the re-entry spiral where a stuck
-    # cohort drags us into a collapsing live market again and again. 0 = off.
-    reentry_cooldown_hours: float = 24.0
+    # cohort drags us into a collapsing live market again and again. 4h covers a
+    # full live game while staying permissive for genuinely fresh setups. 0 = off.
+    reentry_cooldown_hours: float = 4.0
     # signal-decay exit is rule-based (no knob): close a held position the moment its
     # agreement falls back below the tier floor we require to open (the "buy bar").
     # when the cohort is split on a market (both sides held): 'both' = trade both

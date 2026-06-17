@@ -22,10 +22,10 @@ size_threshold: 1              # ignore dust: a wallet must hold at least this p
 # How often the poller actually does work. The GitHub Action wakes every 5 min;
 # it only fetches + commits once this many minutes have elapsed. 5 | 10 | 15 | 30.
 # (Repo is public => unlimited Actions minutes; faster = more frequent commits.)
-# 10 = act on every Worker full-scan poke (was 15, which skipped pokes => ~20-min
-# effective cadence and slow consensus DETECTION). Price exits run every MINUTE in
-# the Worker regardless of this; this only paces the heavy cohort/consensus scan.
-poll_interval_minutes: 10
+# 5 = act on every Worker full-scan poke (now */5) so new consensus is BOUGHT within
+# ~5 min instead of ~10. Price exits already run every MINUTE in the Worker; this only
+# paces the heavy cohort/consensus scan (the buy side). (was 10.)
+poll_interval_minutes: 5
 
 # --- tiering (overlap -> tier) ----------------------------------------------
 # overlap = how many of the top N earners independently hold the SAME position
@@ -75,11 +75,12 @@ time_stop_minutes: 30           # force-exit this many minutes before resolution
                                 # (sports) market into the 0/1 gap. 0 = off
 fast_exit_slippage_pct: 0.02    # extra haircut applied to a PANIC sell (stop/trailing) — the book is thin on
                                 # the way down, so a fast exit fills worse than the touch bid. Keeps P&L honest.
-reentry_cooldown_hours: 24      # after we STOP out of a (market, outcome), don't re-buy it for this many hours
-                                # even if the cohort still holds it. Kills the re-entry spiral: a stuck cohort
-                                # in a collapsing live game (e.g. Detroit 0.26->0.05) dragging us in 4x in 30
-                                # min, stopping out each time. Note: this catches it via OUR stop events, not
-                                # the market end_date (which is unreliable for live sports). 0 = off.
+reentry_cooldown_hours: 4       # after we STOP out of a (market, outcome), don't re-buy it for this many hours
+                                # even if the cohort still holds it. Kills the re-entry spiral (a stuck cohort
+                                # in a collapsing live game dragging us in 4x in 30 min). 4h covers a full live
+                                # game (~3h) so the fast collapse is over before we can re-enter, while staying
+                                # permissive enough to take a genuinely fresh setup the same day. (was 24h.)
+                                # Catches it via OUR stop events, not the market end_date (unreliable). 0 = off.
 contested_policy: both          # cohort split on a market (both sides held): 'both' = trade both
                                 # (box spreads / hedges are a real strategy worth testing); 'dominant'
                                 # = only the stronger side (ties -> higher holder 30d P&L); 'skip' = none

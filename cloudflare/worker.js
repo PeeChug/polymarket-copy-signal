@@ -20,7 +20,7 @@ const DISPATCH_URL =
 
 const CLOB_PRICES = "https://clob.polymarket.com/prices";   // batch price endpoint (500 req/10s)
 const MARKS_OBJECT = "/storage/v1/object/dashboard/marks.json";
-const FULL_SCAN_CRON = "*/10 * * * *";                       // GitHub heavy scan cadence
+const FULL_SCAN_CRON = "*/5 * * * *";                        // GitHub heavy scan cadence (buys); MUST match wrangler.toml
 
 // The ONLY columns the dashboard may write into config_history. Anything else
 // in the request body is dropped, so a stray/hostile field can never land.
