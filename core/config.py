@@ -20,7 +20,8 @@ _CONFIG_FIELDS = (
     "tier_green_min", "tier_blue_min",
     "min_liquidity", "min_entry_price", "max_entry_price", "min_resolve_hours", "min_tier_to_trade",
     "stake_usd", "price_source", "control_respects_guardrails",
-    "stop_loss_pct", "contested_policy",
+    "stop_loss_pct", "take_profit_pct", "trailing_stop_pct", "trailing_arm_pct",
+    "time_stop_minutes", "fast_exit_slippage_pct", "contested_policy",
     "min_holder_value", "min_holder_win_ratio",
 )
 
@@ -45,7 +46,7 @@ class Config:
     # price (one tick) and the book is empty, so a "win" is untradeable noise. Also
     # used as the price floor for the stop (exit if a held position falls below it).
     min_entry_price: float = 0.05
-    max_entry_price: float = 0.90
+    max_entry_price: float = 0.85
     # skip markets that resolve within this many hours — live/same-day bets (esp.
     # sports) resolve to 0/1 in hours, so copying them adds fat-tail variance, not
     # consensus edge. 0 = off.
@@ -60,6 +61,14 @@ class Config:
 
     # exit: close a trade if it falls this fraction below entry (0 = off, 0.25 = -25%, the default)
     stop_loss_pct: float = 0.25
+    # --- fast, price-based exits (run every minute in the Worker, not just the 10-min
+    #     scan) so a position can't crater 50% between scans. All overlap-only; the
+    #     control benchmark stays naive (exits only on leader-abandon / resolution). ---
+    take_profit_pct: float = 0.0        # bank a defined gain (>= +X%); 0 = off (let winners run)
+    trailing_stop_pct: float = 0.15     # once armed, exit if price gives back this much from its peak; 0 = off
+    trailing_arm_pct: float = 0.20      # only arm the trailing stop after the trade is up at least this much
+    time_stop_minutes: float = 30.0     # force-exit this many minutes before resolution (short-fuse safety); 0 = off
+    fast_exit_slippage_pct: float = 0.02  # extra haircut on a PANIC sell (stop/trailing) — thin book on the way down
     # signal-decay exit is rule-based (no knob): close a held position the moment its
     # agreement falls back below the tier floor we require to open (the "buy bar").
     # when the cohort is split on a market (both sides held): 'both' = trade both

@@ -20,7 +20,10 @@ size_threshold: 1              # ignore dust: a wallet must hold at least this p
 # How often the poller actually does work. The GitHub Action wakes every 5 min;
 # it only fetches + commits once this many minutes have elapsed. 5 | 10 | 15 | 30.
 # (Repo is public => unlimited Actions minutes; faster = more frequent commits.)
-poll_interval_minutes: 15
+# 10 = act on every Worker full-scan poke (was 15, which skipped pokes => ~20-min
+# effective cadence and slow consensus DETECTION). Price exits run every MINUTE in
+# the Worker regardless of this; this only paces the heavy cohort/consensus scan.
+poll_interval_minutes: 10
 
 # --- tiering (overlap -> tier) ----------------------------------------------
 # overlap = how many of the top N earners independently hold the SAME position
@@ -35,7 +38,7 @@ tier_blue_min: 5               # overlap >= this  => "blue"   (moderate: 5+ of 5
 min_liquidity: 1000            # USD; don't simulate filling a market we couldn't actually trade
 min_entry_price: 0.05          # skip deep longshots (e.g. 0.001): spread ~= the whole price, untradeable
                                # noise; also the price floor for the stop. (mirror of max_entry_price)
-max_entry_price: 0.90          # skip positions already near resolution (little upside left)
+max_entry_price: 0.85          # skip positions already near resolution (little upside left; +11% cap at 0.90 = bad R/R)
 min_resolve_hours: 2           # only skip markets resolving within this many hours (almost-over games).
                                # Kept low on purpose: we scalp sentiment + exit when holders sell. 0=off
 min_tier_to_trade: blue        # 'blue' (trade blue+green) or 'green' (trade green only)
@@ -52,6 +55,18 @@ stop_loss_pct: 0.30             # WIDE backstop only — the holder-exit (sell w
                                 # real risk control; a tight % just whipsaws on prediction-market noise. 0=off.
                                 # (was 0.15) — close a trade if it falls this fraction below entry,
                                 # 0.25 = exit at -25% (default). (Prices are 0..1, so a "stop" is a % of entry.)
+
+# --- fast price-based exits (run EVERY MINUTE in the Worker, not just the 10-min scan) ---
+# These exist to stop a position cratering 50%+ between scans, and to bank gains
+# before they round-trip. All OVERLAP-ONLY — the control benchmark stays naive.
+take_profit_pct: 0.0            # bank a defined gain (>= +X%); 0 = off (let winners run to the trailing stop)
+trailing_stop_pct: 0.15         # once armed, exit if price gives back this much from its peak. 0 = off
+trailing_arm_pct: 0.20          # only arm the trailing stop after the trade is up at least this much (so it
+                                # locks PROFIT, doesn't act as a tight stop on entry noise)
+time_stop_minutes: 30           # force-exit this many minutes before resolution — never hold a short-fuse
+                                # (sports) market into the 0/1 gap. 0 = off
+fast_exit_slippage_pct: 0.02    # extra haircut applied to a PANIC sell (stop/trailing) — the book is thin on
+                                # the way down, so a fast exit fills worse than the touch bid. Keeps P&L honest.
 contested_policy: both          # cohort split on a market (both sides held): 'both' = trade both
                                 # (box spreads / hedges are a real strategy worth testing); 'dominant'
                                 # = only the stronger side (ties -> higher holder 30d P&L); 'skip' = none

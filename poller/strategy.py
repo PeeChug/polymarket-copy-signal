@@ -170,6 +170,61 @@ def passes_guardrails(*, tier: str, price, liquidity, market_closed: bool,
 
 
 # --------------------------------------------------------------------------- #
+# Fast, price-based exits
+#
+# These are the exits that DON'T need the cohort snapshot, so they can run every
+# MINUTE in the Worker (cheap CLOB prices) instead of only on the ~10-min scan —
+# the whole point being to catch a position before it craters 50%, and to bank a
+# gain before it round-trips. OVERLAP-ONLY: the control benchmark stays naive
+# (it exits only when the leader abandons or the market resolves), so the only
+# thing being compared remains the SELECTION rule.
+#
+# Precedence (first match wins): time-stop -> hard stop / price-floor ->
+# take-profit -> trailing. The Python engine and the JS Worker MUST stay in sync
+# (cloudflare/worker.js `priceExit`); this is the source of truth + the tests.
+# --------------------------------------------------------------------------- #
+def price_exit(*, entry, mark, peak, end_date, cfg, strategy: str):
+    """Return (reason, exit_price) for a price/time exit, or (None, None).
+
+    `peak` is the highest mark seen since entry (for the trailing stop). A panic
+    sell (stop/trailing) takes an extra `fast_exit_slippage_pct` haircut because
+    the book is thin on the way down; a planned sell (take-profit/time-stop)
+    fills at the touch bid (`mark`)."""
+    if strategy != "overlap" or mark is None:
+        return None, None
+    entry = entry or 0.0
+    if entry <= 0:
+        return None, None
+    ret = (mark - entry) / entry
+    fast = getattr(cfg, "fast_exit_slippage_pct", 0.0) or 0.0
+
+    def hair(px):                       # extra impact when dumping into an adverse move
+        return max(0.0, px * (1 - fast))
+
+    # 1) time-stop — never hold a short-fuse market into the 0/1 resolution gap
+    tmin = getattr(cfg, "time_stop_minutes", 0.0) or 0.0
+    if tmin and _resolves_within(end_date, tmin / 60.0):
+        return "time_stop", mark
+    # 2) hard stop (wide % backstop) or price floor (outcome nearly dead)
+    stop = getattr(cfg, "stop_loss_pct", 0.0) or 0.0
+    floor = getattr(cfg, "min_entry_price", 0.0) or 0.0
+    if (stop and ret <= -stop) or (floor and mark < floor):
+        return "stop_loss", hair(mark)
+    # 3) take-profit — bank a defined gain (off by default; trailing usually better)
+    tp = getattr(cfg, "take_profit_pct", 0.0) or 0.0
+    if tp and ret >= tp:
+        return "take_profit", mark
+    # 4) trailing — once it has run up >= arm, exit if it gives back `trail` from the peak
+    trail = getattr(cfg, "trailing_stop_pct", 0.0) or 0.0
+    arm = getattr(cfg, "trailing_arm_pct", 0.0) or 0.0
+    if trail and peak and peak > entry:
+        armed = ((peak - entry) / entry >= arm) if arm else True
+        if armed and mark <= peak * (1 - trail):
+            return "trailing_stop", hair(mark)
+    return None, None
+
+
+# --------------------------------------------------------------------------- #
 # Paper-trade P&L for a binary outcome share
 #
 #   A fixed $ stake buys `shares = stake / entry_price` shares at the locked

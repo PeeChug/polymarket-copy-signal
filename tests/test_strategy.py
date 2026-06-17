@@ -164,5 +164,75 @@ class TestGuardrails(unittest.TestCase):
         self.assertTrue(self.g(end_date=soon).ok)
 
 
+class TestPriceExit(unittest.TestCase):
+    """The fast price/time exits (overlap-only) mirrored in the Worker."""
+    def setUp(self):
+        # dataclass defaults: stop 0.25, floor 0.05, tp 0(off), trail 0.15,
+        # arm 0.20, time_stop 30 min, fast_exit_slippage 0.02
+        self.cfg = Config()
+
+    def pe(self, **kw):
+        base = dict(entry=0.50, mark=0.50, peak=0.50, end_date=None,
+                    cfg=self.cfg, strategy="overlap")
+        base.update(kw)
+        return strategy.price_exit(**base)
+
+    def test_no_exit_when_flat(self):
+        self.assertEqual(self.pe(), (None, None))
+
+    def test_stop_loss_takes_a_panic_haircut(self):
+        # down 60% (> default 25% stop). exit = mark*(1 - fast_exit_slippage)
+        reason, xp = self.pe(entry=0.50, mark=0.20)
+        self.assertEqual(reason, "stop_loss")
+        self.assertAlmostEqual(xp, 0.20 * (1 - 0.02))
+
+    def test_price_floor_exits_a_near_dead_outcome(self):
+        self.cfg.stop_loss_pct = 0           # isolate the floor
+        reason, _ = self.pe(entry=0.06, mark=0.04)   # below the 0.05 floor
+        self.assertEqual(reason, "stop_loss")
+
+    def test_take_profit_when_enabled_no_haircut(self):
+        self.cfg.take_profit_pct = 0.30
+        reason, xp = self.pe(entry=0.50, mark=0.66, peak=0.66)   # +32%
+        self.assertEqual(reason, "take_profit")
+        self.assertAlmostEqual(xp, 0.66)     # planned sell fills at the touch bid
+
+    def test_take_profit_off_by_default(self):
+        reason, _ = self.pe(entry=0.50, mark=0.80, peak=0.80)    # +60% but tp=0
+        self.assertNotEqual(reason, "take_profit")
+
+    def test_trailing_arms_then_triggers(self):
+        # peak +30% (>= arm 0.20) -> armed; give back 15% from the 0.65 peak
+        reason, xp = self.pe(entry=0.50, mark=0.55, peak=0.65)   # 0.55 <= 0.65*0.85
+        self.assertEqual(reason, "trailing_stop")
+        self.assertAlmostEqual(xp, 0.55 * (1 - 0.02))            # panic haircut applies
+
+    def test_trailing_not_armed_below_arm(self):
+        # peak only +10% (< arm 0.20) -> never trails, even sitting at a small give-back
+        reason, _ = self.pe(entry=0.50, mark=0.50, peak=0.55)
+        self.assertIsNone(reason)
+
+    def test_time_stop_before_resolution(self):
+        from datetime import datetime, timezone, timedelta
+        soon = (datetime.now(timezone.utc) + timedelta(minutes=20)).isoformat()  # < 30 min
+        reason, xp = self.pe(entry=0.50, mark=0.55, peak=0.55, end_date=soon)
+        self.assertEqual(reason, "time_stop")
+        self.assertAlmostEqual(xp, 0.55)     # scheduled exit, no panic haircut
+
+    def test_time_stop_precedes_stop_loss(self):
+        from datetime import datetime, timezone, timedelta
+        soon = (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()
+        # both a -60% stop AND inside the time window -> time_stop is checked first
+        reason, _ = self.pe(entry=0.50, mark=0.20, peak=0.50, end_date=soon)
+        self.assertEqual(reason, "time_stop")
+
+    def test_control_never_price_exits(self):
+        # control stays naive: even a -60% move yields no price exit
+        self.assertEqual(self.pe(strategy="control", entry=0.50, mark=0.20), (None, None))
+
+    def test_zero_entry_is_safe(self):
+        self.assertEqual(self.pe(entry=0.0, mark=0.0), (None, None))
+
+
 if __name__ == "__main__":
     unittest.main()

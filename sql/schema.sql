@@ -36,7 +36,7 @@ create table if not exists config_history (
     -- guardrails before a signal becomes a paper trade
     min_liquidity               numeric not null default 1000,       -- USD; skip illiquid markets
     min_entry_price             numeric not null default 0.05,       -- skip deep longshots (spread eats any win); also the stop price floor
-    max_entry_price             numeric not null default 0.90,       -- skip positions near resolution
+    max_entry_price             numeric not null default 0.85,       -- skip positions near resolution (0.90 caps upside at +11% = bad R/R)
     min_resolve_hours           numeric not null default 2,          -- skip markets resolving within N hours (almost-over games); 0=off
     min_tier_to_trade           text    not null default 'blue',     -- 'blue' | 'green'
 
@@ -47,6 +47,12 @@ create table if not exists config_history (
 
     -- exit + conflict rules
     stop_loss_pct               numeric not null default 0.30,       -- WIDE backstop (holder-exit is primary); 0=off, 0.30=-30%
+    -- fast price-based exits (run EVERY MINUTE in the Worker, not just the scan); overlap-only
+    take_profit_pct             numeric not null default 0,          -- bank a gain >= +X%; 0=off
+    trailing_stop_pct           numeric not null default 0.15,       -- once armed, exit if price gives back this from its peak; 0=off
+    trailing_arm_pct            numeric not null default 0.20,       -- only arm the trailing stop after +X% (locks profit, not a tight stop)
+    time_stop_minutes           numeric not null default 30,         -- force-exit N min before resolution (short-fuse safety); 0=off
+    fast_exit_slippage_pct      numeric not null default 0.02,       -- extra haircut on a PANIC sell (stop/trailing) — thin book on the way down
     contested_policy            text    not null default 'both',     -- 'both' | 'dominant' | 'skip'
 
     -- cohort quality (which top earners count toward a signal)
@@ -155,18 +161,20 @@ create table if not exists paper_trades (
     tier_at_entry    text,
     overlap_at_entry int,
     holders_at_entry text[] default '{}',
+    end_date         timestamptz,              -- market resolution time (for the pre-resolution time-stop)
 
     -- mark-to-market (updated every cycle while OPEN)
     marked_price     numeric,
     marked_at        timestamptz,
     unrealized_pnl   numeric,
+    peak_price       numeric,                  -- highest mark since entry (for the trailing stop)
 
     -- close
     exit_at          timestamptz,
     exit_cycle_id    bigint references cycles(id),
     exit_price       numeric,
     realized_pnl     numeric,
-    close_reason     text,                     -- 'resolved' | 'cohort_abandoned' | 'leader_abandoned'
+    close_reason     text,                     -- 'resolved'|'cohort_abandoned'|'leader_abandoned'|'holder_exited'|'stop_loss'|'take_profit'|'trailing_stop'|'time_stop'
     resolved_won     boolean,                  -- on resolution: did our outcome win
 
     created_at       timestamptz not null default now(),
@@ -196,3 +204,17 @@ create table if not exists kv_store (
     value       jsonb not null,
     updated_at  timestamptz not null default now()
 );
+
+-- ----------------------------------------------------------------------------
+-- 7. forward migrations — idempotent ALTERs so re-running this file on an
+--    EXISTING database adds new columns without a wipe. (CREATE-only above is
+--    skipped on existing tables, so new columns must be added here.)
+-- ----------------------------------------------------------------------------
+-- fast price-based exits (every-minute Worker exits + trailing/time stops)
+alter table config_history add column if not exists take_profit_pct        numeric not null default 0;
+alter table config_history add column if not exists trailing_stop_pct       numeric not null default 0.15;
+alter table config_history add column if not exists trailing_arm_pct        numeric not null default 0.20;
+alter table config_history add column if not exists time_stop_minutes       numeric not null default 30;
+alter table config_history add column if not exists fast_exit_slippage_pct  numeric not null default 0.02;
+alter table paper_trades  add column if not exists end_date   timestamptz;   -- for the pre-resolution time-stop
+alter table paper_trades  add column if not exists peak_price numeric;       -- for the trailing stop

@@ -28,8 +28,18 @@ const ALLOWED = [
   "top_n", "leaderboard_window", "size_threshold", "poll_interval_minutes",
   "tier_green_min", "tier_blue_min", "min_liquidity", "min_entry_price", "max_entry_price", "min_resolve_hours",
   "min_tier_to_trade", "stake_usd", "price_source", "control_respects_guardrails",
-  "stop_loss_pct", "contested_policy", "min_holder_value", "min_holder_win_ratio",
+  "stop_loss_pct", "take_profit_pct", "trailing_stop_pct", "trailing_arm_pct",
+  "time_stop_minutes", "fast_exit_slippage_pct", "contested_policy",
+  "min_holder_value", "min_holder_win_ratio",
 ];
+
+// Defaults the fast-mark falls back to when a config column doesn't exist yet
+// (pre-migration). MUST mirror core/config.py's Config dataclass defaults.
+const EXIT_DEFAULTS = {
+  stop_loss_pct: 0.30, min_entry_price: 0.05, take_profit_pct: 0.0,
+  trailing_stop_pct: 0.15, trailing_arm_pct: 0.20, time_stop_minutes: 30,
+  fast_exit_slippage_pct: 0.02,
+};
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -171,13 +181,87 @@ async function putMarks(env, auth, payload) {
   if (!r.ok) console.log("fastmark: marks upload failed", r.status, await r.text());
 }
 
-// FAST MARK: re-price the OPEN paper trades and publish a tiny marks.json the
-// dashboard overlays. Read trades (1) + CLOB prices (1) + upload (1) = ≈3
-// subrequests, well under the free 50/invocation cap.
+// Newest config row (the exit knobs), with pre-migration fallbacks. One GET.
+async function loadExitConfig(env, auth) {
+  try {
+    const r = await fetch(
+      env.SUPABASE_URL + "/rest/v1/config_history?select=*&order=id.desc&limit=1",
+      { headers: auth });
+    if (r.ok) {
+      const rows = await r.json();
+      if (Array.isArray(rows) && rows[0]) {
+        const cfg = {};
+        for (const k of Object.keys(EXIT_DEFAULTS)) {
+          const v = +rows[0][k];
+          cfg[k] = isFinite(v) ? v : EXIT_DEFAULTS[k];   // missing/null column -> default
+        }
+        return cfg;
+      }
+    }
+  } catch (e) { console.log("fastmark: config read error", e); }
+  return { ...EXIT_DEFAULTS };
+}
+
+// PRICE/TIME exit decision — the JS mirror of poller/strategy.py `price_exit`.
+// OVERLAP-ONLY (control stays naive). Returns {reason, price} or null. Keep in
+// lockstep with the Python source of truth + tests/test_strategy.py.
+function priceExit(t, mark, peak, cfg) {
+  if ((t.strategy || "overlap") !== "overlap" || mark == null) return null;
+  const entry = +t.entry_price || 0;
+  if (entry <= 0) return null;
+  const ret = (mark - entry) / entry;
+  const fast = +cfg.fast_exit_slippage_pct || 0;
+  const hair = (px) => Math.max(0, px * (1 - fast));   // extra haircut on a panic sell
+  // 1) time-stop — never hold a short-fuse market into the 0/1 resolution gap
+  const tmin = +cfg.time_stop_minutes || 0;
+  if (tmin && t.end_date) {
+    const end = Date.parse(t.end_date);
+    if (isFinite(end) && (end - Date.now()) <= tmin * 60000) return { reason: "time_stop", price: mark };
+  }
+  // 2) hard stop (wide %) or price floor (outcome nearly dead)
+  const stop = +cfg.stop_loss_pct || 0, floor = +cfg.min_entry_price || 0;
+  if ((stop && ret <= -stop) || (floor && mark < floor)) return { reason: "stop_loss", price: hair(mark) };
+  // 3) take-profit — bank a defined gain (off by default)
+  const tp = +cfg.take_profit_pct || 0;
+  if (tp && ret >= tp) return { reason: "take_profit", price: mark };
+  // 4) trailing — once up >= arm, exit if it gives back `trail` from the peak
+  const trail = +cfg.trailing_stop_pct || 0, arm = +cfg.trailing_arm_pct || 0;
+  if (trail && peak && peak > entry) {
+    const armed = arm ? ((peak - entry) / entry >= arm) : true;
+    if (armed && mark <= peak * (1 - trail)) return { reason: "trailing_stop", price: hair(mark) };
+  }
+  return null;
+}
+
+// Close one paper trade. The `&status=eq.OPEN` filter makes this idempotent vs
+// the 10-min engine: whoever flips status first wins, the other PATCH matches 0
+// rows. realized_pnl = shares*(exit-entry), matching strategy.realized_pnl.
+async function closeTrade(env, auth, t, reason, exitPrice, peak, ts) {
+  const rpnl = (+t.shares || 0) * (exitPrice - (+t.entry_price || 0));
+  const r = await fetch(
+    env.SUPABASE_URL + "/rest/v1/paper_trades?id=eq." + t.id + "&status=eq.OPEN",
+    {
+      method: "PATCH",
+      headers: { ...auth, "Content-Type": "application/json", Prefer: "return=minimal" },
+      body: JSON.stringify({
+        status: "CLOSED", exit_at: ts, exit_price: exitPrice, realized_pnl: rpnl,
+        marked_price: exitPrice, marked_at: ts, unrealized_pnl: 0, peak_price: peak,
+        close_reason: reason, updated_at: ts,
+      }),
+    });
+  if (!r.ok) console.log("fastmark: close failed", t.id, r.status, await r.text());
+  return r.ok;
+}
+
+// FAST MARK: re-price OPEN paper trades, run the fast price/time EXITS (overlap
+// only), and publish a tiny marks.json the dashboard overlays. The exits are the
+// reason this runs every minute — a position can't crater 50% or round-trip a
+// gain waiting up to 10 min for the next heavy scan. Subrequests: config(1) +
+// trades(1) + CLOB(1) + a few closes/peak-updates + upload(1), well under 50.
 async function fastMark(env) {
   if (!env.SUPABASE_URL || !env.SUPABASE_KEY) return;
   const auth = { apikey: env.SUPABASE_KEY, Authorization: "Bearer " + env.SUPABASE_KEY };
-  const sel = "?status=eq.OPEN&select=strategy,asset,shares,entry_price,tier_at_entry";
+  const sel = "?status=eq.OPEN&select=id,strategy,asset,shares,entry_price,tier_at_entry,end_date,peak_price";
   let trades = [];
   try {
     const tr = await fetch(env.SUPABASE_URL + "/rest/v1/paper_trades" + sel, { headers: auth });
@@ -190,17 +274,45 @@ async function fastMark(env) {
     await putMarks(env, auth, { ts, marks: {}, open: 0, priced: 0 });   // stay fresh even with 0 open
     return;
   }
+  const cfg = await loadExitConfig(env, auth);
   const assets = [...new Set(trades.map((t) => t.asset).filter(Boolean))];
   const marks = await clobMarks(assets);
-  const by_strategy = {};
+
+  // ---- fast EXITS: close overlap trades that breach a price/time rule --------
+  const closedIds = new Set();
   for (const t of trades) {
+    const p = marks[t.asset];
+    if (p == null) continue;
+    const peak = Math.max(+t.peak_price || +t.entry_price || 0, p);
+    const ex = priceExit(t, p, peak, cfg);
+    if (ex) {
+      if (await closeTrade(env, auth, t, ex.reason, ex.price, peak, ts)) closedIds.add(t.id);
+    } else if (peak > (+t.peak_price || 0)) {
+      // keep the high-water mark fresh so the trailing stop has an accurate peak
+      try {
+        await fetch(env.SUPABASE_URL + "/rest/v1/paper_trades?id=eq." + t.id + "&status=eq.OPEN", {
+          method: "PATCH",
+          headers: { ...auth, "Content-Type": "application/json", Prefer: "return=minimal" },
+          body: JSON.stringify({ peak_price: peak, updated_at: ts }),
+        });
+      } catch (e) { /* best-effort; the engine also persists the peak */ }
+    }
+  }
+
+  // ---- marks.json over the STILL-open trades (closed ones drop out) ----------
+  const open = trades.filter((t) => !closedIds.has(t.id));
+  const by_strategy = {};
+  for (const t of open) {
     const p = marks[t.asset];
     if (p == null) continue;
     const up = (+t.shares || 0) * (p - (+t.entry_price || 0));
     const s = by_strategy[t.strategy] || (by_strategy[t.strategy] = { unrealized: 0, marked: 0 });
     s.unrealized += up; s.marked += 1;
   }
-  await putMarks(env, auth, { ts, marks, open: trades.length, priced: Object.keys(marks).length, by_strategy });
+  await putMarks(env, auth, {
+    ts, marks, open: open.length, priced: Object.keys(marks).length,
+    closed: closedIds.size, by_strategy,
+  });
 }
 
 export default {

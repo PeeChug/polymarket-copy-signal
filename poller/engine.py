@@ -238,7 +238,9 @@ def _run(store, client, cfg, cid, summary, log):
             "status": "OPEN", "entry_at": _now_iso(), "entry_cycle_id": cid,
             "entry_price": price, "stake_usd": cfg.stake_usd, "shares": shares,
             "tier_at_entry": tier, "overlap_at_entry": ov.overlap, "holders_at_entry": ov.wallets,
+            "end_date": ov.end_date,                       # for the pre-resolution time-stop
             "marked_price": price, "marked_at": _now_iso(), "unrealized_pnl": 0.0,
+            "peak_price": price,                           # high-water mark for the trailing stop
         }
         row = store.insert_trade(payload)
         if row is None:
@@ -334,20 +336,26 @@ def _run(store, client, cfg, cid, summary, log):
                     log(f"  CLOSE [{t['strategy']}] holder_exited {t['title'][:30]!r} "
                         f"holders {entry_ov}->{cur_ov} @ {mark:.3f}")
                     continue
-            # STOP: a WIDE % backstop + a price floor (outcome nearly dead). The
-            # holder-exit above is the primary risk control; this just catches a
-            # slow bleed the cohort hasn't reacted to yet, or a gap toward zero.
-            entry = t["entry_price"] or 0
-            ret = (mark - entry) / entry if entry else 0.0
-            floor = getattr(cfg, "min_entry_price", 0.0)
-            if (cfg.stop_loss_pct and ret <= -cfg.stop_loss_pct) or (floor and mark < floor):
-                _close(store, t, mark, "stop_loss", summary, resolved_won=None)
-                log(f"  CLOSE [{t['strategy']}] stop_loss {t['title'][:30]!r} "
-                    f"@ {mark:.3f} ({ret*100:.0f}%)")
+            # PRICE/TIME EXITS (overlap-only): a WIDE % stop + price floor, plus
+            # take-profit, a trailing stop, and a pre-resolution time-stop. The
+            # holder-exit above is the primary risk control; these catch a fast
+            # gap the cohort hasn't reacted to yet and bank gains before they
+            # round-trip. SAME logic runs every minute in the Worker (worker.js
+            # priceExit) so a position can't crater 50% between 10-min scans.
+            peak = max(t.get("peak_price") or t["entry_price"] or 0.0, mark)
+            reason, exit_price = strategy.price_exit(
+                entry=t["entry_price"], mark=mark, peak=peak,
+                end_date=t.get("end_date"), cfg=cfg, strategy=t["strategy"])
+            if reason:
+                _close(store, t, exit_price, reason, summary, resolved_won=None)
+                ret = (mark - (t["entry_price"] or 0)) / t["entry_price"] if t["entry_price"] else 0.0
+                log(f"  CLOSE [{t['strategy']}] {reason} {t['title'][:30]!r} "
+                    f"@ {exit_price:.3f} ({ret*100:+.0f}%)")
                 continue
             upnl = strategy.unrealized_pnl(t["shares"], t["entry_price"], mark)
             store.update_trade(t["id"], {
                 "marked_price": mark, "marked_at": _now_iso(), "unrealized_pnl": upnl,
+                "peak_price": peak,
             })
 
     # ---- accumulate trackers for the dashboard (consensus hit-rate + sparklines)

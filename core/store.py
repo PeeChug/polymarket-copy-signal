@@ -204,18 +204,38 @@ class PostgrestStore(Store):
         return self._select("paper_trades", **f)
 
     def insert_trade(self, payload):
-        try:
-            out = self._insert("paper_trades", payload)
-            return out[0] if isinstance(out, list) and out else out
-        except RuntimeError as e:
-            # 409 = the partial-unique index blocked a duplicate OPEN trade. Skip.
-            if "409" in str(e) or "duplicate" in str(e).lower():
-                return None
-            raise
+        # Tolerate forward schema drift the same way insert_config does: if a new
+        # column (end_date/peak_price) isn't migrated yet, drop it and retry so the
+        # trade still records (that feature just stays dormant until the ALTER runs).
+        row = dict(payload)
+        for _ in range(8):
+            try:
+                out = self._insert("paper_trades", row)
+                return out[0] if isinstance(out, list) and out else out
+            except RuntimeError as e:
+                s = str(e)
+                # 409 = the partial-unique index blocked a duplicate OPEN trade. Skip.
+                if "409" in s or "duplicate" in s.lower():
+                    return None
+                col = _missing_column(s)
+                if col and col in row:
+                    row.pop(col)
+                    continue
+                raise
+        return None
 
     def update_trade(self, trade_id, patch):
         patch = {**patch, "updated_at": _now_iso()}
-        self._update("paper_trades", patch, id=f"eq.{trade_id}")
+        for _ in range(8):
+            try:
+                self._update("paper_trades", patch, id=f"eq.{trade_id}")
+                return
+            except RuntimeError as e:
+                col = _missing_column(str(e))
+                if col and col in patch:
+                    patch.pop(col)
+                    continue
+                raise
 
     def all_trades(self):
         return self._select("paper_trades", order="id.asc")
