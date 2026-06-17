@@ -30,7 +30,7 @@ const ALLOWED = [
   "min_liquidity", "min_entry_price", "max_entry_price", "min_resolve_hours",
   "min_tier_to_trade", "stake_usd", "price_source", "control_respects_guardrails",
   "stop_loss_pct", "take_profit_pct", "trailing_stop_pct", "trailing_arm_pct",
-  "time_stop_minutes", "fast_exit_slippage_pct", "contested_policy",
+  "time_stop_minutes", "fast_exit_slippage_pct", "reentry_cooldown_hours", "contested_policy",
   "min_holder_value", "min_holder_win_ratio", "cohort_grace_hours",
 ];
 
@@ -83,6 +83,7 @@ async function saveConfig(request, env) {
   if (row.stake_usd !== undefined) row.stake_usd = Math.max(1, Math.round(+row.stake_usd || 100));
   if (row.candidate_pool !== undefined) row.candidate_pool = Math.min(1000, Math.max(10, Math.round(+row.candidate_pool || 400)));
   if (row.cohort_grace_hours !== undefined) row.cohort_grace_hours = Math.min(720, Math.max(0, +row.cohort_grace_hours || 0));
+  if (row.reentry_cooldown_hours !== undefined) row.reentry_cooldown_hours = Math.min(720, Math.max(0, +row.reentry_cooldown_hours || 0));
   for (const k of ["tier_green_frac", "tier_blue_frac"])           // proportional tiers: fractions in [0,1]
     if (row[k] !== undefined) row[k] = Math.min(1, Math.max(0, +row[k] || 0));
   if (row.tier_green_min !== undefined && row.tier_blue_min !== undefined &&

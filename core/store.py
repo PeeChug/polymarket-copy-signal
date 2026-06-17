@@ -34,6 +34,12 @@ def _missing_column(msg: str) -> Optional[str]:
     return m.group(1) if m else None
 
 
+# close reasons that mean WE bailed on an adverse price move (vs the cohort selling
+# or the market resolving) — these arm the re-entry cooldown so we don't re-buy a
+# market we just stopped out of while it's still falling.
+_STOP_REASONS = ("stop_loss", "trailing_stop", "time_stop")
+
+
 # --------------------------------------------------------------------------- #
 # Interface
 # --------------------------------------------------------------------------- #
@@ -58,6 +64,9 @@ class Store:
     def insert_trade(self, payload: dict) -> Optional[dict]: raise NotImplementedError
     def update_trade(self, trade_id: int, patch: dict) -> None: raise NotImplementedError
     def all_trades(self) -> list[dict]: raise NotImplementedError
+    # (strategy, condition_id, outcome_index) keys we stopped out of since `since_iso`,
+    # used for the re-entry cooldown (don't re-buy a market we just bailed on).
+    def recently_stopped(self, since_iso: str, reasons=None) -> set: return set()
 
     # per-trader snapshot for the dashboard — optional; default no-op
     def set_traders(self, rows: list[dict]) -> None: return None
@@ -259,6 +268,13 @@ class PostgrestStore(Store):
         rows = self._select("cycles", order="id.desc", limit=1)
         return rows[0] if rows else None
 
+    def recently_stopped(self, since_iso, reasons=_STOP_REASONS):
+        rows = self._select(
+            "paper_trades", select="strategy,condition_id,outcome_index",
+            status="eq.CLOSED", close_reason=f"in.({','.join(reasons)})",
+            exit_at=f"gte.{since_iso}")
+        return {(r["strategy"], r["condition_id"], r["outcome_index"]) for r in rows}
+
     # -- accumulated trackers (kv_store JSON blobs) -------------------------
     def _kv_get(self, key, default):
         rows = self._select("kv_store", select="value", key=f"eq.{key}", limit=1)
@@ -421,6 +437,11 @@ class MemoryStore(Store):
 
     def all_trades(self):
         return [dict(t) for t in self._trades]
+
+    def recently_stopped(self, since_iso, reasons=_STOP_REASONS):
+        return {(t["strategy"], t["condition_id"], t["outcome_index"]) for t in self._trades
+                if t.get("status") == "CLOSED" and t.get("close_reason") in reasons
+                and str(t.get("exit_at") or "") >= since_iso}
 
     def last_cycle(self):
         return dict(self._cycles[-1]) if self._cycles else None
@@ -608,6 +629,12 @@ class FileStore(Store):
 
     def all_trades(self):
         return [dict(t) for t in self._state["paper_trades"]]
+
+    def recently_stopped(self, since_iso, reasons=_STOP_REASONS):
+        return {(t["strategy"], t["condition_id"], t["outcome_index"])
+                for t in self._state["paper_trades"]
+                if t.get("status") == "CLOSED" and t.get("close_reason") in reasons
+                and str(t.get("exit_at") or "") >= since_iso}
 
     def last_cycle(self):
         lc = self._state.get("last_cycle")

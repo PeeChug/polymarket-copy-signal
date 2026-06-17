@@ -56,6 +56,7 @@ create table if not exists config_history (
     trailing_arm_pct            numeric not null default 0.20,       -- only arm the trailing stop after +X% (locks profit, not a tight stop)
     time_stop_minutes           numeric not null default 30,         -- force-exit N min before resolution (short-fuse safety); 0=off
     fast_exit_slippage_pct      numeric not null default 0.02,       -- extra haircut on a PANIC sell (stop/trailing) — thin book on the way down
+    reentry_cooldown_hours      numeric not null default 24,         -- after a STOP, don't re-buy that market for N hours (kills the re-entry spiral); 0=off
     contested_policy            text    not null default 'both',     -- 'both' | 'dominant' | 'skip'
 
     -- cohort quality (which top earners count toward a signal)
@@ -228,3 +229,5 @@ alter table config_history add column if not exists tier_green_frac numeric not 
 alter table config_history add column if not exists tier_blue_frac  numeric not null default 0.10;
 -- cohort stability (hysteresis grace window)
 alter table config_history add column if not exists cohort_grace_hours numeric not null default 48;
+-- re-entry cooldown after a stop (kills the falling-knife re-entry spiral)
+alter table config_history add column if not exists reentry_cooldown_hours numeric not null default 24;

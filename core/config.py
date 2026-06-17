@@ -21,7 +21,7 @@ _CONFIG_FIELDS = (
     "min_liquidity", "min_entry_price", "max_entry_price", "min_resolve_hours", "min_tier_to_trade",
     "stake_usd", "price_source", "control_respects_guardrails",
     "stop_loss_pct", "take_profit_pct", "trailing_stop_pct", "trailing_arm_pct",
-    "time_stop_minutes", "fast_exit_slippage_pct", "contested_policy",
+    "time_stop_minutes", "fast_exit_slippage_pct", "reentry_cooldown_hours", "contested_policy",
     "min_holder_value", "min_holder_win_ratio", "cohort_grace_hours",
 )
 
@@ -77,6 +77,10 @@ class Config:
     trailing_arm_pct: float = 0.20      # only arm the trailing stop after the trade is up at least this much
     time_stop_minutes: float = 30.0     # force-exit this many minutes before resolution (short-fuse safety); 0 = off
     fast_exit_slippage_pct: float = 0.02  # extra haircut on a PANIC sell (stop/trailing) — thin book on the way down
+    # after we STOP out of a (market, outcome), don't re-buy it for this many hours
+    # even if the cohort still holds it — kills the re-entry spiral where a stuck
+    # cohort drags us into a collapsing live market again and again. 0 = off.
+    reentry_cooldown_hours: float = 24.0
     # signal-decay exit is rule-based (no knob): close a held position the moment its
     # agreement falls back below the tier floor we require to open (the "buy bar").
     # when the cohort is split on a market (both sides held): 'both' = trade both

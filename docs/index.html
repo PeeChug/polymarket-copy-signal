@@ -382,6 +382,7 @@
   <div class="row"><label>Trailing arm % <span class="muted" style="font-size:11px;font-weight:400">— only trail after up this much</span></label><input type="number" id="ptTrailArm" min="0" max="500" step="5"></div>
   <div class="row"><label>Time-stop (min before resolution · 0 = off)</label><input type="number" id="ptTimeStop" min="0" max="1440" step="5"></div>
   <div class="row"><label>Fast-exit slippage % <span class="muted" style="font-size:11px;font-weight:400">— extra haircut on a panic sell</span></label><input type="number" id="ptFastSlip" min="0" max="20" step="0.5"></div>
+  <div class="row"><label>Re-entry cooldown (hrs) <span class="muted" style="font-size:11px;font-weight:400">— after a stop, don't re-buy that market; 0 = off</span></label><input type="number" id="ptCooldown" min="0" max="720" step="6"></div>
   <div class="row"><label>Split markets (cohort on both sides)</label>
     <select id="ptContested"><option value="both">trade both (box spreads)</option><option value="dominant">trade the stronger side</option><option value="skip">skip it</option></select></div>
   <div class="row"><label>Cohort: min $ on the table <span class="muted" style="font-size:11px;font-weight:400">— funded traders only</span></label><input type="number" id="ptHolderVal" min="0" step="1000"></div>
@@ -1380,6 +1381,7 @@ async function saveConfig(){
     trailing_arm_pct:Math.min(5,Math.max(0,(+g('ptTrailArm').value||0)/100)),
     time_stop_minutes:Math.max(0,Math.round(+g('ptTimeStop').value||0)),
     fast_exit_slippage_pct:Math.min(0.2,Math.max(0,(+g('ptFastSlip').value||0)/100)),
+    reentry_cooldown_hours:Math.min(720,Math.max(0,Math.round(+g('ptCooldown').value||0))),
     contested_policy:g('ptContested').value,
     min_holder_value:Math.max(0,Math.round(+g('ptHolderVal').value||0)),
     min_holder_win_ratio:Math.min(1,Math.max(0,(+g('ptHolderWin').value||0)/100)),
@@ -1441,6 +1443,7 @@ function syncSettingsUI(){ const g=(id)=>document.getElementById(id); if(!g('set
     if(g('ptTrailArm')) g('ptTrailArm').value=Math.round((cfg.trailing_arm_pct??0.20)*100);
     if(g('ptTimeStop')) g('ptTimeStop').value=Math.round(cfg.time_stop_minutes??30);
     if(g('ptFastSlip')) g('ptFastSlip').value=+(((cfg.fast_exit_slippage_pct??0.02)*100).toFixed(1));
+    if(g('ptCooldown')) g('ptCooldown').value=Math.round(cfg.reentry_cooldown_hours??24);
     g('ptHolderVal').value=Math.round(cfg.min_holder_value??10000); g('ptHolderWin').value=Math.round((cfg.min_holder_win_ratio??0.5)*100);
     if(g('ptGrace')) g('ptGrace').value=Math.round(cfg.cohort_grace_hours??48); }
   if(g('tgChat')) g('tgChat').value=tgChatId();

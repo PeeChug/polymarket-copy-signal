@@ -326,6 +326,46 @@ class TestEngineLifecycle(unittest.TestCase):
         self.assertAlmostEqual(t["marked_price"], 0.38)  # marked to the bid
         self.assertLess(t["unrealized_pnl"], 0)          # the spread is an immediate paper loss
 
+    def test_reentry_cooldown_blocks_rebuying_a_stopped_market(self):
+        # the loss pattern: stop out of a collapsing market, then the (still-stuck)
+        # cohort drags us back in next cycle -> stop again. Cooldown must block that.
+        self.store = MemoryStore()
+        self.store.insert_config({**CFG, "stop_loss_pct": 0.5, "reentry_cooldown_hours": 24,
+                                  "tier_blue_frac": 0, "tier_green_frac": 0})
+        self.c.lb = [L(1, "w1"), L(2, "w2"), L(3, "w3")]
+        self.c.markets_map = {"mA": M("mA")}
+        self.c.positions_by_wallet = {w: [P("A", "mA")] for w in ("w1", "w2", "w3")}
+        self.c.marks_map = {"A": 0.40}
+        self.run_quiet()                       # cycle 1: open A @ 0.40
+        self.c.marks_map = {"A": 0.18}         # cycle 2: -55% -> stop_loss
+        self.run_quiet()
+        a = [t for t in self.store.all_trades() if t["asset"] == "A" and t["strategy"] == "overlap"]
+        self.assertEqual(len(a), 1)
+        self.assertEqual(a[0]["close_reason"], "stop_loss")
+        # cycle 3: cohort STILL holds A — without cooldown we'd re-buy the falling knife
+        self.c.marks_map = {"A": 0.17}
+        self.run_quiet()
+        a = [t for t in self.store.all_trades() if t["asset"] == "A" and t["strategy"] == "overlap"]
+        self.assertEqual(len(a), 1)            # cooldown blocked the re-entry
+        self.assertTrue(all(t["status"] == "CLOSED" for t in a))
+
+    def test_no_cooldown_allows_reentry(self):
+        self.store = MemoryStore()
+        self.store.insert_config({**CFG, "stop_loss_pct": 0.5, "reentry_cooldown_hours": 0,
+                                  "tier_blue_frac": 0, "tier_green_frac": 0})
+        self.c.lb = [L(1, "w1"), L(2, "w2"), L(3, "w3")]
+        self.c.markets_map = {"mA": M("mA")}
+        self.c.positions_by_wallet = {w: [P("A", "mA")] for w in ("w1", "w2", "w3")}
+        self.c.marks_map = {"A": 0.40}
+        self.run_quiet()
+        self.c.marks_map = {"A": 0.18}
+        self.run_quiet()
+        self.c.marks_map = {"A": 0.17}
+        self.run_quiet()                       # cooldown off -> re-enters the stopped market
+        a = [t for t in self.store.all_trades() if t["asset"] == "A" and t["strategy"] == "overlap"]
+        self.assertEqual(len(a), 2)
+        self.assertEqual(sum(1 for t in a if t["status"] == "OPEN"), 1)
+
     def test_cohort_grace_retains_a_member_through_a_dip(self):
         # win-ratio bar ON: a member that dips below it but stays funded + active
         # is RETAINED for the grace window instead of churning out of the cohort.

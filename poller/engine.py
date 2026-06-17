@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import time
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from poller import strategy
 from poller.alerts import notify_trade_opened
@@ -233,6 +233,19 @@ def _run(store, client, cfg, cid, summary, log):
     open_index = {(t["strategy"], t["condition_id"], t["outcome_index"]): t
                   for t in store.open_trades()}
 
+    # RE-ENTRY COOLDOWN: markets we STOPPED out of recently. Don't re-buy them even
+    # if the cohort still holds — that's the falling-knife spiral (a stuck cohort in
+    # a collapsing live game drags us in again and again, stopping out each time).
+    # Keyed by OUR stop events, not the market end_date (unreliable for live sports).
+    cooldown_h = getattr(cfg, "reentry_cooldown_hours", 0.0) or 0.0
+    cooldown_keys = set()
+    if cooldown_h > 0:
+        since = (datetime.now(timezone.utc) - timedelta(hours=cooldown_h)).isoformat()
+        cooldown_keys = store.recently_stopped(since)
+        if cooldown_keys:
+            log(f"re-entry cooldown: {len(cooldown_keys)} market(s) stopped within "
+                f"{cooldown_h:.0f}h are blocked from re-entry")
+
     # ---- BATCH-FETCH markets + marks once for everything we touch ----------
     # include unresolved consensus-watch markets so we can detect their resolution
     watched_conds = {w["condition_id"] for w in store.get_consensus_watch().values() if not w.get("resolved")}
@@ -306,6 +319,8 @@ def _run(store, client, cfg, cid, summary, log):
         key = (strat, ov.condition_id, ov.outcome_index)
         if key in open_index:
             return  # already holding this (strategy, market, outcome)
+        if key in cooldown_keys:
+            return  # we stopped out of this market recently — don't re-buy the falling knife
         shares = strategy.shares_for(cfg.stake_usd, price)
         if shares <= 0:
             return

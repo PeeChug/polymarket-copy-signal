@@ -75,6 +75,11 @@ time_stop_minutes: 30           # force-exit this many minutes before resolution
                                 # (sports) market into the 0/1 gap. 0 = off
 fast_exit_slippage_pct: 0.02    # extra haircut applied to a PANIC sell (stop/trailing) — the book is thin on
                                 # the way down, so a fast exit fills worse than the touch bid. Keeps P&L honest.
+reentry_cooldown_hours: 24      # after we STOP out of a (market, outcome), don't re-buy it for this many hours
+                                # even if the cohort still holds it. Kills the re-entry spiral: a stuck cohort
+                                # in a collapsing live game (e.g. Detroit 0.26->0.05) dragging us in 4x in 30
+                                # min, stopping out each time. Note: this catches it via OUR stop events, not
+                                # the market end_date (which is unreliable for live sports). 0 = off.
 contested_policy: both          # cohort split on a market (both sides held): 'both' = trade both
                                 # (box spreads / hedges are a real strategy worth testing); 'dominant'
                                 # = only the stronger side (ties -> higher holder 30d P&L); 'skip' = none
