@@ -32,12 +32,19 @@ class FakeSession:
     def __init__(self):
         self.kv = {}        # key -> value (jsonb)
         self.cycles = []    # list of cycle dicts
+        self.trades = []    # list of paper_trade dicts
         self.headers = {}
 
     def request(self, method, url, params=None, data=None, headers=None, timeout=None):
         table = url.rstrip("/").split("/")[-1]
         body = json.loads(data) if data else None
         params = params or {}
+        if table == "paper_trades" and method == "GET":
+            # emulate PostgREST's hard 1000-row response cap + offset paging
+            rows = sorted(self.trades, key=lambda t: t["id"])
+            offset = int(params.get("offset", 0))
+            limit = min(int(params.get("limit", 1000)), 1000)
+            return _Resp(200, rows[offset:offset + limit])
         if table == "kv_store":
             if method == "POST":                      # upsert on primary key
                 self.kv[body["key"]] = body["value"]
@@ -85,6 +92,16 @@ class TestPostgrestTrackers(unittest.TestCase):
         self.assertEqual(len(h), 1500)            # capped to the most recent 1500
         self.assertEqual(h[0]["i"], 100)
         self.assertEqual(h[-1]["i"], 1599)
+
+    def test_all_trades_pages_past_the_1000_row_cap(self):
+        # the control benchmark alone blows past 1000 rows; a single GET returns
+        # only the oldest 1000, which silently truncated every realized stat.
+        s = self._store()
+        s.session.trades = [{"id": i, "strategy": "control", "status": "CLOSED"} for i in range(1, 2301)]
+        got = s.all_trades()
+        self.assertEqual(len(got), 2300)          # paged through, not truncated
+        self.assertEqual(got[0]["id"], 1)
+        self.assertEqual(got[-1]["id"], 2300)
 
     def test_last_cycle(self):
         s = self._store()

@@ -238,7 +238,19 @@ class PostgrestStore(Store):
                 raise
 
     def all_trades(self):
-        return self._select("paper_trades", order="id.asc")
+        # PostgREST caps a single response (Supabase default 1000 rows). The
+        # high-churn control benchmark alone blows past 1000, so a single GET was
+        # silently returning only the OLDEST 1000 trades (order=id.asc) — which
+        # truncated every realized stat and hid newer consensus closes from the
+        # dashboard. Page through so the metrics/tables see EVERY trade.
+        out, offset, page = [], 0, 1000
+        while True:
+            rows = self._select("paper_trades", order="id.asc", limit=page, offset=str(offset))
+            out.extend(rows)
+            if len(rows) < page or len(out) >= 100000:   # stop at the last partial page (hard safety bound)
+                break
+            offset += page
+        return out
 
     def last_cycle(self):
         rows = self._select("cycles", order="id.desc", limit=1)

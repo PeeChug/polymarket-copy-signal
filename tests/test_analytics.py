@@ -164,5 +164,22 @@ class TestSignals(unittest.TestCase):
         self.assertEqual(out[0]["overlap"], 4)                     # newer A kept
 
 
+class TestClosedPositionsPerStrategy(unittest.TestCase):
+    def test_control_churn_does_not_bury_consensus_closes(self):
+        trades = []
+        for i in range(500):   # 500 control closes with NEWER exits
+            t = trade("control", "CLOSED", realized=1)
+            t["exit_at"] = f"2026-06-16T{i // 60:02d}:{i % 60:02d}:00Z"
+            trades.append(t)
+        for i in range(15):    # 15 consensus closes with OLDER exits
+            t = trade("overlap", "CLOSED", realized=2)
+            t["exit_at"] = f"2026-06-15T00:{i:02d}:00Z"
+            trades.append(t)
+        out = analytics.closed_positions(trades, limit=200)
+        # every consensus close survives even though control's exits are all newer
+        self.assertEqual(sum(1 for t in out if t["strategy"] == "overlap"), 15)
+        self.assertEqual(sum(1 for t in out if t["strategy"] == "control"), 200)
+
+
 if __name__ == "__main__":
     unittest.main()

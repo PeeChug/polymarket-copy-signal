@@ -89,11 +89,22 @@ def open_positions(trades: list[dict]) -> list[dict]:
     return rows
 
 
-def closed_positions(trades: list[dict], limit: int = 100) -> list[dict]:
-    """Closed trades (the realized track record), newest exit first."""
-    rows = [dict(t) for t in trades if t.get("status") == "CLOSED"]
-    rows.sort(key=lambda r: str(r.get("exit_at") or ""), reverse=True)
-    return rows[:limit]
+def closed_positions(trades: list[dict], limit: int = 200) -> list[dict]:
+    """Closed trades (the realized track record), newest exit first — capped PER
+    STRATEGY. The control benchmark churns ~100s of closes while consensus has a
+    handful; a single global cap let control crowd the (few) consensus closes out
+    of the array entirely (scorecard said 15, the table could only show 4). Per-
+    strategy keeps every consensus close visible while still bounding control."""
+    by_strat: dict[str, list] = {}
+    for t in trades:
+        if t.get("status") == "CLOSED":
+            by_strat.setdefault(t.get("strategy") or "overlap", []).append(dict(t))
+    out: list[dict] = []
+    for rows in by_strat.values():
+        rows.sort(key=lambda r: str(r.get("exit_at") or ""), reverse=True)
+        out.extend(rows[:limit])
+    out.sort(key=lambda r: str(r.get("exit_at") or ""), reverse=True)
+    return out
 
 
 def latest_signal_per_market(observations: list[dict]) -> list[dict]:
