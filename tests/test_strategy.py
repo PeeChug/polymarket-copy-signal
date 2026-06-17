@@ -164,6 +164,26 @@ class TestGuardrails(unittest.TestCase):
         self.assertTrue(self.g(end_date=soon).ok)
 
 
+class TestProportionalTiers(unittest.TestCase):
+    """The agreement bar scales to the live eligible cohort size."""
+    def test_anchored_so_50_reproduces_5_and_10(self):
+        cfg = Config(tier_blue_frac=0.10, tier_green_frac=0.20, tier_blue_min=5, tier_green_min=10)
+        self.assertEqual(cfg.proportional_tiers(50), (5, 10))
+
+    def test_scales_down_with_a_smaller_cohort(self):
+        cfg = Config(tier_blue_frac=0.10, tier_green_frac=0.20, tier_blue_min=2, tier_green_min=3)
+        self.assertEqual(cfg.proportional_tiers(30), (3, 6))     # 10%/20% of 30
+        self.assertEqual(cfg.proportional_tiers(40), (4, 8))
+
+    def test_floors_keep_tiers_from_collapsing(self):
+        cfg = Config(tier_blue_frac=0.10, tier_green_frac=0.20)
+        self.assertEqual(cfg.proportional_tiers(10), (2, 3))     # blue floored to 2, green kept > blue
+
+    def test_zero_fracs_fall_back_to_absolute(self):
+        cfg = Config(tier_blue_frac=0, tier_green_frac=0, tier_blue_min=5, tier_green_min=10)
+        self.assertEqual(cfg.proportional_tiers(30), (5, 10))
+
+
 class TestPriceExit(unittest.TestCase):
     """The fast price/time exits (overlap-only) mirrored in the Worker."""
     def setUp(self):

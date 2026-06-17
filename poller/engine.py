@@ -76,7 +76,8 @@ def _run(store, client, cfg, cid, summary, log):
     # DAY/PNL catches brand-new hot traders before they climb the 7/30-day boards;
     # the rest give durable rank. Re-pulled every full scan (~10 min) so the cohort
     # tracks new top performers within minutes, not days.
-    for win, order in (("DAY", "PNL"), ("MONTH", "PNL"), ("ALL", "PNL"), ("WEEK", "PNL"), ("MONTH", "VOL"), ("ALL", "VOL")):
+    for win, order in (("DAY", "PNL"), ("WEEK", "PNL"), ("MONTH", "PNL"), ("ALL", "PNL"),
+                       ("DAY", "VOL"), ("WEEK", "VOL"), ("MONTH", "VOL"), ("ALL", "VOL")):
         for e in client.leaderboard(window=win, limit=50, order=order):
             if e.wallet and e.wallet not in seen:
                 seen.add(e.wallet)
@@ -117,11 +118,31 @@ def _run(store, client, cfg, cid, summary, log):
     log(f"cohort: screened {len(pool)} earners -> {len(cohort)}/{cfg.top_n} eligible "
         f"(>=${cfg.min_holder_value:,.0f} on the table & "
         f">={cfg.min_holder_win_ratio:.0%} of open positions in profit)")
+
+    # why the rest were screened out — so we know which knob to turn to grow the cohort
+    def _rcat(r):
+        if "on the table" in r: return "under_min_value"
+        if "in profit" in r:    return "under_win_ratio"
+        return r or "other"
+    rej = Counter(_rcat(eligibility[e.wallet][1]) for e in pool if not eligibility[e.wallet][0])
+    if rej:
+        log(f"  ineligible breakdown: {dict(rej)}")
     if len(cohort) < cfg.top_n:
         log(f"NOTE: only {len(cohort)} eligible in a {len(pool)}-earner pool (wanted {cfg.top_n}) "
-            f"— raise candidate_pool or relax the thresholds.")
+            f"— the leaderboard caps each slice at 50, so the ceiling is the {len(pool)}-wallet "
+            f"universe; relax min_holder_win_ratio/min_holder_value to admit more.")
     if not cohort:
         return {"status": "degraded", "publishable": False, "reason": "no eligible traders in pool"}
+
+    # ---- proportional agreement bar ----------------------------------------
+    # Size the tiers to the ACTUAL eligible cohort so the buy threshold isn't
+    # mis-sized when the leaderboard yields fewer than top_n that clear the
+    # quality bar (30 eligible -> blue>=3/green>=6, not the 50-tuned 5/10).
+    eff_blue, eff_green = cfg.proportional_tiers(len(cohort))
+    if (eff_blue, eff_green) != (cfg.tier_blue_min, cfg.tier_green_min):
+        log(f"  proportional tiers for {len(cohort)} eligible: "
+            f"blue>={eff_blue} green>={eff_green} (floor {cfg.tier_blue_min}/{cfg.tier_green_min})")
+    cfg.tier_blue_min, cfg.tier_green_min = eff_blue, eff_green
 
     store.insert_leaderboard([{
         "cycle_id": cid, "window": cfg.leaderboard_window, "rank": e.rank,
@@ -150,6 +171,9 @@ def _run(store, client, cfg, cid, summary, log):
         "ge2": sum(1 for x in ovs if x >= 2), "ge3": sum(1 for x in ovs if x >= 3),
         "ge5": sum(1 for x in ovs if x >= 5), "max_overlap": max(ovs, default=0),
         "histogram": {str(k): v for k, v in sorted(Counter(ovs).items())},
+        # effective (possibly proportional) tiers actually used this cycle, so the
+        # dashboard shows the true buy bar instead of the stored floor.
+        "tier_blue_min": cfg.tier_blue_min, "tier_green_min": cfg.tier_green_min,
     })
 
     # existing open trades — needed below (and to know what to price)

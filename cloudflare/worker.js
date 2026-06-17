@@ -25,8 +25,9 @@ const FULL_SCAN_CRON = "*/10 * * * *";                       // GitHub heavy sca
 // The ONLY columns the dashboard may write into config_history. Anything else
 // in the request body is dropped, so a stray/hostile field can never land.
 const ALLOWED = [
-  "top_n", "leaderboard_window", "size_threshold", "poll_interval_minutes",
-  "tier_green_min", "tier_blue_min", "min_liquidity", "min_entry_price", "max_entry_price", "min_resolve_hours",
+  "top_n", "candidate_pool", "leaderboard_window", "size_threshold", "poll_interval_minutes",
+  "tier_green_min", "tier_blue_min", "tier_green_frac", "tier_blue_frac",
+  "min_liquidity", "min_entry_price", "max_entry_price", "min_resolve_hours",
   "min_tier_to_trade", "stake_usd", "price_source", "control_respects_guardrails",
   "stop_loss_pct", "take_profit_pct", "trailing_stop_pct", "trailing_arm_pct",
   "time_stop_minutes", "fast_exit_slippage_pct", "contested_policy",
@@ -80,9 +81,15 @@ async function saveConfig(request, env) {
   // Don't trust the client: re-clamp the risky knobs and re-check the tier order.
   if (row.stop_loss_pct !== undefined) row.stop_loss_pct = Math.min(0.95, Math.max(0, +row.stop_loss_pct || 0));
   if (row.stake_usd !== undefined) row.stake_usd = Math.max(1, Math.round(+row.stake_usd || 100));
+  if (row.candidate_pool !== undefined) row.candidate_pool = Math.min(1000, Math.max(10, Math.round(+row.candidate_pool || 400)));
+  for (const k of ["tier_green_frac", "tier_blue_frac"])           // proportional tiers: fractions in [0,1]
+    if (row[k] !== undefined) row[k] = Math.min(1, Math.max(0, +row[k] || 0));
   if (row.tier_green_min !== undefined && row.tier_blue_min !== undefined &&
       +row.tier_green_min < +row.tier_blue_min) {
     return json({ error: "Green threshold must be ≥ blue." }, 400);
+  }
+  if (row.tier_green_frac && row.tier_blue_frac && +row.tier_green_frac < +row.tier_blue_frac) {
+    return json({ error: "Green % must be ≥ blue %." }, 400);
   }
   row.source = "dashboard";
   row.note = "saved from dashboard (worker)";

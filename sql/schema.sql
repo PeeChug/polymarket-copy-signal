@@ -25,13 +25,16 @@ create table if not exists config_history (
 
     -- cohort / leaderboard
     top_n                       int     not null default 5,
+    candidate_pool              int     not null default 400,        -- screen up to this many earners -> top_n eligible
     leaderboard_window          text    not null default 'MONTH',   -- DAY | WEEK | MONTH | ALL
     size_threshold              numeric not null default 1,          -- min position size to count a holding
     poll_interval_minutes       int     not null default 15,         -- how often the poller does real work (5|10|15|30)
 
-    -- tiering (overlap -> tier)
-    tier_green_min              int     not null default 5,          -- overlap >= this => green (default: all N)
-    tier_blue_min               int     not null default 3,          -- overlap >= this => blue
+    -- tiering (overlap -> tier). Absolute mins are FLOORS when the fracs (>0) are set.
+    tier_green_min              int     not null default 5,          -- overlap >= this => green (floor under the frac)
+    tier_blue_min               int     not null default 3,          -- overlap >= this => blue  (floor under the frac)
+    tier_green_frac             numeric not null default 0.20,       -- green >= round(this × eligible cohort); 0 = use the absolute
+    tier_blue_frac              numeric not null default 0.10,       -- blue  >= round(this × eligible cohort); 0 = use the absolute
 
     -- guardrails before a signal becomes a paper trade
     min_liquidity               numeric not null default 1000,       -- USD; skip illiquid markets
@@ -218,3 +221,7 @@ alter table config_history add column if not exists time_stop_minutes       nume
 alter table config_history add column if not exists fast_exit_slippage_pct  numeric not null default 0.02;
 alter table paper_trades  add column if not exists end_date   timestamptz;   -- for the pre-resolution time-stop
 alter table paper_trades  add column if not exists peak_price numeric;       -- for the trailing stop
+-- bigger candidate pool + proportional agreement tiers
+alter table config_history add column if not exists candidate_pool  int     not null default 400;
+alter table config_history add column if not exists tier_green_frac numeric not null default 0.20;
+alter table config_history add column if not exists tier_blue_frac  numeric not null default 0.10;

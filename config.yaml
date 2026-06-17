@@ -12,8 +12,10 @@
 
 # --- cohort / leaderboard ---------------------------------------------------
 top_n: 50                      # the cohort size: this many ELIGIBLE earners drive the signals
-candidate_pool: 200            # screen up to this many top earners (across MONTH/ALL/WEEK × PNL/VOL
-                               # leaderboard slices) down to top_n that pass the cohort-quality filter
+candidate_pool: 400            # screen up to this many top earners (across all 8 DAY/WEEK/MONTH/ALL × PNL/VOL
+                               # leaderboard slices) down to top_n that pass the cohort-quality filter. The
+                               # leaderboard caps each slice at 50, so a bigger pool = more wallets that clear
+                               # the 65%/$10k bar (this is the real lever for getting the cohort up toward 50).
 leaderboard_window: MONTH      # DAY | WEEK | MONTH | ALL  (MONTH = the 30-day "monthly winners")
 size_threshold: 1              # ignore dust: a wallet must hold at least this position size to count
 
@@ -31,8 +33,14 @@ poll_interval_minutes: 10
 # (how many hold ANY side of that market), e.g. 4/5 = strong conviction.
 # Tiers below are based on the ABSOLUTE overlap count, tuned for a 50-earner
 # cohort so paper trades stay selective (blue=3 of 50 would open 100+ trades/cycle).
-tier_green_min: 10             # overlap >= this  => "green"  (strong: 10+ of 50 agree)
-tier_blue_min: 5               # overlap >= this  => "blue"   (moderate: 5+ of 50 agree)
+tier_green_min: 10             # overlap >= this  => "green"  — used as the FLOOR when proportional is on
+tier_blue_min: 5               # overlap >= this  => "blue"   — used as the FLOOR when proportional is on
+# Proportional tiers: scale the agreement bar to the ACTUAL eligible cohort size so it
+# stays correctly sized whether the cohort lands at 30 or 50 (the leaderboard can't
+# always supply 50 wallets that clear the 65% bar). Anchored so a 50-cohort reproduces
+# the original 5/10. Set either to 0 to fall back to the absolute tier_*_min above.
+tier_green_frac: 0.20          # green overlap >= round(0.20 × eligible cohort)  (50→10, 40→8, 30→6)
+tier_blue_frac: 0.10           # blue  overlap >= round(0.10 × eligible cohort)  (50→5,  40→4, 30→3)
 
 # --- guardrails before a signal becomes a paper trade -----------------------
 min_liquidity: 1000            # USD; don't simulate filling a market we couldn't actually trade

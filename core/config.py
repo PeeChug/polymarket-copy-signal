@@ -17,7 +17,7 @@ from typing import Optional
 # Fields the dashboard is allowed to edit / that live in config_history.
 _CONFIG_FIELDS = (
     "top_n", "candidate_pool", "leaderboard_window", "size_threshold", "poll_interval_minutes",
-    "tier_green_min", "tier_blue_min",
+    "tier_green_min", "tier_blue_min", "tier_green_frac", "tier_blue_frac",
     "min_liquidity", "min_entry_price", "max_entry_price", "min_resolve_hours", "min_tier_to_trade",
     "stake_usd", "price_source", "control_respects_guardrails",
     "stop_loss_pct", "take_profit_pct", "trailing_stop_pct", "trailing_arm_pct",
@@ -31,15 +31,23 @@ _TIER_RANK = {"none": 0, "blue": 1, "green": 2}
 @dataclass
 class Config:
     top_n: int = 5
-    # screen this many top earners (across MONTH/ALL/VOL leaderboard slices) down to
-    # top_n that pass the quality filter — so the cohort is top_n ELIGIBLE wallets
-    candidate_pool: int = 200
+    # screen this many top earners (across all 8 window×order leaderboard slices) down
+    # to top_n that pass the quality filter — so the cohort is top_n ELIGIBLE wallets.
+    # Bigger pool = more wallets clear the 65%/$10k bar (the leaderboard caps each
+    # slice at 50, so this is the real lever for cohort size).
+    candidate_pool: int = 400
     leaderboard_window: str = "MONTH"
     size_threshold: float = 1.0
     poll_interval_minutes: int = 15
 
+    # Tiers can be ABSOLUTE (tier_*_min) or PROPORTIONAL to the live eligible cohort
+    # (tier_*_frac > 0 wins). Proportional keeps the agreement bar correctly sized
+    # whether the cohort comes in at 30 or 50 — anchored so a 50-cohort reproduces
+    # the original 5/10 (0.10 -> 5, 0.20 -> 10). tier_*_min then acts as the floor.
     tier_green_min: int = 5
     tier_blue_min: int = 3
+    tier_green_frac: float = 0.20    # green overlap >= round(this * eligible cohort size); 0 = use the absolute
+    tier_blue_frac: float = 0.10     # blue  overlap >= round(this * eligible cohort size); 0 = use the absolute
 
     min_liquidity: float = 1000.0
     # skip deep longshots: at a price like 0.001 the bid/ask spread is ~100% of the
@@ -98,6 +106,17 @@ class Config:
 
     def tier_meets_minimum(self, tier: str) -> bool:
         return _TIER_RANK.get(tier, 0) >= _TIER_RANK.get(self.min_tier_to_trade, 1)
+
+    def proportional_tiers(self, cohort_n: int) -> tuple:
+        """Effective (blue_min, green_min) for a cohort of `cohort_n` eligible wallets.
+        Proportional when the fracs are set (>0), else the absolute mins. Blue is
+        floored at 2 (need >=2 holders to call it consensus) and green is kept
+        strictly above blue, so the tiers never collapse on a tiny cohort."""
+        bf = getattr(self, "tier_blue_frac", 0.0) or 0.0
+        gf = getattr(self, "tier_green_frac", 0.0) or 0.0
+        blue = max(2, round(bf * cohort_n)) if bf else self.tier_blue_min
+        green = max(blue + 1, round(gf * cohort_n)) if gf else self.tier_green_min
+        return blue, green
 
     def editable_dict(self) -> dict:
         d = asdict(self)
