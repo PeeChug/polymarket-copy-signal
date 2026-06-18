@@ -203,18 +203,13 @@ def _run(store, client, cfg, cid, summary, log):
         "in_cohort": True,
     } for e in cohort])
 
-    # the control copies the highest-PnL eligible trader WITH AN ACTIVE BOOK — a fair
-    # 'best qualified' benchmark. Skipping thin books matters: the #1-by-PnL wallet is
-    # often a cashed-out whale holding 1-3 static positions (and its one big bet is
-    # frequently above max_entry_price), which leaves control with nothing to copy and
-    # freezes the benchmark. Fall back to #1 only if nobody clears the bar.
-    _CONTROL_MIN_BOOK = 5
-    leader = next((e for e in cohort
-                   if len(cohort_positions.get(e.wallet, [])) >= _CONTROL_MIN_BOOK), cohort[0])
-    leader_positions = cohort_positions.get(leader.wallet, [])
-    leader_assets = {p.asset for p in leader_positions}
-    log(f"control leader: {leader.username or leader.wallet[:10]} "
-        f"(rank {leader.rank}, {len(leader_positions)} positions)")
+    # The control benchmark FOLLOWS THE WHOLE COHORT — it copies EVERY position any
+    # cohort wallet holds (overlap >= 1), not a single leader. That makes it the
+    # direct answer to "does the CONSENSUS filter (>= blue bar agree) beat blindly
+    # copying everything the top traders do?". It opens off the same observation
+    # snapshot the consensus uses (below), so no separate per-trade feed is needed;
+    # the only thing snapshots can't see is a position opened AND closed inside a
+    # single poll (a rare intra-cycle round-trip), which we can layer on later.
 
     # ---- 4. overlaps (over the eligible cohort) ----------------------------
     overlaps = strategy.compute_overlaps(cohort_positions)
@@ -385,12 +380,10 @@ def _run(store, client, cfg, cid, summary, log):
         for asset, ov, tier, price, liquidity, closed in picks:
             try_open("overlap", asset, ov, tier, price, liquidity, closed)
 
-    # ---- 5c. open control signals (naive copy of the #1 trader) -----------
-    for asset in leader_assets:
-        rec = observed.get(asset)
-        if rec is None:
-            continue
-        ov, tier, price, liquidity, closed = rec
+    # ---- 5c. open control signals — FOLLOW ALL: copy EVERY position any cohort
+    # wallet holds (overlap >= 1), the "follow everything the top traders do"
+    # benchmark vs the consensus filter. (Tradeability guardrails still apply.)
+    for asset, (ov, tier, price, liquidity, closed) in observed.items():
         try_open("control", asset, ov, tier, price, liquidity, closed)
 
     # ---- 6. mark-to-market + close every open trade ------------------------
@@ -399,7 +392,9 @@ def _run(store, client, cfg, cid, summary, log):
         mark = get_mark(t["asset"], t["condition_id"], t["outcome_index"],
                         fallback=t.get("marked_price"))
         resolved = bool(m and m.closed)
-        held = (t["asset"] in cohort_assets) if t["strategy"] == "overlap" else (t["asset"] in leader_assets)
+        # both strategies are held iff ANY cohort wallet still holds the asset:
+        # consensus exits when the overlap collapses, control when the LAST holder leaves.
+        held = t["asset"] in cohort_assets
 
         if resolved:
             payout = m.resolved_price_for(t["outcome_index"])
@@ -415,7 +410,7 @@ def _run(store, client, cfg, cid, summary, log):
         elif not held and cohort_complete:
             # only trust 'abandoned' when we actually saw the WHOLE cohort this cycle
             exit_price = mark if mark is not None else (t.get("marked_price") or 0.0)
-            reason = "cohort_abandoned" if t["strategy"] == "overlap" else "leader_abandoned"
+            reason = "cohort_abandoned" if t["strategy"] == "overlap" else "all_exited"
             _close(store, t, exit_price, reason, summary, resolved_won=None)
             log(f"  CLOSE [{t['strategy']}] {reason} {t['title'][:32]!r} @ {exit_price:.3f}")
         else:

@@ -127,7 +127,7 @@ class TestEngineLifecycle(unittest.TestCase):
         control = [t for t in trades if t["strategy"] == "control"]
         # only A qualifies for an overlap trade (B is tier 'none')
         self.assertEqual([t["asset"] for t in overlap], ["A"])
-        # rule #3: control copies #1 (w1 holds A and B); both pass tradeability
+        # rule #3: control FOLLOWS ALL — every position any cohort wallet holds (A and B)
         self.assertEqual(sorted(t["asset"] for t in control), ["A", "B"])
         # entry locked at the price available now
         self.assertAlmostEqual(overlap[0]["entry_price"], 0.40)
@@ -325,6 +325,30 @@ class TestEngineLifecycle(unittest.TestCase):
         self.assertAlmostEqual(t["entry_price"], 0.42)   # entered at the ask
         self.assertAlmostEqual(t["marked_price"], 0.38)  # marked to the bid
         self.assertLess(t["unrealized_pnl"], 0)          # the spread is an immediate paper loss
+
+    def test_control_follows_all_cohort_holdings_not_just_one_leader(self):
+        # w1 holds A; w2 holds B (ONLY w2); w3 holds A. Follow-all control must open
+        # BOTH A and B — every cohort position — not just the top trader's book.
+        self.c.positions_by_wallet = {
+            "w1": [P("A", "mA")], "w2": [P("B", "mB")], "w3": [P("A", "mA")],
+        }
+        self.c.marks_map = {"A": 0.40, "B": 0.30}
+        self.run_quiet()
+        control = sorted(t["asset"] for t in self.store.all_trades() if t["strategy"] == "control")
+        self.assertEqual(control, ["A", "B"])      # B is held only by w2, not the leader
+
+    def test_control_closes_when_last_holder_exits(self):
+        self.c.positions_by_wallet = {w: [P("A", "mA")] for w in ("w1", "w2", "w3")}
+        self.c.marks_map = {"A": 0.40}
+        self.run_quiet()                            # control opens A (cohort holds it)
+        # whole cohort rotates out of A -> last holder gone -> control closes "all_exited"
+        self.c.markets_map["mZ"] = M("mZ")
+        self.c.positions_by_wallet = {w: [P("Z", "mZ")] for w in ("w1", "w2", "w3")}
+        self.c.marks_map = {"A": 0.55, "Z": 0.50}
+        self.run_quiet()
+        a = [t for t in self.store.all_trades() if t["strategy"] == "control" and t["asset"] == "A"][0]
+        self.assertEqual(a["status"], "CLOSED")
+        self.assertEqual(a["close_reason"], "all_exited")
 
     def test_reentry_cooldown_blocks_rebuying_a_stopped_market(self):
         # the loss pattern: stop out of a collapsing market, then the (still-stuck)
