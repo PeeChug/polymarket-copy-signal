@@ -447,6 +447,12 @@ def _run(store, client, cfg, cid, summary, log):
                 log(f"  CLOSE [{t['strategy']}] {reason} {t['title'][:30]!r} "
                     f"@ {exit_price:.3f} ({ret*100:+.0f}%)")
                 continue
+            # CONTROL (follow-all, ~580 positions): its live P&L is supplied every
+            # minute by the Worker fast-mark (marks.json, overlaid on the dashboard),
+            # so we DON'T write a per-trade mark here — ~580 DB writes/cycle would blow
+            # the time budget and the runs pile up / time out. Overlap is only a handful.
+            if t["strategy"] != "overlap":
+                continue
             upnl = strategy.unrealized_pnl(t["shares"], t["entry_price"], mark)
             store.update_trade(t["id"], {
                 "marked_price": mark, "marked_at": _now_iso(), "unrealized_pnl": upnl,

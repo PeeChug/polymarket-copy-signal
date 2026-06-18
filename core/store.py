@@ -67,6 +67,12 @@ class Store:
     # (strategy, condition_id, outcome_index) keys we stopped out of since `since_iso`,
     # used for the re-entry cooldown (don't re-buy a market we just bailed on).
     def recently_stopped(self, since_iso: str, reasons=None) -> set: return set()
+    # mark MANY open trades in one shot (each row needs at least an 'id'). Default
+    # loops; PostgrestStore overrides with a single bulk upsert so the follow-all
+    # control's ~580 positions don't cost ~580 sequential writes per cycle.
+    def update_trades_bulk(self, rows: list) -> None:
+        for r in rows or []:
+            self.update_trade(r["id"], {k: v for k, v in r.items() if k != "id"})
 
     # per-trader snapshot for the dashboard — optional; default no-op
     def set_traders(self, rows: list[dict]) -> None: return None
@@ -274,6 +280,28 @@ class PostgrestStore(Store):
             status="eq.CLOSED", close_reason=f"in.({','.join(reasons)})",
             exit_at=f"gte.{since_iso}")
         return {(r["strategy"], r["condition_id"], r["outcome_index"]) for r in rows}
+
+    def update_trades_bulk(self, rows):
+        # One upsert on the primary key (id) marks many open trades at once, instead
+        # of N sequential PATCHes — without this the ~580-position follow-all control
+        # blows the cycle's time budget and the runs pile up / time out. Rows carry
+        # the NOT-NULL columns too so the (unused) insert path can't fail validation.
+        # Falls back to per-row if the server rejects the bulk upsert.
+        if not rows:
+            return
+        payload = [{**r, "updated_at": _now_iso()} for r in rows]
+        for i in range(0, len(payload), 500):
+            chunk = payload[i:i + 500]
+            try:
+                self._req("POST", "paper_trades", body=chunk,
+                          prefer="resolution=merge-duplicates,return=minimal")
+            except RuntimeError:
+                for r in chunk:
+                    try:
+                        self.update_trade(r["id"], {k: v for k, v in r.items()
+                                                    if k not in ("id", "updated_at")})
+                    except RuntimeError:
+                        pass
 
     # -- accumulated trackers (kv_store JSON blobs) -------------------------
     def _kv_get(self, key, default):
