@@ -38,7 +38,13 @@ EVENTS = [
      "markets": [{"title": "Stripe"}, {"title": "Revolut"}, {"title": "Canva"}]},
     {"title": "GTA VI Released?", "slug": "gtavi", "category": "culture",
      "active": True, "closed": False, "endDate": "2026-12-31"},
-    # excluded: sports, and a closed macro event
+    # sports: team-vs-team MATCH events, indexed by team + date (slug date)
+    {"title": "Mexico vs. Korea Republic", "slug": "fwc-mex-kor-2026-06-18",
+     "category": "sports", "active": True, "closed": False,
+     "startDate": "2026-06-19", "endDate": "2026-06-19"},
+    {"title": "Spain vs. Saudi Arabia", "slug": "fwc-esp-ksa-2026-06-21",
+     "category": "sports", "active": True, "closed": False, "endDate": "2026-06-21"},
+    # dateless sports slug -> NOT indexable (can't pin the game) -> never matches
     {"title": "Los Angeles vs. Tennessee", "slug": "aec-nfl-lac-ten",
      "category": "sports", "active": True, "closed": False, "endDate": "2025-11-02"},
     {"title": "CPI year-over-year in April", "slug": "cpic-apr",
@@ -53,9 +59,33 @@ def idx():
 def test_index_excludes_sports_and_closed():
     i = idx()
     slugs = {e["slug"] for e in i["items"]}
-    assert "aec-nfl-lac-ten" not in slugs      # sports excluded by design
+    assert "aec-nfl-lac-ten" not in slugs      # sports never go in the token-match path
+    assert "fwc-mex-kor-2026-06-18" not in slugs   # ...they live in the sports index instead
     assert "cpic-apr" not in slugs             # closed event excluded
     assert "usho-midterms-2026-11-03" in slugs
+    # the dated World Cup game IS indexed for team+date matching; the dateless one isn't
+    assert "mexico" in i["sports"] and "korea republic" in i["sports"]
+    assert "los angeles" not in i["sports"]    # no date in slug -> not indexable
+
+
+def test_sports_match_by_team_and_date():
+    i = idx()
+    # the user's exact case: "Will Mexico win on 2026-06-18?" -> Mexico vs. Korea Republic
+    h = um.match_title("Will Mexico win on 2026-06-18?", i)
+    assert h and h["us_slug"] == "fwc-mex-kor-2026-06-18" and h["us_match"] == "rule:sports-match"
+    # either side of the fixture matches the same game
+    assert um.match_title("Will Korea Republic win on 2026-06-18?", i)["us_slug"] == "fwc-mex-kor-2026-06-18"
+    # '±1 day' absorbs the slug-vs-kickoff offset (slug 06-18, kickoff 06-19)
+    assert um.match_title("Will Mexico win on 2026-06-19?", i)["us_slug"] == "fwc-mex-kor-2026-06-18"
+    # 'A vs. B' form dates off the row's resolution date
+    assert um.match_title("Mexico vs. Korea Republic", i, end_date="2026-06-18")["us_slug"] == "fwc-mex-kor-2026-06-18"
+
+
+def test_sports_no_false_positive_on_wrong_date_or_team():
+    i = idx()
+    assert um.match_title("Will Mexico win on 2026-07-01?", i) is None   # right team, wrong date
+    assert um.match_title("Will Canada win on 2026-06-18?", i) is None   # no such team/game
+    assert um.match_title("Mexico vs. Korea Republic", i) is None        # 'vs.' form with no date
 
 
 def test_exact_title_match():

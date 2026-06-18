@@ -37,11 +37,17 @@ from __future__ import annotations
 
 import json
 import re
+import unicodedata
 import urllib.request
+from datetime import date as _date_cls
 
 US_BASE = "https://gateway.polymarket.us"
 US_EVENT_URL = "https://polymarket.us/event/"          # public event page (slug -> page)
-US_CATEGORIES = ("politics", "finance", "macro", "culture")  # sports excluded by design
+# Sports IS now fetched: Polymarket US lists the full World Cup / MLB / etc. as
+# "Team A vs. Team B" match events, matched by TEAM + DATE (not the loose token
+# path the non-sports families use). Sports needs closed=false to surface the live
+# fixtures (the default page is full of old, closed games).
+US_CATEGORIES = ("politics", "finance", "macro", "culture", "sports")
 
 # Words that carry no matching signal — dropped before token comparison.
 _STOP = {
@@ -62,8 +68,36 @@ _MONTHS = {"january", "february", "march", "april", "may", "june", "july",
 
 
 def _norm(s: str) -> str:
-    """Lowercase, strip punctuation, collapse whitespace — for exact compare."""
-    return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9 ]+", " ", (s or "").lower())).strip()
+    """Lowercase, fold accents, strip punctuation, collapse whitespace. Accent
+    folding lets 'Türkiye'->'turkiye' and 'Côte d'Ivoire'->'cote d ivoire' match
+    the US venue's ASCII team names."""
+    s = unicodedata.normalize("NFKD", s or "")
+    s = "".join(c for c in s if not unicodedata.combining(c))
+    return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9 ]+", " ", s.lower())).strip()
+
+
+def _slug_date(s: str):
+    """First YYYY-MM-DD found in a string (US match slugs end '...-2026-06-18')."""
+    m = re.search(r"\d{4}-\d{2}-\d{2}", s or "")
+    return m.group(0) if m else None
+
+
+def _date_gap(a, b):
+    """Absolute day gap between two YYYY-MM-DD dates, or None if unparseable."""
+    try:
+        da = _date_cls.fromisoformat((a or "")[:10])
+        db = _date_cls.fromisoformat((b or "")[:10])
+        return abs((da - db).days)
+    except (ValueError, TypeError):
+        return None
+
+
+def _vs_teams(title: str):
+    """['team a','team b'] (normalized) for a 'Team A vs. Team B' title, else []."""
+    parts = re.split(r"\s+vs\.?\s+", title or "", maxsplit=1, flags=re.IGNORECASE)
+    if len(parts) != 2:
+        return []
+    return [t for t in (_norm(parts[0]), _norm(parts[1])) if t]
 
 
 def _tokens(s: str) -> set:
@@ -117,15 +151,27 @@ def build_index_from_events(events: list) -> dict:
     by_norm: dict[str, dict] = {}
     items: list[dict] = []
     company: dict[str, dict] = {}
+    sports: dict[str, list] = {}     # normalized team -> [(date, ev), ...] for "A vs. B" games
 
     for e in events or []:
-        if (e.get("category") or "").lower() == "sports":
-            continue
         if not _event_tradeable(e):
             continue
         title = e.get("title") or ""
         slug = e.get("slug") or ""
         if not slug:
+            continue
+        if (e.get("category") or "").lower() == "sports":
+            # Only team-vs-team MATCH events ("Mexico vs. Korea Republic"); these are
+            # what a global "Will Mexico win on 2026-06-18?" maps to, keyed by TEAM +
+            # DATE. Tournament/award markets ("World Cup Winner", "AL MVP") have no
+            # 'vs.' and are skipped — keeping matching precise (date pins the game).
+            teams = _vs_teams(title)
+            gdate = _slug_date(slug) or str(e.get("startDate") or "")[:10]
+            if not teams or not gdate:
+                continue
+            ev = {"slug": slug, "title": title, "url": US_EVENT_URL + slug, "date": gdate}
+            for t in teams:
+                sports.setdefault(t, []).append((gdate, ev))
             continue
         toks = _tokens(title)
         # fold each sub-market's outcome title into the event's tokens so
@@ -150,7 +196,7 @@ def build_index_from_events(events: list) -> dict:
                 company.setdefault(tk, ev)
 
     items.sort(key=lambda e: e["end"])     # soonest-resolving first
-    return {"items": items, "by_norm": by_norm, "company": company}
+    return {"items": items, "by_norm": by_norm, "company": company, "sports": sports}
 
 
 def _find(index: dict, *need: str, prefer=(), avoid=()):
@@ -181,12 +227,52 @@ def _state_in(norm_title: str):
 
 def _hit(ev: dict, how: str) -> dict:
     return {"us_available": True, "us_slug": ev["slug"], "us_url": ev["url"],
-            "us_title": ev["title"], "us_category": ev["category"], "us_match": how}
+            "us_title": ev["title"], "us_category": ev.get("category", "sports"), "us_match": how}
 
 
-def match_title(title: str, index: dict):
-    """Return a us_* hit dict for a global market title, or None. Pure."""
-    if not title or not index or not index.get("items"):
+def _parse_global_match(title: str, end_date=None):
+    """Pull (teams, date) out of a global sports market title, else (None, None):
+        'Will Mexico win on 2026-06-18?'        -> (['mexico'], '2026-06-18')
+        'Will A vs. B end in a draw?'           -> (['a','b'], end_date)
+        'Tampa Bay Rays vs. Los Angeles Dodgers'-> (['tampa bay rays','...'], end_date)
+    The single-team 'win on DATE' form carries its own date; the 'vs.' forms fall
+    back to the row's resolution date (the game day)."""
+    t = title or ""
+    m = re.match(r"\s*will\s+(.+?)\s+win\s+on\s+(\d{4}-\d{2}-\d{2})", t, re.IGNORECASE)
+    if m:
+        team = _norm(m.group(1))
+        return ([team] if team else None), m.group(2)
+    if re.search(r"\svs\.?\s", t, re.IGNORECASE):
+        a, b = re.split(r"\s+vs\.?\s+", t, maxsplit=1, flags=re.IGNORECASE)
+        a = re.sub(r"^\s*will\s+", "", a, flags=re.IGNORECASE)
+        b = re.sub(r"\s+(?:end\s+in\s+a\s+draw|to\s+win|win).*$", "", b, flags=re.IGNORECASE)
+        teams = [x for x in (_norm(a), _norm(b)) if x]
+        return (teams or None), (str(end_date)[:10] if end_date else None)
+    return None, None
+
+
+def _match_sports(title: str, index: dict, end_date=None, tol: int = 1):
+    """Match a global game to a US 'A vs. B' event by team + nearest date (<= tol
+    days, so back-to-back fixtures can't mis-link to the adjacent day)."""
+    sports = index.get("sports")
+    if not sports:
+        return None
+    teams, qdate = _parse_global_match(title, end_date)
+    if not teams or not qdate:
+        return None
+    best, best_gap = None, tol + 1
+    for team in teams:
+        for edate, ev in sports.get(team, ()):
+            gap = _date_gap(edate, qdate)
+            if gap is not None and gap < best_gap:
+                best, best_gap = ev, gap
+    return _hit(best, "rule:sports-match") if best is not None else None
+
+
+def match_title(title: str, index: dict, end_date=None):
+    """Return a us_* hit dict for a global market title, or None. Pure.
+    `end_date` (the row's resolution date) is used to date-match 'A vs. B' games."""
+    if not title or not index or not (index.get("items") or index.get("sports")):
         return None
     nt = _norm(title)
     toks = _tokens(title)
@@ -256,6 +342,12 @@ def match_title(title: str, index: dict):
             if (ev := _find(index, *need, prefer=prefer, avoid=avoid)):
                 return _hit(ev, f"rule:state-{kind}")
 
+    # Sports — a global game ("Will Mexico win on 2026-06-18?" / "A vs. B") to the
+    # US "Team A vs. Team B" event, matched on team + date.
+    sport = _match_sports(title, index, end_date)
+    if sport:
+        return sport
+
     return None
 
 
@@ -272,7 +364,7 @@ def tag_rows(rows: list, index: dict, title_key: str = "title") -> int:
     for r in (rows or []):
         if not isinstance(r, dict):
             continue
-        hit = match_title(r.get(title_key) or "", index) if index else None
+        hit = match_title(r.get(title_key) or "", index, end_date=r.get("end_date")) if index else None
         if hit:
             r.update(hit)
             n += 1
@@ -318,7 +410,7 @@ def fetch_us_events(categories=US_CATEGORIES, fetch_json=_fetch_json, attempts=3
     for cat in categories:
         for a in range(attempts):
             try:
-                data = fetch_json(f"{US_BASE}/v1/events?categories={cat}&limit=500")
+                data = fetch_json(f"{US_BASE}/v1/events?categories={cat}&closed=false&limit=500")
                 out.extend(slim_event(e) for e in (data.get("events") or []))
                 break
             except Exception as e:
