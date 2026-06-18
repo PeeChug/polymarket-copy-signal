@@ -57,8 +57,10 @@ def _tag_us_availability(payload: dict, store=None) -> None:
                 k = r.get("us_match", "?")
                 by_rule[k] = by_rule.get(k, 0) + 1
 
+        # catalog size = non-sports events + distinct sports games now indexed
+        n_sports = len({ev["slug"] for lst in (idx.get("sports") or {}).values() for _d, ev in lst})
         payload["us"] = {
-            **counts, "events": len(idx["items"]), "by_rule": by_rule,
+            **counts, "events": len(idx["items"]) + n_sports, "by_rule": by_rule,
             "ok": not stale, "stale": stale, "fetched_at": fetched_at,
             "event_base": us_market.US_EVENT_URL,
         }
