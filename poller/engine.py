@@ -203,10 +203,18 @@ def _run(store, client, cfg, cid, summary, log):
         "in_cohort": True,
     } for e in cohort])
 
-    # the control copies the #1 eligible trader (a fair 'best qualified' benchmark)
-    leader = cohort[0]
+    # the control copies the highest-PnL eligible trader WITH AN ACTIVE BOOK — a fair
+    # 'best qualified' benchmark. Skipping thin books matters: the #1-by-PnL wallet is
+    # often a cashed-out whale holding 1-3 static positions (and its one big bet is
+    # frequently above max_entry_price), which leaves control with nothing to copy and
+    # freezes the benchmark. Fall back to #1 only if nobody clears the bar.
+    _CONTROL_MIN_BOOK = 5
+    leader = next((e for e in cohort
+                   if len(cohort_positions.get(e.wallet, [])) >= _CONTROL_MIN_BOOK), cohort[0])
     leader_positions = cohort_positions.get(leader.wallet, [])
     leader_assets = {p.asset for p in leader_positions}
+    log(f"control leader: {leader.username or leader.wallet[:10]} "
+        f"(rank {leader.rank}, {len(leader_positions)} positions)")
 
     # ---- 4. overlaps (over the eligible cohort) ----------------------------
     overlaps = strategy.compute_overlaps(cohort_positions)
