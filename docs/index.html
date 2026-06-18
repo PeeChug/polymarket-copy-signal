@@ -908,7 +908,7 @@ function renderPerformance(){
       <li>🤝 When <b>≥${cfg.min_tier_to_trade==='green'?((d.agreement||{}).tier_green_min??cfg.tier_green_min??10):((d.agreement||{}).tier_blue_min??cfg.tier_blue_min??5)} of them hold the same bet</b> <span class="muted" style="font-size:11px">(auto-scaled to the live cohort)</span>, buy <b>$${cfg.stake_usd??100}</b> of it at the real market price.</li>
       <li>🛑 Sell when <b>those traders sell</b>, if it <b>drops ${Math.round((cfg.stop_loss_pct??0.30)*100)}%</b>, if it <b>gives back ${Math.round((cfg.trailing_stop_pct??0.15)*100)}% from a peak</b> (locks profit), or at <b>resolution</b> — price exits are checked <b>every minute</b>, not just every scan, so a bad position can't crater 50% before we react.</li>
     </ol>
-    <div class="muted" style="font-size:12px;margin-top:8px">The 🥇 control benchmark (bottom) <b>follows everything</b> — it copies <b>every</b> position any cohort trader holds (overlap ≥ 1), exiting only when the last holder leaves. It's the baseline for the key question: does our <b>consensus filter</b> (≥ the buy bar agree) actually beat blindly copying every move the top traders make? Entries use the real ask price; settings are forward-only (editable in ⚙️ Settings → Paper trading).</div>`, 'var(--green)')));
+    <div class="muted" style="font-size:12px;margin-top:8px">The 🥇 control benchmark (bottom) <b>mirrors the top 3 traders</b> — it copies the combined book of the 3 highest-PnL eligible wallets, exiting a position when none of them hold it. It's the baseline for the key question: does our <b>consensus filter</b> (≥ the buy bar agree) actually beat just following the very best individual traders? Entries use the real ask price; settings are forward-only (editable in ⚙️ Settings → Paper trading).</div>`, 'var(--green)')));
   // ---- helpers: build the open / closed tables for any trade list ----------
   function openTable(trades){
     if(!trades.length) return $(`<div class="empty">None right now.</div>`);
@@ -985,10 +985,10 @@ function renderPerformance(){
   const ov=ovM||{}, ct=ctM||{};
   const ovR=ov.roi_total, ctR=ct.roi_total, ePts=(ovR!=null&&ctR!=null)?(ovR-ctR)*100:null;
   el.appendChild($(`<h2 style="margin-top:40px;border-top:1px solid var(--line);padding-top:24px">🥇 Control benchmark <span class="muted" style="font-size:13px;font-weight:400">— a reference baseline, not a tradeable strategy</span></h2>`));
-  el.appendChild($(`<p class="sub">This is <b>not</b> something you'd trade — it's a measuring stick. It blindly copies <b>every position the cohort holds</b> (overlap ≥ 1, no agreement needed) to answer one question: <b>does our consensus filter beat just following everything the top traders do?</b> It deploys far more capital across hundreds of positions, so the two are compared on <b>% return</b>, not dollars.</p>`));
+  el.appendChild($(`<p class="sub">This is <b>not</b> something you'd trade — it's a measuring stick. It copies the <b>combined book of the top 3 traders</b> (no agreement needed) to answer one question: <b>does our consensus filter beat just following the very best individual traders?</b> It deploys more capital across more positions, so the two are compared on <b>% return</b>, not dollars.</p>`));
   el.appendChild($(`<div class="card" style="margin:6px 0"><div class="metrics">
     ${metric('Consensus ROI',pct(ovR),sgn(ovR))}${metric('Control ROI',pct(ctR),sgn(ctR))}${metric('Edge vs control',ePts==null?'—':((ePts>=0?'+':'')+ePts.toFixed(1)+' pts'),sgn(ePts))}</div></div>`));
-  const ctCard=$(perfCard('🥇 Control · follow-all',ct)); el.appendChild(ctCard); runCountups(ctCard);
+  const ctCard=$(perfCard('🥇 Control · top-3 copy',ct)); el.appendChild(ctCard); runCountups(ctCard);
   if(mkt!=='us' && (d.history||[]).some(h=>h.ov_roi!=null||h.ct_roi!=null)){
     el.appendChild($(`<h3 style="margin-top:18px">Consensus vs. control return <span class="muted" style="font-size:12px;font-weight:400">(% ROI — fair, capital-neutral)</span></h3>`));
     el.appendChild(tfBar(renderPerformance));
