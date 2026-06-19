@@ -879,14 +879,21 @@ function renderPerformance(){
   // link out to the matched Polymarket US event (gold 🇺🇸 badge) on tradeable rows
   const usBadge=t=>(t&&t.us_available&&t.us_url)?` <a href="${esc(t.us_url)}" target="_blank" rel="noopener" class="pill" title="Tradeable on Polymarket US — ${esc(t.us_title||'')}" style="border-color:var(--gold);color:var(--gold);text-decoration:none">🇺🇸</a>`:'';
   const _allPos=(d.open_positions||[]).concat(d.closed_positions||[]);
-  function metricsOf(strat){   // recompute headline metrics for a strategy within the current market view
+  // Polymarket US taker fee, charged on the BUY (entry) only — per Polymarket's
+  // help center, sell orders are NOT subject to the taker fee. Live US
+  // feeCoefficient is a flat 0.05 across categories:
+  //   fee = shares × 0.05 × p × (1−p)   (≈2.5% at 50¢, ≈1% at 80¢, ≈0.1% on a heavy favorite)
+  const US_FEE_COEF=0.05;
+  const usFee=t=>{const sh=+t.shares||0,ep=+t.entry_price||0; return sh*US_FEE_COEF*ep*(1-ep);};
+  function metricsOf(strat){   // US-view metrics for a strategy, NET of Polymarket US fees
     const ts=_allPos.filter(t=>(t.strategy||'overlap')===strat&&byMkt(t));
     const op=ts.filter(t=>t.status==='OPEN'),cl=ts.filter(t=>t.status==='CLOSED');
-    const realized=cl.reduce((s,t)=>s+(+t.realized_pnl||0),0),unreal=op.reduce((s,t)=>s+(+t.unrealized_pnl||0),0);
-    const sc=cl.reduce((s,t)=>s+(+t.stake_usd||0),0),sa=sc+op.reduce((s,t)=>s+(+t.stake_usd||0),0),wins=cl.filter(t=>(+t.realized_pnl||0)>0).length;
+    const fees=ts.reduce((s,t)=>s+usFee(t),0);
+    const realized=cl.reduce((s,t)=>s+(+t.realized_pnl||0)-usFee(t),0),unreal=op.reduce((s,t)=>s+(+t.unrealized_pnl||0)-usFee(t),0);
+    const sc=cl.reduce((s,t)=>s+(+t.stake_usd||0),0),sa=sc+op.reduce((s,t)=>s+(+t.stake_usd||0),0),wins=cl.filter(t=>((+t.realized_pnl||0)-usFee(t))>0).length;
     const onTable=op.reduce((s,t)=>s+(+t.shares||0)*(+t.marked_price|| +t.entry_price||0),0);
     return {open_count:op.length,closed_count:cl.length,wins,losses:cl.length-wins,win_rate:cl.length?wins/cl.length:null,
-      realized_pnl:realized,unrealized_pnl:unreal,net_pnl:realized+unreal,staked_all:sa,on_table:onTable,
+      realized_pnl:realized,unrealized_pnl:unreal,net_pnl:realized+unreal,staked_all:sa,on_table:onTable,us_fees:fees,
       roi_realized:sc?realized/sc:null,roi_total:sa?(realized+unreal)/sa:null};
   }
   // Total uses the server aggregate (all trades, uncapped); US recomputes from the US subset
@@ -955,17 +962,20 @@ function renderPerformance(){
   el.appendChild($(`<h2 style="margin-top:22px">🤝 Consensus — your strategy</h2>`));
   el.appendChild($(`<p class="sub">Buy when <b>≥${cfg.min_tier_to_trade==='green'?((d.agreement||{}).tier_green_min??cfg.tier_green_min??10):((d.agreement||{}).tier_blue_min??cfg.tier_blue_min??5)} of ${(d.agreement||{}).cohort_size??cfg.top_n??50} top traders agree</b> on the same outcome; sell when a holder sells, on the <b>−${Math.round((cfg.stop_loss_pct??0.30)*100)}% stop</b> / trailing stop, or at resolution.</p>`));
   const ovCard=$(perfCard('🟢🔵 Consensus — all tiers',ovM)); el.appendChild(ovCard); runCountups(ovCard);
-  {const bt=d.backtest||{};if((bt.resolved_total||0)===0) el.appendChild($(`<p class="muted" style="font-size:12.5px;margin:4px 0">⏳ <b>0</b> of ${bt.tracking_total||0} tracked markets have resolved yet — win-rate / realized ROI are still warming up; figures are mark-to-market for now.</p>`));}
+  if(mkt==='us'&&(ovM.us_fees||0)>0) el.appendChild($(`<div class="card" style="border-left:4px solid var(--red);font-size:12.5px;margin:2px 0 6px">💸 Figures above are <b>net of Polymarket US taker fees</b> — <b>${money(ovM.us_fees)}</b> across ${ovM.closed_count+ovM.open_count} US trades. The fee (shares × 5% × price × (1−price), buy side) peaks near 50¢, where most of these World Cup markets sit — so it eats most of the thin consensus margin. Gross-vs-net is plotted below.</div>`));
+  {const bt=d.backtest||{};if((bt.resolved_total||0)===0&&mkt!=='us') el.appendChild($(`<p class="muted" style="font-size:12.5px;margin:4px 0">⏳ <b>0</b> of ${bt.tracking_total||0} tracked markets have resolved yet — win-rate / realized ROI are still warming up; figures are mark-to-market for now.</p>`));}
   if(mkt==='us'){
     // US realized-P&L curve, built from the US-tradeable CONSENSUS closes (the full
     // history series tracks the whole book, so we accumulate the US subset here).
     const _usCl=(d.closed_positions||[]).filter(t=>(t.strategy||'overlap')==='overlap'&&t.us_available&&t.exit_at)
       .sort((a,b)=>String(a.exit_at).localeCompare(String(b.exit_at)));
     if(_usCl.length>=2){
-      let _c=0; const _curve=_usCl.map(t=>{_c+=(+t.realized_pnl||0); return {ts:t.exit_at, us:Math.round(_c*100)/100};});
-      el.appendChild($(`<h3 style="margin-top:18px">🇺🇸 US trades — realized P&L over time <span class="muted" style="font-size:12px;font-weight:400">(${_usCl.length} closed)</span></h3>`));
+      let _g=0,_n=0; const _curve=_usCl.map(t=>{_g+=(+t.realized_pnl||0); _n+=(+t.realized_pnl||0)-usFee(t); return {ts:t.exit_at, gross:Math.round(_g*100)/100, net:Math.round(_n*100)/100};});
+      const _totFee=_usCl.reduce((s,t)=>s+usFee(t),0);
+      el.appendChild($(`<h3 style="margin-top:18px">🇺🇸 US trades — realized P&L over time <span class="muted" style="font-size:12px;font-weight:400">(${_usCl.length} closed · <span style="color:var(--red)">${money(_totFee)} taker fees</span>)</span></h3>`));
+      el.appendChild($(`<p class="muted" style="font-size:11.5px;margin:0 0 2px">Net line = after the Polymarket US taker fee on the buy (<b>shares × 5% × price × (1−price)</b>; sells are fee-free). It bites hardest near 50¢, where these thin consensus margins live.</p>`));
       el.appendChild(tfBar(renderPerformance));
-      el.appendChild(chart(_curve,[{key:'us',color:'var(--gold)',label:'US realized P&L',money:true}]));
+      el.appendChild(chart(_curve,[{key:'gross',color:'var(--dim)',label:'Gross (no fees)',money:true},{key:'net',color:'var(--gold)',label:'After US fees',money:true}]));
     } else {
       el.appendChild($(`<p class="muted" style="font-size:12.5px;margin:6px 0">📈 Not enough closed US trades to chart yet (${_usCl.length}) — it fills in as US-tradeable positions resolve. The scorecards &amp; tables here are US-filtered; matched rows link to Polymarket US.</p>`));
     }
