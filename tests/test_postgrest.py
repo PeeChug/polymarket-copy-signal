@@ -30,9 +30,11 @@ class _Resp:
 class FakeSession:
     """Minimal PostgREST emulator for kv_store + cycles."""
     def __init__(self):
-        self.kv = {}        # key -> value (jsonb)
-        self.cycles = []    # list of cycle dicts
-        self.trades = []    # list of paper_trade dicts
+        self.kv = {}            # key -> value (jsonb)
+        self.cycles = []        # list of cycle dicts
+        self.trades = []        # list of paper_trade dicts
+        self.observations = []  # list of observation dicts
+        self.leaderboard = []   # list of leaderboard_snapshot dicts
         self.headers = {}
 
     def request(self, method, url, params=None, data=None, headers=None, timeout=None):
@@ -57,6 +59,19 @@ class FakeSession:
             rows = sorted(self.cycles, key=lambda c: c["id"], reverse=True)
             lim = int(params.get("limit", len(rows) or 1))
             return _Resp(200, rows[:lim])
+        if table in ("observations", "leaderboard_snapshots"):
+            store = self.observations if table == "observations" else self.leaderboard
+            tcol = "observed_at" if table == "observations" else "captured_at"
+            if method == "POST":
+                store.extend(body if isinstance(body, list) else [body])
+                return _Resp(201, None)
+            if method == "DELETE":
+                cut = params.get(tcol, "")              # PostgREST op, e.g. "lt.<iso>"
+                if cut.startswith("lt."):
+                    c = cut[3:]
+                    keep = [r for r in store if str(r.get(tcol) or "") >= c]
+                    store[:] = keep
+                return _Resp(204, None)
         return _Resp(200, [])
 
 
@@ -132,6 +147,44 @@ class TestPostgrestTrackers(unittest.TestCase):
         self.assertTrue(payload["resolved_markets"][0]["won"])
         self.assertIn("w1", payload["trader_scores"])
         self.assertEqual(payload["calibration"]["ge5"]["wins"], 1)
+
+    def test_observations_table_keeps_only_consensus_snapshot_keeps_all(self):
+        """The durable table persists only overlap>=2 (the empirical record), while
+        the dashboard snapshot (latest_observations) keeps every overlap, strongest
+        first — so the single-wallet 'All Signals' rows still render."""
+        s = self._store()
+        rows = [
+            {"asset": "a", "overlap": 1, "cycle_id": 1},   # single wallet -> snapshot only
+            {"asset": "b", "overlap": 2, "cycle_id": 1},
+            {"asset": "c", "overlap": 5, "cycle_id": 1},
+        ]
+        s.insert_observations(rows)
+        # table = consensus only
+        self.assertEqual({o["asset"] for o in s.session.observations}, {"b", "c"})
+        # snapshot = all overlaps, sorted desc, with observed_at stamped
+        snap = s.latest_observations()
+        self.assertEqual([o["asset"] for o in snap], ["c", "b", "a"])
+        self.assertTrue(all(o.get("observed_at") for o in snap))
+
+    def test_prune_snapshots_drops_old_keeps_recent_and_spares_trades(self):
+        from datetime import datetime, timezone, timedelta
+        s = self._store()
+        now = datetime.now(timezone.utc)
+        old = (now - timedelta(hours=72)).isoformat()
+        recent = (now - timedelta(hours=2)).isoformat()
+        s.session.observations = [{"asset": "old", "observed_at": old},
+                                  {"asset": "new", "observed_at": recent}]
+        s.session.leaderboard = [{"wallet": "old", "captured_at": old},
+                                 {"wallet": "new", "captured_at": recent}]
+        s.session.trades = [{"id": 1, "status": "CLOSED"}]      # the durable record
+        s.prune_snapshots(retain_hours=48)
+        self.assertEqual([o["asset"] for o in s.session.observations], ["new"])
+        self.assertEqual([o["wallet"] for o in s.session.leaderboard], ["new"])
+        self.assertEqual(len(s.session.trades), 1)             # paper_trades untouched
+        # self-throttle: an immediate second call is a no-op (it just ran)
+        s.session.observations.append({"asset": "old2", "observed_at": old})
+        s.prune_snapshots(retain_hours=48)
+        self.assertIn("old2", [o["asset"] for o in s.session.observations])
 
 
 if __name__ == "__main__":

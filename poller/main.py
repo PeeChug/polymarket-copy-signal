@@ -101,6 +101,11 @@ def main(argv=None) -> int:
         else:
             print("skipped publish (degraded cycle) — last good dashboard payload kept.")
 
+        # free-tier disk guard: trim observations + leaderboard snapshots past the
+        # retention window (paper_trades + kv_store are never touched). Self-throttled
+        # to ~hourly and best-effort, so it's safe to call on every cycle.
+        store.prune_snapshots()
+
     # ---- health heartbeat: a dead-man's switch on SUSTAINED failure ---------
     # Hard errors already fail the run (run_cycle re-raises). Degraded cycles
     # return cleanly, so track consecutive non-ok cycles and, after a few in a

@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 import os
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import requests
@@ -38,6 +38,12 @@ def _missing_column(msg: str) -> Optional[str]:
 # or the market resolving) — these arm the re-entry cooldown so we don't re-buy a
 # market we just stopped out of while it's still falling.
 _STOP_REASONS = ("stop_loss", "trailing_stop", "time_stop")
+
+# The durable `observations` table keeps only CONSENSUS rows (overlap>=2). The
+# dashboard's signal tabs instead read a bounded latest-cycle snapshot (all
+# overlaps, strongest first) held in kv_store, so single-wallet rows still show
+# without the table ballooning. This mirrors FileStore's split (snapshot + log).
+_OBS_SNAPSHOT_CAP = 400
 
 
 # --------------------------------------------------------------------------- #
@@ -100,6 +106,10 @@ class Store:
     # cohort membership clock {wallet: last_qualified_iso} for the stability/grace rule
     def get_cohort_state(self) -> dict: return {}
     def set_cohort_state(self, d: dict) -> None: return None
+    # free-tier disk guard: delete bulky time-series rows (observations / leaderboard
+    # snapshots) older than the retention window. NEVER touches paper_trades or
+    # kv_store (the durable track record + analytics) — optional; default no-op.
+    def prune_snapshots(self, retain_hours: int = 48) -> dict: return {}
 
 
 # --------------------------------------------------------------------------- #
@@ -156,6 +166,10 @@ class PostgrestStore(Store):
     def _update(self, table: str, patch: dict, **filters):
         self._req("PATCH", table, params=filters, body=patch, prefer="return=minimal")
 
+    def _delete(self, table: str, **filters):
+        # caller passes PostgREST ops, e.g. observed_at="lt.2026-06-20T00:00:00Z"
+        self._req("DELETE", table, params=filters, prefer="return=minimal")
+
     # -- config -------------------------------------------------------------
     def latest_config(self):
         rows = self._select("config_history", order="id.desc", limit=1)
@@ -196,16 +210,30 @@ class PostgrestStore(Store):
             self._insert("leaderboard_snapshots", rows, return_rows=False)
 
     def insert_observations(self, rows):
-        if rows:
-            self._insert("observations", rows, return_rows=False)
+        if not rows:
+            return
+        # Dashboard feed: a bounded snapshot of THIS cycle (all overlaps, strongest
+        # first) lives in kv_store — that's what the page's signal tabs read, so
+        # single-wallet rows still display without bloating the table. Mirrors
+        # FileStore's snapshot. observed_at is stamped to match the table's column.
+        ts = _now_iso()
+        snap = sorted((dict(r) for r in rows),
+                      key=lambda o: o.get("overlap") or 0, reverse=True)[:_OBS_SNAPSHOT_CAP]
+        for r in snap:
+            r.setdefault("observed_at", ts)
+        self._kv_set("obs_snapshot", snap)
+        # Durable empirical record: only CONSENSUS (overlap>=2). Single-wallet holds
+        # are ~80% of the volume and nothing reads them back historically, so we don't
+        # persist them; prune_snapshots() then keeps even the consensus log to ~48h.
+        keep = [r for r in rows if (r.get("overlap") or 0) >= 2]
+        if keep:
+            self._insert("observations", keep, return_rows=False)
 
     def latest_observations(self, limit=500):
-        # newest cycle's observations (dashboard "recent signals")
-        cyc = self._select("cycles", select="id", order="id.desc", limit=1)
-        if not cyc:
-            return []
-        return self._select("observations", order="overlap.desc",
-                             cycle_id=f"eq.{cyc[0]['id']}", limit=limit)
+        # the dashboard's signal tabs read the latest-cycle snapshot (all overlaps)
+        snap = self._kv_get("obs_snapshot", [])
+        snap = sorted(snap, key=lambda o: o.get("overlap") or 0, reverse=True)
+        return snap[:limit]
 
     def latest_leaderboard(self):
         cyc = self._select("cycles", select="id", order="id.desc", limit=1)
@@ -371,6 +399,33 @@ class PostgrestStore(Store):
 
     def set_cohort_state(self, d):
         self._kv_set("cohort_state", d)
+
+    # -- retention (free-tier disk guard) -----------------------------------
+    def prune_snapshots(self, retain_hours=48):
+        """Delete observations + leaderboard snapshots older than the retention
+        window so the free-tier database stays well under its size cap. The
+        durable record — paper_trades (the track record) and kv_store (analytics,
+        consensus watch, the dashboard snapshot) — is NEVER pruned. Self-throttled
+        to ~once an hour via a kv timestamp so it's cheap to call every cycle, and
+        never raises (a failed prune must not break the poll cycle)."""
+        try:
+            now = datetime.now(timezone.utc)
+            last = self._kv_get("last_prune", None)
+            if last:
+                try:
+                    if (now - datetime.fromisoformat(last)).total_seconds() < 3000:  # ~50 min
+                        return {}
+                except (ValueError, TypeError):
+                    pass
+            cutoff = (now - timedelta(hours=retain_hours)).isoformat()
+            self._delete("observations", observed_at=f"lt.{cutoff}")
+            self._delete("leaderboard_snapshots", captured_at=f"lt.{cutoff}")
+            self._kv_set("last_prune", now.isoformat())
+            print(f"prune_snapshots: pruned observations/leaderboard older than {retain_hours}h (< {cutoff})")
+            return {"cutoff": cutoff}
+        except Exception as e:                                # never break the cycle
+            print(f"prune_snapshots skipped: {e}")
+            return {}
 
 
 # --------------------------------------------------------------------------- #
