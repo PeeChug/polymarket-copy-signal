@@ -44,6 +44,13 @@ def _hours_between(a_iso, b_iso) -> float:
         return 1e9
 
 
+# Resolution catch-up: Gamma only returns SETTLED markets with closed=true, so we
+# fetch them in a separate pass; cap how many we check per cycle so the one-time
+# backlog (every consensus market ever, the first time this ships) settles over a
+# few cycles instead of one giant fetch.
+_RESOLVE_FETCH_CAP = 2000
+
+
 def run_cycle(store, client, seed_path=None, log=print) -> dict:
     t0 = time.time()
     cfg = load_config(store, seed_path)
@@ -256,12 +263,34 @@ def _run(store, client, cfg, cid, summary, log):
                 f"{cooldown_h:.0f}h are blocked from re-entry")
 
     # ---- BATCH-FETCH markets + marks once for everything we touch ----------
-    # include unresolved consensus-watch markets so we can detect their resolution
-    watched_conds = {w["condition_id"] for w in store.get_consensus_watch().values() if not w.get("resolved")}
     all_conditions = ({ov.condition_id for ov in overlaps.values()}
-                      | {t["condition_id"] for t in open_index.values()} | watched_conds)
+                      | {t["condition_id"] for t in open_index.values()})
     all_assets = set(overlaps.keys()) | {t["asset"] for t in open_index.values()}
     market_map = client.markets(all_conditions)
+    # Resolution detection: a plain condition_ids query OMITS settled markets — Gamma
+    # only returns them with closed=true (this is why the watch never settled). Fetch
+    # the closed record for any open position or unresolved watch entry whose end_date
+    # has passed (unknown end_date => check anyway, so the existing backlog catches up),
+    # and merge it in so the resolution loops below settle trades at payout and let
+    # calibration/backtest accrue. Capped per cycle.
+    _now = datetime.now(timezone.utc)
+
+    def _maybe_ended(ed) -> bool:
+        if not ed:
+            return True            # unknown -> check (harmless: closed=true returns nothing for open markets)
+        try:
+            return datetime.fromisoformat(str(ed).replace("Z", "+00:00")) <= _now
+        except (ValueError, TypeError):
+            return True
+
+    ended_conds = sorted(
+        {t["condition_id"] for t in open_index.values() if _maybe_ended(t.get("end_date"))}
+        | {w["condition_id"] for w in store.get_consensus_watch().values()
+           if not w.get("resolved") and _maybe_ended(w.get("end_date"))})
+    if ended_conds:
+        settled = client.markets(ended_conds[:_RESOLVE_FETCH_CAP], closed_only=True)
+        market_map.update(settled)   # settled records overlay the (empty) open-market fetch
+        log(f"resolution: {len(settled)} settled of {len(ended_conds)} ended/unknown markets checked")
     # Realistic fills: you BUY at the ask (entry) and SELL at the bid (mark/exit),
     # so the paper P&L pays the real spread instead of the optimistic midpoint.
     realistic = (cfg.price_source == "realistic")
@@ -539,7 +568,7 @@ def _update_trackers(store, cohort, observed, market_map, now_iso):
                 "first_seen": now_iso, "first_price": price,
                 "first_overlap": ov.overlap, "max_overlap": ov.overlap,
                 "cur_overlap": ov.overlap, "prev_overlap": ov.overlap, "momentum": 0,
-                "last_seen": now_iso, "resolved": False,
+                "last_seen": now_iso, "resolved": False, "end_date": ov.end_date,
                 # for smart-money + backtest: who held it (union over time) and tier at peak
                 "holders": sorted(set(ov.wallets[:50])), "tier": tier,
             }
@@ -556,6 +585,8 @@ def _update_trackers(store, cohort, observed, market_map, now_iso):
             holders = set(w.get("holders") or [])
             holders.update(ov.wallets[:50])
             w["holders"] = sorted(holders)[:50]
+            if not w.get("end_date") and ov.end_date:
+                w["end_date"] = ov.end_date            # backfill so resolution can target it
     # resolve any watched position whose market has closed
     for w in watch.values():
         if w.get("resolved"):

@@ -382,14 +382,21 @@ class PolymarketClient:
             return self.prices(token_ids, "SELL")
         return self.midpoints(token_ids)
 
-    def markets(self, condition_ids, chunk: int = 40) -> dict:
+    def markets(self, condition_ids, chunk: int = 40, closed_only: bool = False) -> dict:
         """Fetch many markets by condition id (repeated `condition_ids` param,
-        chunked). Returns {condition_id: MarketInfo}."""
+        chunked). Returns {condition_id: MarketInfo}.
+
+        Gamma OMITS resolved markets from a plain condition_ids query — they only come
+        back when you pass closed=true. Pass closed_only=True to fetch the SETTLED
+        record (closed + payout outcomePrices) so resolution can actually be detected;
+        a plain call returns the live (open) markets as before."""
         ids = [c for c in dict.fromkeys(condition_ids) if c]
         out: dict = {}
         for i in range(0, len(ids), chunk):
             group = ids[i:i + chunk]
             params = [("condition_ids", c) for c in group] + [("limit", "500")]
+            if closed_only:
+                params.append(("closed", "true"))
             try:
                 rows = self._get(f"{GAMMA_API}/markets", params=params, ok_404=True) or []
             except Exception:

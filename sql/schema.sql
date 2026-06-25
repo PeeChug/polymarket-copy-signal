@@ -231,3 +231,7 @@ alter table config_history add column if not exists tier_blue_frac  numeric not 
 alter table config_history add column if not exists cohort_grace_hours numeric not null default 48;
 -- re-entry cooldown after a stop (kills the falling-knife re-entry spiral)
 alter table config_history add column if not exists reentry_cooldown_hours numeric not null default 24;
+-- fat-tail guardrails: cap long-dated sports futures + skip the weak-edge price band
+alter table config_history add column if not exists max_resolve_hours numeric not null default 0;
+alter table config_history add column if not exists skip_band_lo      numeric not null default 0;
+alter table config_history add column if not exists skip_band_hi      numeric not null default 0;

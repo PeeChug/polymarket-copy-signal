@@ -39,7 +39,7 @@ tier_blue_min: 5               # overlap >= this  => "blue"   — used as the FL
 # stays correctly sized whether the cohort lands at 30 or 50 (the leaderboard can't
 # always supply 50 wallets that clear the 65% bar). Anchored so a 50-cohort reproduces
 # the original 5/10. Set either to 0 to fall back to the absolute tier_*_min above.
-tier_green_frac: 0.20          # green overlap >= round(0.20 × eligible cohort)  (50→10, 40→8, 30→6)
+tier_green_frac: 0.14          # green overlap >= round(0.14 × cohort) (50→7) — revives a tier that 0.20→10 ~never hit
 tier_blue_frac: 0.10           # blue  overlap >= round(0.10 × eligible cohort)  (50→5,  40→4, 30→3)
 
 # --- guardrails before a signal becomes a paper trade -----------------------
@@ -49,6 +49,11 @@ min_entry_price: 0.05          # skip deep longshots (e.g. 0.001): spread ~= the
 max_entry_price: 0.85          # skip positions already near resolution (little upside left; +11% cap at 0.90 = bad R/R)
 min_resolve_hours: 2           # only skip markets resolving within this many hours (almost-over games).
                                # Kept low on purpose: we scalp sentiment + exit when holders sell. 0=off
+max_resolve_hours: 0           # skip markets resolving MORE than this many hours out — multi-day directional
+                               # sports FUTURES are the main stop-loss bleed (they decay/gap over days). 0 = off
+                               # (enable, e.g. 120, once resolution data confirms which long-dated bets to cut).
+skip_band_lo: 0                # skip entries priced in [lo, hi] — the 0.50-0.70 coin-flip zone historically
+skip_band_hi: 0                # carried ~no edge while being the most-traded. 0/0 = off.
 min_tier_to_trade: blue        # 'blue' (trade blue+green) or 'green' (trade green only)
 
 # --- paper-trade mechanics --------------------------------------------------
@@ -69,8 +74,8 @@ stop_loss_pct: 0.30             # WIDE backstop only — the holder-exit (sell w
 # before they round-trip. All OVERLAP-ONLY — the control benchmark stays naive.
 take_profit_pct: 0.0            # bank a defined gain (>= +X%); 0 = off (let winners run to the trailing stop)
 trailing_stop_pct: 0.15         # once armed, exit if price gives back this much from its peak. 0 = off
-trailing_arm_pct: 0.20          # only arm the trailing stop after the trade is up at least this much (so it
-                                # locks PROFIT, doesn't act as a tight stop on entry noise)
+trailing_arm_pct: 0.10          # arm the trailing stop after a SMALLER run-up so the (proven) trailing exit
+                                # protects more positions before they decay into the wide hard stop (was 0.20)
 time_stop_minutes: 30           # force-exit this many minutes before resolution — never hold a short-fuse
                                 # (sports) market into the 0/1 gap. 0 = off
 fast_exit_slippage_pct: 0.02    # extra haircut applied to a PANIC sell (stop/trailing) — the book is thin on

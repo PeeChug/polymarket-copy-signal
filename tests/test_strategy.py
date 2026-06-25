@@ -157,6 +157,26 @@ class TestGuardrails(unittest.TestCase):
         self.assertTrue(self.g(end_date=far).ok)
         self.assertTrue(self.g(end_date=None).ok)   # unknown end date => don't block
 
+    def test_max_resolve_hours_blocks_long_dated_futures(self):
+        from datetime import datetime, timezone, timedelta
+        far = (datetime.now(timezone.utc) + timedelta(days=10)).isoformat()
+        self.cfg.max_resolve_hours = 72             # skip futures resolving >3 days out
+        r = self.g(end_date=far)
+        self.assertFalse(r.ok)
+        self.assertEqual(r.reason, "resolves_too_far")
+        self.cfg.max_resolve_hours = 0              # off by default => long-dated allowed
+        self.assertTrue(self.g(end_date=far).ok)
+
+    def test_skip_band_blocks_dead_price_zone(self):
+        self.cfg.skip_band_lo, self.cfg.skip_band_hi = 0.50, 0.70
+        r = self.g(price=0.60)
+        self.assertFalse(r.ok)
+        self.assertEqual(r.reason, "price_in_dead_band")
+        self.assertTrue(self.g(price=0.40).ok)      # below the band
+        self.assertTrue(self.g(price=0.80).ok)      # above the band
+        self.cfg.skip_band_lo = self.cfg.skip_band_hi = 0.0
+        self.assertTrue(self.g(price=0.60).ok)      # off by default
+
     def test_resolve_filter_off_when_zero(self):
         from datetime import datetime, timezone, timedelta
         self.cfg.min_resolve_hours = 0

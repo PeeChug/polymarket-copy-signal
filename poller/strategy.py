@@ -28,6 +28,22 @@ def _resolves_within(end_date, hours: float) -> bool:
         return False
 
 
+def _resolves_after(end_date, hours: float) -> bool:
+    """True if the market resolves MORE than `hours` from now (a long-dated
+    directional bet — multi-day sports futures decay/gap over days, the main
+    stop-loss bleed). Off when hours<=0 or end_date is missing/unparseable."""
+    if not end_date or hours is None or hours <= 0:
+        return False
+    try:
+        s = end_date if isinstance(end_date, str) else end_date.isoformat()
+        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt > datetime.now(timezone.utc) + timedelta(hours=float(hours))
+    except (ValueError, TypeError, AttributeError):
+        return False
+
+
 @dataclass
 class Overlap:
     """Aggregated view of one position across the cohort, for one cycle."""
@@ -166,6 +182,12 @@ def passes_guardrails(*, tier: str, price, liquidity, market_closed: bool,
             return GuardrailResult(False, "price_too_low")   # deep longshot: spread eats any "win"
         if _resolves_within(end_date, getattr(cfg, "min_resolve_hours", 24.0)):
             return GuardrailResult(False, "resolves_too_soon")
+        if _resolves_after(end_date, getattr(cfg, "max_resolve_hours", 0.0)):
+            return GuardrailResult(False, "resolves_too_far")    # long-dated futures decay/gap
+        lo = getattr(cfg, "skip_band_lo", 0.0) or 0.0
+        hi = getattr(cfg, "skip_band_hi", 0.0) or 0.0
+        if hi > lo and lo <= price <= hi:
+            return GuardrailResult(False, "price_in_dead_band")  # weak-edge price zone
     return GuardrailResult(True, "ok")
 
 

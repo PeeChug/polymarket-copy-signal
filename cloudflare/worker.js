@@ -32,13 +32,14 @@ const ALLOWED = [
   "stop_loss_pct", "take_profit_pct", "trailing_stop_pct", "trailing_arm_pct",
   "time_stop_minutes", "fast_exit_slippage_pct", "reentry_cooldown_hours", "contested_policy",
   "min_holder_value", "min_holder_win_ratio", "cohort_grace_hours",
+  "max_resolve_hours", "skip_band_lo", "skip_band_hi",
 ];
 
 // Defaults the fast-mark falls back to when a config column doesn't exist yet
 // (pre-migration). MUST mirror core/config.py's Config dataclass defaults.
 const EXIT_DEFAULTS = {
   stop_loss_pct: 0.30, min_entry_price: 0.05, take_profit_pct: 0.0,
-  trailing_stop_pct: 0.15, trailing_arm_pct: 0.20, time_stop_minutes: 30,
+  trailing_stop_pct: 0.15, trailing_arm_pct: 0.10, time_stop_minutes: 30,
   fast_exit_slippage_pct: 0.02,
 };
 

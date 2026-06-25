@@ -41,6 +41,20 @@ def test_winning_trade_no_costs():
     assert r["withdrawn"] == 0
 
 
+def test_us_fee_model_drags_buy_side_only():
+    # Polymarket US taker fee (price-dependent, buy-side only) must cut the win vs the
+    # fee-free global venue. At p=0.50 the fee buys ~2.5% fewer shares -> ~$5 off a 2x.
+    trades = [T("a", 0.50, 1.00)]
+    free = accounts.simulate(trades, CFG())
+    us = accounts.simulate(trades, {
+        "name": "us", "starting_capital": 1000, "filter": {"tiers": ["green", "blue"]},
+        "sizing": {"mode": "fixed", "value": 100, "max_exposure": 1.0, "min_trade": 1},
+        "reinvest": {"withdraw_pct": 0.0},
+        "costs": {"slippage_pct": 0.0, "fee_model": "us", "us_fee_coef": 0.05}})
+    assert us["realized_pnl"] < free["realized_pnl"]     # US fee drags it
+    assert near(us["realized_pnl"], 95, 0.5)             # +95 vs +100 fee-free
+
+
 def test_loss_reduces_cash():
     r = accounts.simulate([T("a", 0.50, 0.00)], CFG())
     assert near(r["realized_pnl"], -100) and near(r["cash"], 900) and near(r["total"], 900)

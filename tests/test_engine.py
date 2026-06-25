@@ -69,7 +69,9 @@ class FakeClient:
     def market(self, condition_id):
         return self.markets_map.get(condition_id)
 
-    def markets(self, condition_ids, chunk=40):
+    def markets(self, condition_ids, chunk=40, closed_only=False):
+        # the real client only returns settled markets when closed_only=True; the fake
+        # holds both in markets_map and returns whatever's asked for (the engine merges)
         return {c: self.markets_map[c] for c in condition_ids if c in self.markets_map}
 
     def marks(self, token_ids, source="midpoint"):
@@ -187,6 +189,25 @@ class TestEngineLifecycle(unittest.TestCase):
         self.assertTrue(t["resolved_won"])
         self.assertAlmostEqual(t["exit_price"], 1.0)
         self.assertAlmostEqual(t["realized_pnl"], 250.0 * (1.0 - 0.40))  # +150
+
+    def test_watch_resolves_for_calibration(self):
+        # the consensus WATCH (which powers calibration + backtest) must settle when
+        # the market closes — this is the path that was silently broken: Gamma only
+        # returns settled markets with closed=true, so resolution was never detected.
+        from core import analytics
+        self.c.positions_by_wallet = {w: [P("A", "mA")] for w in ("w1", "w2", "w3")}
+        self.c.marks_map = {"A": 0.40}
+        self.run_quiet()
+        self.assertFalse(self.store.get_consensus_watch()["mA|0"]["resolved"])
+
+        self.c.markets_map["mA"] = M("mA", closed=True, resolved=1.0)   # resolves YES
+        self.run_quiet()
+        w = self.store.get_consensus_watch()["mA|0"]
+        self.assertTrue(w["resolved"] and w["won"])
+        self.assertAlmostEqual(w["exit_price"], 1.0)
+        # calibration now scores real resolved data (it was permanently 0 before)
+        cal = analytics.calibration(self.store.get_consensus_watch())
+        self.assertEqual((cal["ge2"]["resolved"], cal["ge2"]["wins"]), (1, 1))
 
     def test_single_open_per_strategy_market_outcome(self):
         self.c.positions_by_wallet = {w: [P("A", "mA")] for w in ("w1", "w2", "w3")}

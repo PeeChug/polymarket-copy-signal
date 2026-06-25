@@ -23,6 +23,7 @@ _CONFIG_FIELDS = (
     "stop_loss_pct", "take_profit_pct", "trailing_stop_pct", "trailing_arm_pct",
     "time_stop_minutes", "fast_exit_slippage_pct", "reentry_cooldown_hours", "contested_policy",
     "min_holder_value", "min_holder_win_ratio", "cohort_grace_hours",
+    "max_resolve_hours", "skip_band_lo", "skip_band_hi",
 )
 
 _TIER_RANK = {"none": 0, "blue": 1, "green": 2}
@@ -46,7 +47,7 @@ class Config:
     # the original 5/10 (0.10 -> 5, 0.20 -> 10). tier_*_min then acts as the floor.
     tier_green_min: int = 5
     tier_blue_min: int = 3
-    tier_green_frac: float = 0.20    # green overlap >= round(this * eligible cohort size); 0 = use the absolute
+    tier_green_frac: float = 0.14    # green overlap >= round(this * cohort); 0.14→7 of 50 revives a dead tier (0.20→10 ~never hit)
     tier_blue_frac: float = 0.10     # blue  overlap >= round(this * eligible cohort size); 0 = use the absolute
 
     min_liquidity: float = 1000.0
@@ -55,10 +56,19 @@ class Config:
     # used as the price floor for the stop (exit if a held position falls below it).
     min_entry_price: float = 0.05
     max_entry_price: float = 0.85
+    # skip entries whose price sits in a weak-edge band [lo, hi] — the 0.50-0.70
+    # coin-flip zone historically carried ~no edge while being the most-traded. 0/0 =
+    # off (kept off by default; enable once resolution data confirms the dead zone).
+    skip_band_lo: float = 0.0
+    skip_band_hi: float = 0.0
     # skip markets that resolve within this many hours — live/same-day bets (esp.
     # sports) resolve to 0/1 in hours, so copying them adds fat-tail variance, not
     # consensus edge. 0 = off.
     min_resolve_hours: float = 24.0
+    # skip markets that resolve MORE than this many hours out — multi-day directional
+    # sports FUTURES are the main stop-loss bleed (they decay/gap over days). 0 = off
+    # (kept off by default; enable once resolution data shows which long-dated bets to cut).
+    max_resolve_hours: float = 0.0
     min_tier_to_trade: str = "blue"
 
     stake_usd: float = 100.0
@@ -74,7 +84,9 @@ class Config:
     #     control benchmark stays naive (exits only on leader-abandon / resolution). ---
     take_profit_pct: float = 0.0        # bank a defined gain (>= +X%); 0 = off (let winners run)
     trailing_stop_pct: float = 0.15     # once armed, exit if price gives back this much from its peak; 0 = off
-    trailing_arm_pct: float = 0.20      # only arm the trailing stop after the trade is up at least this much
+    # arm the trailing stop after a smaller run-up so the (proven, +$ ) trailing exit
+    # protects more positions before they decay into the wide hard stop. 0.10 was 0.20.
+    trailing_arm_pct: float = 0.10
     time_stop_minutes: float = 30.0     # force-exit this many minutes before resolution (short-fuse safety); 0 = off
     fast_exit_slippage_pct: float = 0.02  # extra haircut on a PANIC sell (stop/trailing) — thin book on the way down
     # after we STOP out of a (market, outcome), don't re-buy it for this many hours

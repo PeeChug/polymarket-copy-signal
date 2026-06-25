@@ -136,6 +136,8 @@ def simulate(trades: list, cfg: dict) -> dict:
     withdraw_pct = _num((cfg.get("reinvest") or {}).get("withdraw_pct"), 0.0)
     costs = cfg.get("costs") or {}
     fee_pct = _num(costs.get("fee_pct"), 0.0)
+    fee_model = costs.get("fee_model")               # 'us' => price-dependent buy-side taker fee
+    us_coef = _num(costs.get("us_fee_coef"), 0.05)
 
     cash = start
     pos: dict[str, dict] = {}            # asset -> {shares, cost, title, tier}
@@ -166,7 +168,10 @@ def simulate(trades: list, cfg: dict) -> dict:
                 skipped += 1
                 continue
             fill = entry * (1 + _slippage(costs, size, t.get("liquidity")))
-            invested = size * (1 - fee_pct)         # fee taken off the stake
+            # fee off the stake. Global venue ~0; Polymarket US charges a price-dependent
+            # TAKER fee on the BUY only (≈ shares*coef*p*(1-p) = size*coef*(1-p)).
+            buy_fee = (size * us_coef * (1 - fill)) if fee_model == "us" else (size * fee_pct)
+            invested = size - buy_fee
             pos[asset] = {"shares": invested / fill, "cost": size,
                           "title": t.get("title"), "tier": t.get("tier_at_entry")}
             cash -= size
@@ -177,7 +182,8 @@ def simulate(trades: list, cfg: dict) -> dict:
                 continue
             exitp = _num(t.get("exit_price"), _num(t.get("marked_price")))
             gross = p["shares"] * exitp * (1 - _slippage(costs, p["cost"], t.get("liquidity")))
-            proceeds = gross * (1 - fee_pct)
+            sell_fee = 0.0 if fee_model == "us" else gross * fee_pct   # US: no sell-side taker fee
+            proceeds = gross - sell_fee
             cash += proceeds
             pnl = proceeds - p["cost"]
             realized += pnl
