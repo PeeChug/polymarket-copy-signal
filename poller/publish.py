@@ -168,13 +168,21 @@ def write_site(store, run_result: dict, docs_dir: str = "docs") -> str:
     # flag which markets a US-based user could actually trade (US Only toggle)
     _tag_us_availability(payload, store)
 
+    payload_json = json.dumps(payload, default=str)
     path = os.path.join(docs_dir, "data.json")
     tmp = path + ".tmp"
     with open(tmp, "w") as fh:
-        json.dump(payload, fh, indent=2, default=str)
+        fh.write(payload_json)
     os.replace(tmp, path)
 
-    pub = _publish_to_supabase_storage(payload)
+    # D1 deployment: stash data.json in D1 so the Worker serves it at /data.json
+    # (zero egress). No-op on non-D1 stores (base Store.set_site_blob).
+    try:
+        store.set_site_blob(payload_json)
+    except Exception as e:
+        print(f"set_site_blob skipped: {e}")
+
+    pub = _publish_to_supabase_storage(payload)   # no-op without SUPABASE_* env
     if pub:
         print(f"published dashboard payload -> {pub}")
     return path

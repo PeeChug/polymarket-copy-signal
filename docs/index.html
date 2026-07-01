@@ -1316,10 +1316,13 @@ function updateMeta(){ const d=DATA&&DATA.generated_at?new Date(DATA.generated_a
 }
 function toast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),3200); }
 const WORKER_BASE='https://polymarket-copy-signal.adgluchow.workers.dev';
-// data is served from Supabase Storage (updates without a git commit); fall back to the committed copy
+// data.json is served by the Worker from Cloudflare D1 (zero Supabase egress);
+// fall back to the old Supabase copy, then the committed copy, if it's briefly down.
+const DATA_URL=WORKER_BASE+'/data.json';
 const SUPA_DATA='https://bhxdgrttsxqhpvefymjw.supabase.co/storage/v1/object/public/dashboard/data.json';
 function fetchData(){
-  return fetch(SUPA_DATA+'?t='+Date.now()).then(r=>{if(!r.ok)throw 0;return r.json();})
+  return fetch(DATA_URL+'?t='+Date.now()).then(r=>{if(!r.ok)throw 0;return r.json();})
+    .catch(()=>fetch(SUPA_DATA+'?t='+Date.now()).then(r=>{if(!r.ok)throw 0;return r.json();}))
     .catch(()=>fetch('./data.json?t='+Date.now()).then(r=>{if(!r.ok)throw new Error('no data');return r.json();}));
 }
 let freshTimer=null;
@@ -1328,7 +1331,7 @@ let freshTimer=null;
 // The Worker re-prices OPEN paper trades into marks.json; we overlay it onto the
 // open positions + headline scorecards so P&L refreshes every minute, between
 // the heavier ~10-min full scans. Realized P&L is unchanged between scans.
-const SUPA_MARKS=SUPA_DATA.replace('data.json','marks.json');
+const MARKS_URL=WORKER_BASE+'/marks.json';
 let lastMarks=null, marksMeta=null, marksTimer=null;
 function mergeMarks(m){      // mutate DATA's open positions + scorecards with fresh marks (no render)
   if(!m||!m.marks||!DATA) return false;
@@ -1347,7 +1350,7 @@ function mergeMarks(m){      // mutate DATA's open positions + scorecards with f
   return touched;
 }
 function applyMarks(m){ if(m)lastMarks=m; if(mergeMarks(m)&&state.tab==='performance') renderPerformance(); }
-function fetchMarks(){ return fetch(SUPA_MARKS+'?t='+Date.now())
+function fetchMarks(){ return fetch(MARKS_URL+'?t='+Date.now())
   .then(r=>r.ok?r.json():null).then(m=>{ if(m&&m.marks) applyMarks(m); }).catch(()=>{}); }
 function startMarks(){ clearInterval(marksTimer); fetchMarks(); marksTimer=setInterval(fetchMarks,60000); }
 

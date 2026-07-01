@@ -41,10 +41,11 @@ jobs:
 
       - name: Run poller
         env:
-          # If these secrets are set the poller uses Supabase instead of files;
-          # left empty (the default) it uses the free file-based store.
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          # Cloudflare D1 store (egress-free) — build_store prefers D1 when these are
+          # set. Supabase env intentionally dropped so the poller no longer touches it.
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          CF_D1_DATABASE_ID: ${{ secrets.CF_D1_DATABASE_ID }}
+          CF_D1_TOKEN: ${{ secrets.CF_D1_TOKEN }}
         run: |
           if [ "${{ inputs.dry_run }}" = "true" ]; then
             python -m poller.main --dry-run

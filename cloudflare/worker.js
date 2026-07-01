@@ -1,29 +1,26 @@
-// Cloudflare Worker — three jobs:
-//   1. FULL SCAN (every 10 min): fire the GitHub Actions poller (heavy Python
-//      job — leaderboard, 50-trader cohort, consensus, open/close trades). Too
-//      big for a Worker (50-subrequest free cap; it's Python), so GitHub owns it.
-//   2. FAST MARK (every 1 min): re-price just the OPEN paper trades via one
-//      batched CLOB /prices call and write a tiny marks.json to Supabase
-//      Storage. Light enough for the Worker free tier (≈3 subrequests, trivial
-//      CPU) → the dashboard's P&L refreshes every minute with no GitHub spin-up.
-//   3. Accept paper-trade config saves from the dashboard (POST /config).
+// Cloudflare Worker — the Cloudflare-native control plane (D1-backed):
+//   1. FULL SCAN (every 5 min): fire the GitHub Actions poller (heavy Python job —
+//      leaderboard, cohort, consensus, open/close). Too big for a Worker, so
+//      GitHub owns it.
+//   2. FAST MARK (every 1 min): re-price the OPEN paper trades via one batched
+//      CLOB /prices call, run the fast price/time exits, and write marks.json into
+//      D1 (site_blob) — the dashboard's P&L refreshes every minute.
+//   3. Serve GET /data.json and /marks.json from D1 — so the browser fetches from
+//      the Worker (free egress), never from Supabase.
+//   4. Accept paper-trade config (POST /config) + wallet policy (POST /wallet),
+//      written to D1.
 //
-// Secrets (set via the Cloudflare API / `wrangler secret put`):
-//   GH_PAT        — GitHub PAT with Actions: write (fires workflow_dispatch)
-//   SUPABASE_URL  — https://<project>.supabase.co
-//   SUPABASE_KEY  — Supabase secret (service) key; stays server-side only
-//
-// Setup: see ./README.md.
+// Binding: DB (D1).  Secret: GH_PAT (GitHub Actions: write, fires the scan).
+// No Supabase — D1 is priced by rows, not bandwidth, so there is no egress bill.
 
 const DISPATCH_URL =
   "https://api.github.com/repos/PeeChug/polymarket-copy-signal/actions/workflows/poller.yml/dispatches";
 
 const CLOB_PRICES = "https://clob.polymarket.com/prices";   // batch price endpoint (500 req/10s)
-const MARKS_OBJECT = "/storage/v1/object/dashboard/marks.json";
-const FULL_SCAN_CRON = "*/5 * * * *";                        // GitHub heavy scan cadence (buys); MUST match wrangler.toml
+const FULL_SCAN_CRON = "*/5 * * * *";                        // GitHub heavy scan cadence; MUST match wrangler.toml
 
-// The ONLY columns the dashboard may write into config_history. Anything else
-// in the request body is dropped, so a stray/hostile field can never land.
+// The ONLY columns the dashboard may write into config_history. Anything else in
+// the request body is dropped, so a stray/hostile field can never land.
 const ALLOWED = [
   "top_n", "candidate_pool", "leaderboard_window", "size_threshold", "poll_interval_minutes",
   "tier_green_min", "tier_blue_min", "tier_green_frac", "tier_blue_frac",
@@ -35,8 +32,8 @@ const ALLOWED = [
   "max_resolve_hours", "skip_band_lo", "skip_band_hi",
 ];
 
-// Defaults the fast-mark falls back to when a config column doesn't exist yet
-// (pre-migration). MUST mirror core/config.py's Config dataclass defaults.
+// Defaults the fast-mark falls back to when a config column doesn't exist yet.
+// MUST mirror core/config.py's Config dataclass defaults.
 const EXIT_DEFAULTS = {
   stop_loss_pct: 0.30, min_entry_price: 0.05, take_profit_pct: 0.0,
   trailing_stop_pct: 0.15, trailing_arm_pct: 0.10, time_stop_minutes: 30,
@@ -52,6 +49,10 @@ const CORS = {
 const json = (obj, status = 200) =>
   new Response(JSON.stringify(obj), { status, headers: { "Content-Type": "application/json", ...CORS } });
 
+// D1 bind conversion: booleans -> 0/1, objects/arrays -> JSON text (mirrors D1Store._bind).
+const bindVal = (v) =>
+  typeof v === "boolean" ? (v ? 1 : 0) : (v != null && typeof v === "object" ? JSON.stringify(v) : v);
+
 async function poke(env) {
   return fetch(DISPATCH_URL, {
     method: "POST",
@@ -66,11 +67,9 @@ async function poke(env) {
   });
 }
 
-// Append a new (forward-only) config_history row from the dashboard.
+// Append a new (forward-only) config_history row from the dashboard, into D1.
 async function saveConfig(request, env) {
-  if (!env.SUPABASE_URL || !env.SUPABASE_KEY) {
-    return json({ error: "Worker is missing SUPABASE_URL / SUPABASE_KEY secrets." }, 500);
-  }
+  if (!env.DB) return json({ error: "Worker is missing the D1 binding." }, 500);
   let body;
   try { body = await request.json(); }
   catch { return json({ error: "Body must be JSON." }, 400); }
@@ -85,7 +84,7 @@ async function saveConfig(request, env) {
   if (row.candidate_pool !== undefined) row.candidate_pool = Math.min(1000, Math.max(10, Math.round(+row.candidate_pool || 400)));
   if (row.cohort_grace_hours !== undefined) row.cohort_grace_hours = Math.min(720, Math.max(0, +row.cohort_grace_hours || 0));
   if (row.reentry_cooldown_hours !== undefined) row.reentry_cooldown_hours = Math.min(720, Math.max(0, +row.reentry_cooldown_hours || 0));
-  for (const k of ["tier_green_frac", "tier_blue_frac"])           // proportional tiers: fractions in [0,1]
+  for (const k of ["tier_green_frac", "tier_blue_frac"])
     if (row[k] !== undefined) row[k] = Math.min(1, Math.max(0, +row[k] || 0));
   if (row.tier_green_min !== undefined && row.tier_blue_min !== undefined &&
       +row.tier_green_min < +row.tier_blue_min) {
@@ -97,41 +96,30 @@ async function saveConfig(request, env) {
   row.source = "dashboard";
   row.note = "saved from dashboard (worker)";
 
-  // Tolerate schema drift: if a column doesn't exist yet (PGRST204), drop it and
-  // retry, so a newly-added config field never hard-fails the whole save before
-  // its ALTER is run (it just won't persist until then).
-  let text = "";
+  // Tolerate schema drift: if a column doesn't exist in D1 yet, drop it and retry.
+  let cols = Object.keys(row);
   for (let i = 0; i < 8; i++) {
-    const r = await fetch(env.SUPABASE_URL + "/rest/v1/config_history", {
-      method: "POST",
-      headers: {
-        "apikey": env.SUPABASE_KEY,
-        "Authorization": "Bearer " + env.SUPABASE_KEY,
-        "Content-Type": "application/json",
-        "Prefer": "return=representation",
-      },
-      body: JSON.stringify(row),
-    });
-    text = await r.text();
-    if (r.ok) {
-      let saved; try { saved = JSON.parse(text); } catch { saved = text; }
-      return json({ ok: true, saved: Array.isArray(saved) ? saved[0] : saved });
+    const sql = `INSERT INTO config_history (${cols.map((c) => `"${c}"`).join(",")}) ` +
+                `VALUES (${cols.map(() => "?").join(",")})`;
+    try {
+      await env.DB.prepare(sql).bind(...cols.map((c) => bindVal(row[c]))).run();
+      return json({ ok: true, saved: row });
+    } catch (e) {
+      const m = String(e).match(/(?:has no column named|no such column:?)\s+(\w+)/);
+      if (m && cols.includes(m[1])) { cols = cols.filter((c) => c !== m[1]); continue; }
+      return json({ error: "D1 rejected the write.", detail: String(e).slice(0, 200) }, 502);
     }
-    const m = text.match(/Could not find the '([^']+)' column/);
-    if (m && m[1] in row) { delete row[m[1]]; continue; }
-    return json({ error: "Supabase rejected the write.", status: r.status, detail: text }, 502);
   }
-  return json({ error: "Supabase rejected the write.", detail: text }, 502);
+  return json({ error: "D1 write failed." }, 502);
 }
 
-// Save the wallet/account policy (dashboard Settings) into kv_store. The poller
-// reads it to build the wallet sims. Clamped server-side; secret stays here.
+// Save the wallet/account policy (dashboard Settings) into D1 kv_store.
 const WALLET_CLAMP = {
   stake: [1, 100000], max_exposure: [0.05, 1],
   slippage_pct: [0, 0.2], fee_pct: [0, 0.2], min_overlap: [0, 50],
 };
 async function saveWallet(request, env) {
-  if (!env.SUPABASE_URL || !env.SUPABASE_KEY) return json({ error: "Missing SUPABASE secrets." }, 500);
+  if (!env.DB) return json({ error: "Missing D1 binding." }, 500);
   let body;
   try { body = await request.json(); } catch { return json({ error: "Body must be JSON." }, 400); }
   const w = { green_only: !!body.green_only };
@@ -139,22 +127,18 @@ async function saveWallet(request, env) {
     const v = +body[k];
     if (isFinite(v)) w[k] = Math.min(hi, Math.max(lo, v));
   }
-  const r = await fetch(env.SUPABASE_URL + "/rest/v1/kv_store", {
-    method: "POST",
-    headers: {
-      apikey: env.SUPABASE_KEY, Authorization: "Bearer " + env.SUPABASE_KEY,
-      "Content-Type": "application/json",
-      Prefer: "resolution=merge-duplicates,return=representation",
-    },
-    body: JSON.stringify({ key: "wallet_config", value: w, updated_at: new Date().toISOString() }),
-  });
-  const text = await r.text();
-  if (r.ok) return json({ ok: true, saved: w });
-  return json({ error: "Supabase rejected the write.", status: r.status, detail: text.slice(0, 200) }, 502);
+  try {
+    await env.DB.prepare(
+      "INSERT INTO kv_store (key,value,updated_at) VALUES ('wallet_config',?,?) " +
+      "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at")
+      .bind(JSON.stringify(w), new Date().toISOString()).run();
+    return json({ ok: true, saved: w });
+  } catch (e) {
+    return json({ error: "D1 rejected the write.", detail: String(e).slice(0, 200) }, 502);
+  }
 }
 
-// Batched sell-side (bid) prices — what you'd realistically GET exiting now,
-// matching the Python engine's realistic mark. {token_id: float}.
+// Batched sell-side (bid) prices — what you'd realistically GET exiting now. {token_id: float}.
 async function clobMarks(assets) {
   const out = {};
   for (let i = 0; i < assets.length; i += 250) {
@@ -174,7 +158,7 @@ async function clobMarks(assets) {
     if (!r.ok) continue;
     const data = await r.json().catch(() => ({}));
     for (const [t, v] of Object.entries(data || {})) {
-      const px = v && typeof v === "object" ? v.SELL : v;   // {token:{SELL:"0.93"}} or {token:"0.93"}
+      const px = v && typeof v === "object" ? v.SELL : v;
       const f = parseFloat(px);
       if (isFinite(f)) out[t] = f;
     }
@@ -182,59 +166,51 @@ async function clobMarks(assets) {
   return out;
 }
 
-async function putMarks(env, auth, payload) {
-  const r = await fetch(env.SUPABASE_URL + MARKS_OBJECT, {
-    method: "POST",
-    headers: { ...auth, "Content-Type": "application/json", "x-upsert": "true" },
-    body: JSON.stringify(payload),
-  });
-  if (!r.ok) console.log("fastmark: marks upload failed", r.status, await r.text());
+// Upsert a blob (marks.json / data.json) into D1; the Worker serves it at /<name>.
+async function putBlob(env, name, payload, ts) {
+  const body = typeof payload === "string" ? payload : JSON.stringify(payload);
+  try {
+    await env.DB.prepare(
+      "INSERT INTO site_blob (name,body,updated_at) VALUES (?,?,?) " +
+      "ON CONFLICT(name) DO UPDATE SET body=excluded.body, updated_at=excluded.updated_at")
+      .bind(name, body, ts || new Date().toISOString()).run();
+  } catch (e) { console.log("blob write failed", name, e); }
 }
 
-// Newest config row (the exit knobs), with pre-migration fallbacks. One GET.
-async function loadExitConfig(env, auth) {
+// Newest config row (the exit knobs), with pre-migration fallbacks. One D1 read.
+async function loadExitConfig(env) {
   try {
-    const r = await fetch(
-      env.SUPABASE_URL + "/rest/v1/config_history?select=*&order=id.desc&limit=1",
-      { headers: auth });
-    if (r.ok) {
-      const rows = await r.json();
-      if (Array.isArray(rows) && rows[0]) {
-        const cfg = {};
-        for (const k of Object.keys(EXIT_DEFAULTS)) {
-          const v = +rows[0][k];
-          cfg[k] = isFinite(v) ? v : EXIT_DEFAULTS[k];   // missing/null column -> default
-        }
-        return cfg;
+    const row = await env.DB.prepare("SELECT * FROM config_history ORDER BY id DESC LIMIT 1").first();
+    if (row) {
+      const cfg = {};
+      for (const k of Object.keys(EXIT_DEFAULTS)) {
+        const v = +row[k];
+        cfg[k] = isFinite(v) ? v : EXIT_DEFAULTS[k];
       }
+      return cfg;
     }
   } catch (e) { console.log("fastmark: config read error", e); }
   return { ...EXIT_DEFAULTS };
 }
 
 // PRICE/TIME exit decision — the JS mirror of poller/strategy.py `price_exit`.
-// OVERLAP-ONLY (control stays naive). Returns {reason, price} or null. Keep in
-// lockstep with the Python source of truth + tests/test_strategy.py.
+// OVERLAP-ONLY (control stays naive). Keep in lockstep with the Python source.
 function priceExit(t, mark, peak, cfg) {
   if ((t.strategy || "overlap") !== "overlap" || mark == null) return null;
   const entry = +t.entry_price || 0;
   if (entry <= 0) return null;
   const ret = (mark - entry) / entry;
   const fast = +cfg.fast_exit_slippage_pct || 0;
-  const hair = (px) => Math.max(0, px * (1 - fast));   // extra haircut on a panic sell
-  // 1) time-stop — never hold a short-fuse market into the 0/1 resolution gap
+  const hair = (px) => Math.max(0, px * (1 - fast));
   const tmin = +cfg.time_stop_minutes || 0;
   if (tmin && t.end_date) {
     const end = Date.parse(t.end_date);
     if (isFinite(end) && (end - Date.now()) <= tmin * 60000) return { reason: "time_stop", price: mark };
   }
-  // 2) hard stop (wide %) or price floor (outcome nearly dead)
   const stop = +cfg.stop_loss_pct || 0, floor = +cfg.min_entry_price || 0;
   if ((stop && ret <= -stop) || (floor && mark < floor)) return { reason: "stop_loss", price: hair(mark) };
-  // 3) take-profit — bank a defined gain (off by default)
   const tp = +cfg.take_profit_pct || 0;
   if (tp && ret >= tp) return { reason: "take_profit", price: mark };
-  // 4) trailing — once up >= arm, exit if it gives back `trail` from the peak
   const trail = +cfg.trailing_stop_pct || 0, arm = +cfg.trailing_arm_pct || 0;
   if (trail && peak && peak > entry) {
     const armed = arm ? ((peak - entry) / entry >= arm) : true;
@@ -243,52 +219,40 @@ function priceExit(t, mark, peak, cfg) {
   return null;
 }
 
-// Close one paper trade. The `&status=eq.OPEN` filter makes this idempotent vs
-// the 10-min engine: whoever flips status first wins, the other PATCH matches 0
-// rows. realized_pnl = shares*(exit-entry), matching strategy.realized_pnl.
-async function closeTrade(env, auth, t, reason, exitPrice, peak, ts) {
+// Close one paper trade in D1. `AND status='OPEN'` makes it idempotent vs the
+// engine: whoever flips status first wins; the other UPDATE matches 0 rows.
+async function closeTrade(env, t, reason, exitPrice, peak, ts) {
   const rpnl = (+t.shares || 0) * (exitPrice - (+t.entry_price || 0));
-  const r = await fetch(
-    env.SUPABASE_URL + "/rest/v1/paper_trades?id=eq." + t.id + "&status=eq.OPEN",
-    {
-      method: "PATCH",
-      headers: { ...auth, "Content-Type": "application/json", Prefer: "return=minimal" },
-      body: JSON.stringify({
-        status: "CLOSED", exit_at: ts, exit_price: exitPrice, realized_pnl: rpnl,
-        marked_price: exitPrice, marked_at: ts, unrealized_pnl: 0, peak_price: peak,
-        close_reason: reason, updated_at: ts,
-      }),
-    });
-  if (!r.ok) console.log("fastmark: close failed", t.id, r.status, await r.text());
-  return r.ok;
+  try {
+    const res = await env.DB.prepare(
+      "UPDATE paper_trades SET status='CLOSED',exit_at=?,exit_price=?,realized_pnl=?,marked_price=?," +
+      "marked_at=?,unrealized_pnl=0,peak_price=?,close_reason=?,updated_at=? WHERE id=? AND status='OPEN'")
+      .bind(ts, exitPrice, rpnl, exitPrice, ts, peak, reason, ts, t.id).run();
+    return !!(res.meta && res.meta.changes > 0);
+  } catch (e) { console.log("fastmark: close failed", t.id, e); return false; }
 }
 
 // FAST MARK: re-price OPEN paper trades, run the fast price/time EXITS (overlap
-// only), and publish a tiny marks.json the dashboard overlays. The exits are the
-// reason this runs every minute — a position can't crater 50% or round-trip a
-// gain waiting up to 10 min for the next heavy scan. Subrequests: config(1) +
-// trades(1) + CLOB(1) + a few closes/peak-updates + upload(1), well under 50.
+// only), and publish marks.json (in D1) the dashboard overlays every minute.
 async function fastMark(env) {
-  if (!env.SUPABASE_URL || !env.SUPABASE_KEY) return;
-  const auth = { apikey: env.SUPABASE_KEY, Authorization: "Bearer " + env.SUPABASE_KEY };
-  const sel = "?status=eq.OPEN&select=id,strategy,asset,shares,entry_price,tier_at_entry,end_date,peak_price";
+  if (!env.DB) return;
   let trades = [];
   try {
-    const tr = await fetch(env.SUPABASE_URL + "/rest/v1/paper_trades" + sel, { headers: auth });
-    if (!tr.ok) { console.log("fastmark: trades read failed", tr.status); return; }
-    trades = await tr.json();
+    const r = await env.DB.prepare(
+      "SELECT id,strategy,asset,shares,entry_price,tier_at_entry,end_date,peak_price " +
+      "FROM paper_trades WHERE status='OPEN'").all();
+    trades = r.results || [];
   } catch (e) { console.log("fastmark: trades read error", e); return; }
 
   const ts = new Date().toISOString();
-  if (!Array.isArray(trades) || trades.length === 0) {
-    await putMarks(env, auth, { ts, marks: {}, open: 0, priced: 0 });   // stay fresh even with 0 open
+  if (trades.length === 0) {
+    await putBlob(env, "marks.json", { ts, marks: {}, open: 0, priced: 0 }, ts);
     return;
   }
-  const cfg = await loadExitConfig(env, auth);
+  const cfg = await loadExitConfig(env);
   const assets = [...new Set(trades.map((t) => t.asset).filter(Boolean))];
   const marks = await clobMarks(assets);
 
-  // ---- fast EXITS: close overlap trades that breach a price/time rule --------
   const closedIds = new Set();
   for (const t of trades) {
     const p = marks[t.asset];
@@ -296,20 +260,15 @@ async function fastMark(env) {
     const peak = Math.max(+t.peak_price || +t.entry_price || 0, p);
     const ex = priceExit(t, p, peak, cfg);
     if (ex) {
-      if (await closeTrade(env, auth, t, ex.reason, ex.price, peak, ts)) closedIds.add(t.id);
+      if (await closeTrade(env, t, ex.reason, ex.price, peak, ts)) closedIds.add(t.id);
     } else if (peak > (+t.peak_price || 0)) {
-      // keep the high-water mark fresh so the trailing stop has an accurate peak
       try {
-        await fetch(env.SUPABASE_URL + "/rest/v1/paper_trades?id=eq." + t.id + "&status=eq.OPEN", {
-          method: "PATCH",
-          headers: { ...auth, "Content-Type": "application/json", Prefer: "return=minimal" },
-          body: JSON.stringify({ peak_price: peak, updated_at: ts }),
-        });
+        await env.DB.prepare("UPDATE paper_trades SET peak_price=?,updated_at=? WHERE id=? AND status='OPEN'")
+          .bind(peak, ts, t.id).run();
       } catch (e) { /* best-effort; the engine also persists the peak */ }
     }
   }
 
-  // ---- marks.json over the STILL-open trades (closed ones drop out) ----------
   const open = trades.filter((t) => !closedIds.has(t.id));
   const by_strategy = {};
   for (const t of open) {
@@ -319,15 +278,29 @@ async function fastMark(env) {
     const s = by_strategy[t.strategy] || (by_strategy[t.strategy] = { unrealized: 0, marked: 0 });
     s.unrealized += up; s.marked += 1;
   }
-  await putMarks(env, auth, {
+  await putBlob(env, "marks.json", {
     ts, marks, open: open.length, priced: Object.keys(marks).length,
     closed: closedIds.size, by_strategy,
-  });
+  }, ts);
+}
+
+// Serve a D1 blob (data.json / marks.json) — the browser fetches from the Worker
+// (free egress) instead of Supabase Storage.
+async function serveBlob(env, name) {
+  try {
+    const row = await env.DB.prepare("SELECT body FROM site_blob WHERE name=?").bind(name).first();
+    if (row && row.body) {
+      return new Response(row.body, {
+        headers: { "Content-Type": "application/json", "Cache-Control": "no-store", ...CORS },
+      });
+    }
+    return json({ error: name + " not published yet" }, 404);
+  } catch (e) {
+    return json({ error: String(e).slice(0, 200) }, 502);
+  }
 }
 
 export default {
-  // Cloudflare invokes this on each cron (see wrangler.toml). Two cadences:
-  //   */10 → heavy GitHub scan;  every minute → light fast-mark.
   async scheduled(event, env, ctx) {
     if ((event.cron || "") === FULL_SCAN_CRON) {
       const res = await poke(env);
@@ -339,16 +312,15 @@ export default {
 
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
-
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
 
-    // Save paper-trade config — writes to Supabase server-side, no token needed.
-    if (url.pathname === "/config" && request.method === "POST") return saveConfig(request, env);
+    // Dashboard data, served from D1 (zero Supabase egress).
+    if (url.pathname === "/data.json") return serveBlob(env, "data.json");
+    if (url.pathname === "/marks.json") return serveBlob(env, "marks.json");
 
-    // Save the wallet/account policy — writes to Supabase kv_store.
+    if (url.pathname === "/config" && request.method === "POST") return saveConfig(request, env);
     if (url.pathname === "/wallet" && request.method === "POST") return saveWallet(request, env);
 
-    // Fire a poll now (?run) — handy one-click test; the poller is read-only.
     if (url.searchParams.has("run")) {
       const res = await poke(env);
       const body = await res.text();
@@ -358,15 +330,14 @@ export default {
       );
     }
 
-    // Run a fast-mark now (?mark) — re-prices open positions + writes marks.json.
     if (url.searchParams.has("mark")) {
       try { await fastMark(env); return new Response("fast-mark done — marks.json updated.", { headers: CORS }); }
       catch (e) { return new Response("fast-mark error: " + e, { status: 502, headers: CORS }); }
     }
 
     return new Response(
-      "Polymarket poller worker — alive. Full GitHub scan every 10 min; fast price-mark every 1 min. " +
-      "POST /config (paper-trade settings) or /wallet (wallet policy); ?run = poll now; ?mark = re-mark prices now.",
+      "Polymarket poller worker (D1) — alive. GitHub full scan every 5 min; fast price-mark every 1 min. " +
+      "GET /data.json + /marks.json (served from D1); POST /config or /wallet; ?run = poll now; ?mark = re-mark now.",
       { headers: CORS },
     );
   },

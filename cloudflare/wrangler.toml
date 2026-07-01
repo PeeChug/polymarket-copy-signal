@@ -2,6 +2,14 @@ name = "polymarket-copy-signal"
 main = "worker.js"
 compatibility_date = "2024-11-01"
 
+# Cloudflare D1 (SQLite) — the egress-free store. Bound as env.DB. The poller
+# writes it over the HTTP API; the Worker reads/writes it natively + serves the
+# dashboard's data.json / marks.json so the browser never egresses from Supabase.
+[[d1_databases]]
+binding = "DB"
+database_name = "polymarket-copy-signal"
+database_id = "01b0d6b7-6085-48a7-8287-7e3bfa1601a8"
+
 # Two cadences (standard 5-field cron, UTC):
 #   "*/5 * * * *" → heavy GitHub full scan / BUY cadence (must match FULL_SCAN_CRON in worker.js)
 #   "* * * * *"   → light fast price-mark / SELL cadence (re-prices open paper trades, writes marks.json)
