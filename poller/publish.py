@@ -6,6 +6,8 @@ pure aggregation in core.analytics so the browser page is render-only.
 
 from __future__ import annotations
 
+import base64
+import gzip
 import json
 import os
 from datetime import datetime, timezone
@@ -176,9 +178,12 @@ def write_site(store, run_result: dict, docs_dir: str = "docs") -> str:
     os.replace(tmp, path)
 
     # D1 deployment: stash data.json in D1 so the Worker serves it at /data.json
-    # (zero egress). No-op on non-D1 stores (base Store.set_site_blob).
+    # (zero egress). Gzip+base64 first — the raw payload is ~2.3MB, over D1's 2MB
+    # per-value cap; compressed it's ~0.5MB. The Worker gunzips on serve. No-op on
+    # non-D1 stores (base Store.set_site_blob).
     try:
-        store.set_site_blob(payload_json)
+        blob = base64.b64encode(gzip.compress(payload_json.encode("utf-8"))).decode("ascii")
+        store.set_site_blob(blob)
     except Exception as e:
         print(f"set_site_blob skipped: {e}")
 

@@ -287,17 +287,24 @@ async function fastMark(env) {
 // Serve a D1 blob (data.json / marks.json) — the browser fetches from the Worker
 // (free egress) instead of Supabase Storage.
 async function serveBlob(env, name) {
+  let row;
   try {
-    const row = await env.DB.prepare("SELECT body FROM site_blob WHERE name=?").bind(name).first();
-    if (row && row.body) {
-      return new Response(row.body, {
-        headers: { "Content-Type": "application/json", "Cache-Control": "no-store", ...CORS },
-      });
-    }
-    return json({ error: name + " not published yet" }, 404);
+    row = await env.DB.prepare("SELECT body FROM site_blob WHERE name=?").bind(name).first();
   } catch (e) {
     return json({ error: String(e).slice(0, 200) }, 502);
   }
+  if (!row || !row.body) return json({ error: name + " not published yet" }, 404);
+  const headers = { "Content-Type": "application/json", "Cache-Control": "no-store", ...CORS };
+  if (name === "data.json") {
+    // data.json is stored gzip+base64 (raw ~2.3MB > D1's 2MB value cap; ~0.5MB
+    // compressed). Decode + gunzip, serve plain JSON (Cloudflare re-gzips on the wire).
+    const bin = atob(row.body);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const stream = new Response(bytes).body.pipeThrough(new DecompressionStream("gzip"));
+    return new Response(stream, { headers });
+  }
+  return new Response(row.body, { headers });   // marks.json is small — stored plain
 }
 
 export default {
