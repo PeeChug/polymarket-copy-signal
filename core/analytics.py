@@ -163,6 +163,25 @@ def calibration(watch) -> dict:
     return out
 
 
+def bound_consensus_watch(watch, max_entries=1200, holders_cap=20):
+    """Keep the consensus watch under Cloudflare D1's 2 MB per-value limit — and
+    slash egress (it's read+written every cycle). Retain the most-recent entries by
+    last_seen, capping each holders list. Old resolved entries age out of
+    calibration/backtest (the recent sample is what matters); recent unresolved ones
+    stay so their resolution is still detected. Pure — returns a new dict."""
+    if not isinstance(watch, dict) or len(watch) <= 0:
+        return watch
+    items = sorted(watch.items(), key=lambda kv: str((kv[1] or {}).get("last_seen") or ""), reverse=True)
+    out = {}
+    for key, w in items[:max_entries]:
+        w = dict(w or {})
+        h = w.get("holders")
+        if isinstance(h, list) and len(h) > holders_cap:
+            w["holders"] = h[:holders_cap]
+        out[key] = w
+    return out
+
+
 def _watch_entries(watch):
     return list(watch.values()) if isinstance(watch, dict) else (watch or [])
 

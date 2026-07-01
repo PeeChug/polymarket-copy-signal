@@ -23,6 +23,7 @@ from datetime import datetime, timedelta, timezone
 
 from poller import strategy
 from poller.alerts import notify_trade_opened
+from core.analytics import bound_consensus_watch
 from core.config import load_config
 
 
@@ -598,7 +599,7 @@ def _update_trackers(store, cohort, observed, market_map, now_iso):
                 continue
             w.update(resolved=True, resolved_at=now_iso, exit_price=exit_price,
                      won=exit_price >= 0.5)
-    store.set_consensus_watch(watch)
+    store.set_consensus_watch(bound_consensus_watch(watch))   # keep it under D1's 2MB + cut egress
 
 
 def _close(store, trade, exit_price, reason, summary, resolved_won):

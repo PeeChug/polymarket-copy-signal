@@ -181,5 +181,23 @@ class TestClosedPositionsPerStrategy(unittest.TestCase):
         self.assertEqual(sum(1 for t in out if t["strategy"] == "control"), 200)
 
 
+class TestBoundConsensusWatch(unittest.TestCase):
+    def _watch(self, n, holders=30):
+        return {f"c{i}|0": {"last_seen": f"2026-06-{(i % 28) + 1:02d}T00:00:00Z",
+                            "holders": [f"w{j}" for j in range(holders)], "max_overlap": 3}
+                for i in range(n)}
+
+    def test_caps_entries_and_holders(self):
+        w = analytics.bound_consensus_watch(self._watch(2000, holders=50),
+                                            max_entries=1200, holders_cap=20)
+        self.assertEqual(len(w), 1200)                        # most-recent 1200 kept
+        self.assertTrue(all(len(e["holders"]) <= 20 for e in w.values()))
+
+    def test_small_watch_untouched(self):
+        out = analytics.bound_consensus_watch(self._watch(5, holders=3), max_entries=1200)
+        self.assertEqual(len(out), 5)
+        self.assertEqual(out["c0|0"]["holders"], ["w0", "w1", "w2"])
+
+
 if __name__ == "__main__":
     unittest.main()
