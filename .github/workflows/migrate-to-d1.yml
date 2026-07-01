@@ -1,0 +1,25 @@
+name: migrate-to-d1
+
+# One-time (re-runnable) copy of the durable data from Supabase to Cloudflare D1.
+# Runs where both sets of credentials already live, so no secret is handled locally.
+on:
+  workflow_dispatch:
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install deps
+        run: pip install -r poller/requirements.txt
+      - name: Migrate Supabase -> D1
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          CF_D1_DATABASE_ID: ${{ secrets.CF_D1_DATABASE_ID }}
+          CF_D1_TOKEN: ${{ secrets.CF_D1_TOKEN }}
+        run: python scripts/migrate_to_d1.py

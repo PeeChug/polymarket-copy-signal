@@ -21,7 +21,7 @@ from datetime import datetime, timezone
 # allow `python -m poller.main` from the repo root and direct execution
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from core.store import PostgrestStore, MemoryStore, FileStore  # noqa: E402
+from core.store import PostgrestStore, MemoryStore, FileStore, D1Store  # noqa: E402
 from core.config import sync_yaml_config, default_yaml_path     # noqa: E402
 from poller.engine import run_cycle                 # noqa: E402
 from poller.polymarket import PolymarketClient       # noqa: E402
@@ -33,6 +33,17 @@ def build_store(dry_run: bool):
     free file-based store (the default for the GitHub-Pages deployment)."""
     if dry_run:
         return MemoryStore(), "memory (dry-run)"
+    # Cloudflare D1 (preferred once the workflow passes CF_D1_* env at cutover) — D1 is
+    # priced by rows, not bandwidth, so it ends the Supabase egress overage for good.
+    acc, dbid, d1tok = (os.environ.get("CF_ACCOUNT_ID"), os.environ.get("CF_D1_DATABASE_ID"),
+                        os.environ.get("CF_D1_TOKEN"))
+    if acc and dbid and d1tok:
+        d1 = D1Store(acc, dbid, d1tok)
+        try:
+            d1.latest_config()                         # probe: creds ok + schema present?
+            return d1, "d1"
+        except RuntimeError as e:
+            print(f"CF_D1_* set but D1 not reachable ({e}) — falling back to Supabase/file.")
     url = os.environ.get("SUPABASE_URL")
     key = os.environ.get("SUPABASE_KEY") or os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
     if url and key:

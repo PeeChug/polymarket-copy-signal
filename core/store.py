@@ -110,6 +110,8 @@ class Store:
     # snapshots) older than the retention window. NEVER touches paper_trades or
     # kv_store (the durable track record + analytics) — optional; default no-op.
     def prune_snapshots(self, retain_hours: int = 48) -> dict: return {}
+    # the precomputed data.json blob served by the Worker (D1 deployment) — default no-op
+    def set_site_blob(self, body: str, name: str = "data.json") -> None: return None
 
 
 # --------------------------------------------------------------------------- #
@@ -788,3 +790,284 @@ class FileStore(Store):
     def set_cohort_state(self, d):
         self._state["cohort_state"] = d
         self._save()
+
+
+# --------------------------------------------------------------------------- #
+# Shared kv-backed dashboard trackers (JSON blobs), expressed in terms of
+# _kv_get / _kv_set. Mixed into D1Store; PostgrestStore keeps its own copies
+# (left untouched so the Supabase fallback path can't regress).
+# --------------------------------------------------------------------------- #
+class _KvTrackers:
+    def set_traders(self, rows): self._kv_set("latest_traders", [dict(r) for r in rows])
+    def latest_traders(self): return self._kv_get("latest_traders", [])
+
+    def append_history(self, rec):
+        h = self._kv_get("history", [])
+        h.append(rec)
+        if len(h) > 1500:
+            h = h[-1500:]
+        self._kv_set("history", h)
+
+    def history(self, limit=1000): return self._kv_get("history", [])[-limit:]
+    def get_consensus_watch(self): return self._kv_get("consensus_watch", {})
+    def set_consensus_watch(self, d): self._kv_set("consensus_watch", d)
+    def get_trader_series(self): return self._kv_get("trader_series", {})
+    def set_trader_series(self, d): self._kv_set("trader_series", d)
+    def set_agreement(self, d): self._kv_set("agreement", d)
+    def get_agreement(self): return self._kv_get("agreement", {})
+    def get_health(self): return self._kv_get("health", {})
+    def set_health(self, d): self._kv_set("health", d)
+    def get_us_catalog(self): return self._kv_get("us_catalog", {})
+    def set_us_catalog(self, d): self._kv_set("us_catalog", d)
+    def get_wallet_config(self): return self._kv_get("wallet_config", {})
+    def set_wallet_config(self, d): self._kv_set("wallet_config", d)
+    def get_cohort_state(self): return self._kv_get("cohort_state", {})
+    def set_cohort_state(self, d): self._kv_set("cohort_state", d)
+
+
+# --------------------------------------------------------------------------- #
+# Cloudflare D1 (SQLite over the HTTP query API)
+#
+# Same Store interface as PostgrestStore, but talks to a D1 database via the
+# Cloudflare REST query endpoint using only `requests`. This is the Cloudflare-
+# native backend: no Supabase, no egress bill (D1 is priced by rows, not
+# bandwidth; the Worker serves data.json from `site_blob`). Arrays + kv blobs are
+# stored as JSON TEXT; booleans as 0/1; timestamps as ISO strings.
+# --------------------------------------------------------------------------- #
+class D1Store(_KvTrackers, Store):
+    _JSON_COLS = {
+        "observations": {"holder_wallets", "holder_usernames", "holder_ranks",
+                         "holder_sizes", "holder_avg_prices"},
+        "paper_trades": {"holders_at_entry"},
+    }
+    _BOOL_COLS = {
+        "paper_trades": {"resolved_won"},
+        "config_history": {"control_respects_guardrails"},
+        "observations": {"market_closed", "market_active"},
+        "leaderboard_snapshots": {"in_cohort"},
+    }
+
+    def __init__(self, account_id: str, database_id: str, token: str, timeout: float = 45.0):
+        if not (account_id and database_id and token):
+            raise ValueError("D1Store needs account_id, database_id and token.")
+        self.url = (f"https://api.cloudflare.com/client/v4/accounts/{account_id}"
+                    f"/d1/database/{database_id}/query")
+        self.timeout = timeout
+        self.session = requests.Session()
+        self.session.headers.update({"Authorization": f"Bearer {token}",
+                                     "Content-Type": "application/json"})
+
+    # -- low-level ----------------------------------------------------------
+    def _run(self, sql, params=None):
+        r = self.session.post(self.url, data=json.dumps({"sql": sql, "params": params or []}),
+                              timeout=self.timeout)
+        if not r.ok:
+            raise RuntimeError(f"D1 {r.status_code}: {r.text[:300]}")
+        data = r.json()
+        if not data.get("success"):
+            raise RuntimeError(f"D1 error: {data.get('errors')}")
+        res = (data.get("result") or [{}])[0] or {}
+        return res.get("results") or [], res.get("meta") or {}
+
+    @staticmethod
+    def _bind(v):
+        if isinstance(v, bool):
+            return 1 if v else 0
+        if isinstance(v, (list, dict)):
+            return json.dumps(v, default=str)
+        return v
+
+    def _out(self, table, row):
+        if not row:
+            return row
+        for k in self._JSON_COLS.get(table, ()):
+            if isinstance(row.get(k), str):
+                try:
+                    row[k] = json.loads(row[k])
+                except (ValueError, TypeError):
+                    row[k] = []
+        for k in self._BOOL_COLS.get(table, ()):
+            if row.get(k) is not None:
+                row[k] = bool(row[k])
+        return row
+
+    @staticmethod
+    def _dropped_col(err, keys):
+        m = re.search(r"(?:has no column named|no such column:?)\s+(\w+)", err or "")
+        return m.group(1) if (m and m.group(1) in keys) else None
+
+    def _select(self, table, where="", params=None, order="", limit=None, offset=None, cols="*"):
+        sql = f"SELECT {cols} FROM {table}"
+        if where:
+            sql += f" WHERE {where}"
+        if order:
+            sql += f" ORDER BY {order}"
+        if limit is not None:
+            sql += f" LIMIT {int(limit)}"
+        if offset:
+            sql += f" OFFSET {int(offset)}"
+        rows, _ = self._run(sql, params)
+        return [self._out(table, r) for r in rows]
+
+    def _insert(self, table, row):
+        # tolerate forward schema drift the way PostgrestStore does: if a column
+        # isn't in the D1 table yet, drop it and retry (feature stays dormant until
+        # the ALTER runs); a UNIQUE violation (dup OPEN trade) returns None.
+        row = dict(row)
+        for _ in range(8):
+            cols = list(row.keys())
+            qcols = ",".join(f'"{c}"' for c in cols)   # quote identifiers ("window" is a keyword)
+            sql = f"INSERT INTO {table} ({qcols}) VALUES ({','.join('?' * len(cols))})"
+            try:
+                _, meta = self._run(sql, [self._bind(row[c]) for c in cols])
+                return {**row, "id": meta.get("last_row_id")}
+            except RuntimeError as e:
+                s = str(e)
+                if "UNIQUE constraint failed" in s:
+                    return None
+                col = self._dropped_col(s, row)
+                if col:
+                    row.pop(col)
+                    continue
+                raise
+        return None
+
+    def _update(self, table, patch, where, params):
+        patch = dict(patch)
+        for _ in range(8):
+            cols = list(patch.keys())
+            if not cols:
+                return
+            sets = ",".join(f'"{c}"=?' for c in cols)   # quote identifiers ("window" is a keyword)
+            vals = [self._bind(patch[c]) for c in cols] + list(params)
+            try:
+                self._run(f"UPDATE {table} SET {sets} WHERE {where}", vals)
+                return
+            except RuntimeError as e:
+                col = self._dropped_col(str(e), patch)
+                if col:
+                    patch.pop(col)
+                    continue
+                raise
+
+    # -- config -------------------------------------------------------------
+    def latest_config(self):
+        rows = self._select("config_history", order="id DESC", limit=1)
+        return rows[0] if rows else None
+
+    def insert_config(self, payload):
+        return self._insert("config_history", payload)
+
+    def config_history(self, limit=50):
+        return self._select("config_history", order="id DESC", limit=limit)
+
+    # -- cycles -------------------------------------------------------------
+    def create_cycle(self, payload):
+        return self._insert("cycles", payload)
+
+    def update_cycle(self, cycle_id, patch):
+        self._update("cycles", patch, "id=?", [cycle_id])
+
+    def last_cycle(self):
+        rows = self._select("cycles", order="id DESC", limit=1)
+        return rows[0] if rows else None
+
+    # -- snapshots / observations -------------------------------------------
+    def insert_leaderboard(self, rows):
+        for r in rows or []:
+            self._insert("leaderboard_snapshots", r)
+
+    def insert_observations(self, rows):
+        if not rows:
+            return
+        ts = _now_iso()
+        snap = sorted((dict(r) for r in rows),
+                      key=lambda o: o.get("overlap") or 0, reverse=True)[:_OBS_SNAPSHOT_CAP]
+        for r in snap:
+            r.setdefault("observed_at", ts)
+        self._kv_set("obs_snapshot", snap)                 # dashboard feed (all overlaps)
+        for r in rows:                                     # durable log: consensus only
+            if (r.get("overlap") or 0) >= 2:
+                self._insert("observations", r)
+
+    def latest_observations(self, limit=500):
+        snap = self._kv_get("obs_snapshot", [])
+        snap = sorted(snap, key=lambda o: o.get("overlap") or 0, reverse=True)
+        return snap[:limit]
+
+    def latest_leaderboard(self):
+        cyc = self._select("cycles", cols="id", order="id DESC", limit=1)
+        if not cyc:
+            return []
+        return self._select("leaderboard_snapshots", where="cycle_id=?",
+                            params=[cyc[0]["id"]], order="rank ASC")
+
+    # -- paper trades -------------------------------------------------------
+    def open_trades(self, strategy=None):
+        if strategy:
+            return self._select("paper_trades", where="status='OPEN' AND strategy=?", params=[strategy])
+        return self._select("paper_trades", where="status='OPEN'")
+
+    def insert_trade(self, payload):
+        return self._insert("paper_trades", payload)
+
+    def update_trade(self, trade_id, patch):
+        self._update("paper_trades", {**patch, "updated_at": _now_iso()}, "id=?", [trade_id])
+
+    def all_trades(self):
+        out, offset, page = [], 0, 1000
+        while True:
+            rows = self._select("paper_trades", order="id ASC", limit=page, offset=offset)
+            out.extend(rows)
+            if len(rows) < page or len(out) >= 100000:
+                break
+            offset += page
+        return out
+
+    def recently_stopped(self, since_iso, reasons=_STOP_REASONS):
+        ph = ",".join("?" * len(reasons))
+        rows = self._select("paper_trades", cols="strategy,condition_id,outcome_index",
+                            where=f"status='CLOSED' AND close_reason IN ({ph}) AND exit_at>=?",
+                            params=[*reasons, since_iso])
+        return {(r["strategy"], r["condition_id"], r["outcome_index"]) for r in rows}
+
+    # -- kv blobs -----------------------------------------------------------
+    def _kv_get(self, key, default):
+        rows, _ = self._run("SELECT value FROM kv_store WHERE key=? LIMIT 1", [key])
+        if not rows:
+            return default
+        try:
+            return json.loads(rows[0]["value"])
+        except (ValueError, TypeError):
+            return default
+
+    def _kv_set(self, key, value):
+        self._run("INSERT INTO kv_store (key,value,updated_at) VALUES (?,?,?) "
+                  "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
+                  [key, json.dumps(value, default=str), _now_iso()])
+
+    # -- data.json blob (the Worker serves this at /data.json) --------------
+    def set_site_blob(self, body, name="data.json"):
+        self._run("INSERT INTO site_blob (name,body,updated_at) VALUES (?,?,?) "
+                  "ON CONFLICT(name) DO UPDATE SET body=excluded.body, updated_at=excluded.updated_at",
+                  [name, body, _now_iso()])
+
+    # -- retention ----------------------------------------------------------
+    def prune_snapshots(self, retain_hours=48):
+        try:
+            now = datetime.now(timezone.utc)
+            last = self._kv_get("last_prune", None)
+            if last:
+                try:
+                    if (now - datetime.fromisoformat(last)).total_seconds() < 3000:
+                        return {}
+                except (ValueError, TypeError):
+                    pass
+            cutoff = (now - timedelta(hours=retain_hours)).isoformat()
+            self._run("DELETE FROM observations WHERE observed_at < ?", [cutoff])
+            self._run("DELETE FROM leaderboard_snapshots WHERE captured_at < ?", [cutoff])
+            self._kv_set("last_prune", now.isoformat())
+            return {"cutoff": cutoff}
+        except Exception as e:
+            print(f"prune_snapshots skipped: {e}")
+            return {}
